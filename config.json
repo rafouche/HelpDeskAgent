@@ -1,0 +1,60 @@
+{
+  "_readme": "Everything below uses plain names — exactly what you'd see typing into Halo or NinjaOne. No IDs to look up or manage; the agent finds the technical ID itself each run. To add a remediation action, copy one of the examples in remediation_whitelist and change the wording — nothing else needs to change.",
+
+  "business_hours": {
+    "timezone": "Central Time",
+    "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+    "start": "08:00",
+    "end": "17:00"
+  },
+
+  "on_call": {
+    "primary": {
+      "name": "REPLACE_ME",
+      "email": "REPLACE_ME@altecusa.com",
+      "text_email": "REPLACE_ME@your-sms-gateway.example.com"
+    },
+    "secondary": {
+      "name": "",
+      "email": "",
+      "text_email": ""
+    }
+  },
+
+  "halo": {
+    "_comment": "These must match team/status names exactly as they appear in Halo. Nothing else to configure here.",
+    "help_desk_team_name": "Help Desk",
+    "resolved_status_name": "Resolved",
+    "waiting_on_client_status_name": "Waiting on client",
+    "follow_up_status_name": "Follow Up Needed",
+    "urgent_priority_names": ["Urgent", "Critical", "Critial"]
+  },
+
+  "knowledge": {
+    "_comment": "Where the agent documents newly-discovered fixes for long-term reuse. Must match the Hudu folder name exactly (create it once in Hudu if it doesn't exist yet).",
+    "hudu_fix_folder_name": "AI-Documented Fixes"
+  },
+
+  "remediation_whitelist": [
+    {
+      "name": "Reset M365 password",
+      "requires": "Ticket contact's email matches the target account's login exactly."
+    },
+    {
+      "name": "Unlock M365 account",
+      "requires": "Account confirmed to belong to the ticket contact."
+    },
+    {
+      "name": "Reboot workstation",
+      "requires": "Device belongs to the ticket contact, is not a server, and the user has been told a reboot is happening."
+    },
+    {
+      "name": "Run NinjaOne script: Restart Print Spooler",
+      "requires": "Print-related issue only. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Clear Print Queue",
+      "requires": "Print-related issue only. Script name must match exactly what's in NinjaOne."
+    }
+  ]
+}
