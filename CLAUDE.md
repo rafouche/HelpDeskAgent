@@ -29,9 +29,10 @@ tickets, not just annotates them.
 **No IDs anywhere in config.json.** Every Halo/Ninja/etc. reference in config is a
 plain name exactly as it appears in the actual tool (e.g. `"Help Desk"`, not team
 ID `1`). The agent resolves the real ID itself at runtime via lookup tools
-(`Halo:list_teams`, `list_statuses`, `list_priorities`, `Ninja:list_automation_scripts`).
-Reason: a tech editing config shouldn't need to hunt down a numeric ID, and config
-can't silently drift out of sync with Halo if it never stores IDs in the first place.
+(`mcp__Halo__list_teams`, `list_statuses`, `list_priorities`,
+`mcp__Ninja__list_automation_scripts`). Reason: a tech editing config shouldn't need
+to hunt down a numeric ID, and config can't silently drift out of sync with Halo if
+it never stores IDs in the first place.
 
 **Static tool allowlist vs. config.json — different change frequency.** The
 PowerShell script's `--allowedTools` list is the outer fence (what the agent is
@@ -52,7 +53,7 @@ specific than that.
 (name configurable via `config.json`'s `halo.agent_username`; currently a temporary
 account, "Artie Fischel") is who the agent claims tickets as. It works tickets that
 are either unassigned or already assigned to that name, self-assigning any unassigned
-one it picks up (`Halo:list_agents` resolves the name to an `agent_id`, same
+one it picks up (`mcp__Halo__list_agents` resolves the name to an `agent_id`, same
 no-IDs-in-config pattern as everything else). On escalation (`follow_up_status_name`),
 it unassigns itself and resets the team to `help_desk_team_name` in the same
 `update_ticket` call, so the ticket is visibly free for a human on the queue rather
@@ -62,8 +63,8 @@ the agent would need to recognize that case as "confirm and close," not
 "re-diagnose from scratch."
 
 **Cross-client fix history + Hudu documentation.** Before diagnosing anything
-non-trivial, the agent searches past tickets *org-wide* (`Halo:list_tickets` with a
-`search` term and no `client_id`) plus Halo KB and the Hudu `AI-Documented Fixes`
+non-trivial, the agent searches past tickets *org-wide* (`mcp__Halo__list_tickets`
+with a `search` term and no `client_id`) plus Halo KB and the Hudu `AI-Documented Fixes`
 folder (single shared folder, not per-client) for a similar already-solved issue.
 No hard cap on how many different fixes it tries across ticket cycles before
 escalating — judgment-based — but client frustration always overrides and forces
@@ -102,18 +103,26 @@ interval or the task's execution time limit, that's a real architecture change
 Not worth building preemptively.
 
 ## In-flight / not-yet-built
-- **CIPP MCP migration — done.** Roger switched from the self-built Cloudflare
-  Workers CIPP MCP to CIPP-ng's own built-in MCP server (registered as `CIPP_MCP`,
-  pointed at the new CIPP-ng deployment). The four identity tool names in
-  `Invoke-HaloResponseAgent.ps1` (`get_user`, `healthcheck`, `reset_user_password`,
-  `enable_user`) carried over unchanged from the retired worker; only the
-  server-name prefix changed from `CIPP:` to `CIPP_MCP:`.
-- **Email/bounce diagnostics**: CIPP_MCP has no dedicated message-trace tool, but
-  its generic `cipp_api_get` wrapper covers CIPP's native Message Trace via
-  `endpoint: "ListMessageTrace"` — wired into `agent-prompt.md`. Falls back to
-  finding the NDR in the user's own mailbox (`outlook_email_search`) when that
-  doesn't turn up enough. Runs on CIPP's existing GDAP/CSP-delegated permissions,
-  no new Exchange app registration needed.
+- **CIPP MCP migration — NOT actually cut over yet, despite an earlier note here
+  claiming otherwise.** `claude mcp list` on the production server still shows
+  `CIPP` pointed at `cipp-mcp.young-math-a33a.workers.dev` — the original,
+  supposedly-retired custom Cloudflare Worker, not CIPP-ng's built-in MCP
+  (`cipp.altecusa.com`). Roger chose to keep using the old worker for now rather
+  than block on registering the new one. When CIPP-ng is registered on that
+  machine and you're ready to cut over: register it under a clear name (e.g.
+  `claude mcp add CIPPNG https://cipp.altecusa.com/... ...`), re-verify its tool
+  names match (`get_user`, `healthcheck`, `reset_user_password`, `enable_user`,
+  `cipp_api_get` — these carried over unchanged from the old worker as far as
+  could be verified from a separate Claude session hitting the CIPP-ng instance
+  directly, but re-check against production), then update the `mcp__CIPP__...`
+  entries in `Invoke-HaloResponseAgent.ps1` and `agent-prompt.md` to the new
+  server name.
+- **Email/bounce diagnostics**: the CIPP server (old worker, see above) has no
+  dedicated message-trace tool, but its generic `cipp_api_get` wrapper covers
+  CIPP's native Message Trace via `endpoint: "ListMessageTrace"` — wired into
+  `agent-prompt.md`. Falls back to finding the NDR in the user's own mailbox
+  (`outlook_email_search`) when that doesn't turn up enough — though see the
+  Microsoft365 gap below, that fallback doesn't work either until it's registered.
 - **3CX troubleshooting**: planned, not built. Per-client 3CX server API access is
   needed (multi-tenant, matching the 3CX Cloudflare Worker target already planned
   in Roger's broader MCP-servers project). Natural design: store each client's 3CX
@@ -122,11 +131,39 @@ Not worth building preemptively.
   name" pattern as everything else, rather than a new config table.
 - **Ticket-assignment ownership workflow** (see above) — designed, not implemented.
 
+## MCP server setup status on the production machine (as of the last `claude mcp list`)
+- **Connected and working:** `Halo`, `Meraki`, `CIPP` (old worker — see above),
+  `Ninja`, `Unifi`.
+- **Registered but "Needs authentication":** `Huntress`, `HUDU` (note the ALL-CAPS
+  name — that's the exact registered name, and the `mcp__HUDU__...` prefix must
+  match it exactly, case-sensitive). These are OAuth-based remote MCP servers; the
+  one-time login can't complete unattended. Run, from a machine with a browser
+  (or via `ssh -t` into the server so the redirect URL can be pasted back):
+  `claude mcp login Huntress --no-browser` and `claude mcp login HUDU --no-browser`.
+  Credentials are stored per-machine (Windows Credential Manager) and can't be
+  copied from another machine — this has to run on the production server itself.
+- **Not registered at all:** `Microsoft365` (or however you name it — just avoid
+  spaces, since Claude Code's `mcp__<server>__<tool>` prefix needs an exact,
+  unambiguous match). Until it's added via `claude mcp add`, on-call email
+  notifications and the NDR bounce-diagnosis fallback are both silent no-ops.
+
 ## Known limitations
 - Sequential ticket processing within a run, not parallel (see above).
 - `on_call.primary.email` in config.json is still a placeholder — fill in before
   relying on emergency escalation. `text_email` may be legitimately left blank (no
   SMS on-call set up yet) — the agent skips the text and still sends email in that
   case, this is expected.
-- The Ninja/CIPP tool names in the static allowlist assume specific MCP connector
-  setups; re-verify after any future MCP server swap (see CIPP migration above).
+- **Tool-name syntax bug that silently broke every MCP call from day one (fixed):**
+  the static allowlist and `agent-prompt.md` used a `Server:tool_name` naming
+  convention that Claude Code never actually recognizes — it matches MCP tools as
+  `mcp__<ServerName>__<tool>`, where `ServerName` is whatever exact name (case-
+  sensitive) was used with `claude mcp add` on that machine. With
+  `--permission-mode dontAsk`, an unmatched tool name is denied *silently*, so
+  every scheduled run before this fix only ever had the built-in `Read` tool
+  working — it never touched Halo, Ninja, or anything else, and never logged an
+  error saying so. Confirmed and fixed by running `-WhatIf` directly against the
+  production server and reading its own diagnosis of the permission denials in the
+  log. If you add a new system's tools to the allowlist later, use the
+  `mcp__<ServerName>__<tool>` form from the start and confirm the server name via
+  `claude mcp list` on the actual machine — don't assume it matches the vendor's
+  display name.

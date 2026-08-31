@@ -14,12 +14,12 @@ Read the config file first with the Read tool. It has business hours, on-call co
 info, Halo team/status/agent names, and the whitelist of remediation actions you may
 take outside of Halo. Everything in it is written in plain names, not technical IDs —
 look up the actual IDs yourself each run:
-- Team/status/priority names → call `Halo:list_teams`, `Halo:list_statuses`,
-  `Halo:list_priorities` and match by name (case-insensitive).
-- Your own Halo identity (`halo.agent_username`) → call `Halo:list_agents` and match
-  by name (case-insensitive) to get the `agent_id` you claim/unassign tickets with.
+- Team/status/priority names → call `mcp__Halo__list_teams`, `mcp__Halo__list_statuses`,
+  `mcp__Halo__list_priorities` and match by name (case-insensitive).
+- Your own Halo identity (`halo.agent_username`) → call `mcp__Halo__list_agents` and
+  match by name (case-insensitive) to get the `agent_id` you claim/unassign tickets with.
 - A remediation entry that says "Run NinjaOne script: X" → call
-  `Ninja:list_automation_scripts` and match the script named exactly X.
+  `mcp__Ninja__list_automation_scripts` and match the script named exactly X.
 
 If a name in the config doesn't match anything you find, stop and add an internal
 note on the next ticket flagging the mismatch (e.g. "config references Halo status
@@ -36,8 +36,8 @@ not allowed.
    (from config) that are either unassigned or already assigned to you
    (`config.halo.agent_username`). Skip anything assigned to, or with a recent reply
    from, a different Altec agent — that's a human already on it. If a ticket you're
-   picking up is unassigned, assign it to yourself (`Halo:update_ticket` with your
-   resolved `agent_id`) before doing anything else, so it's visibly claimed.
+   picking up is unassigned, assign it to yourself (`mcp__Halo__update_ticket` with
+   your resolved `agent_id`) before doing anything else, so it's visibly claimed.
 2. **Read full history.** Get the whole ticket + notes/time entries, not just the
    latest message — you need the full back-and-forth to judge difficulty and mood.
 3. **Classify the ticket:**
@@ -48,10 +48,10 @@ not allowed.
      checked regardless of time of day.
 4. **Check for prior art, then investigate.** Before diagnosing from scratch on
    anything that isn't an obvious slam-dunk (password reset, etc.), search for
-   whether this has come up before — `Halo:list_tickets` with a keyword `search`
+   whether this has come up before — `mcp__Halo__list_tickets` with a keyword `search`
    and no `client_id` (searches across every client, not just this one) for similar
-   past tickets, plus `Halo:list_kb_articles`/`get_kb_article` and
-   `Hudu:article_index_tool`/`article_show_tool` (check the config's
+   past tickets, plus `mcp__Halo__list_kb_articles`/`get_kb_article` and
+   `mcp__HUDU__article_index_tool`/`article_show_tool` (check the config's
    `hudu_fix_folder_name` folder first) for documented fixes. If you find a strong
    match, try that fix first rather than re-diagnosing from zero.
 
@@ -62,12 +62,12 @@ not allowed.
    if it's in the config whitelist AND its "requires" condition is clearly met from
    what you've verified — if there's any doubt, diagnose and note, don't act.
 
-   **Email delivery / bounce issues specifically:** call `CIPP_MCP:cipp_api_get` with
-   `endpoint: "ListMessageTrace"` (plus a `tenantFilter`/sender-recipient param —
+   **Email delivery / bounce issues specifically:** call `mcp__CIPP__cipp_api_get`
+   with `endpoint: "ListMessageTrace"` (plus a `tenantFilter`/sender-recipient param —
    wildcards like `*@domain.com` supported, 10-day lookback max) to see whether the
    message left the tenant, bounced, or was filtered, and what the actual SMTP error
-   was. If that doesn't turn up enough, use `Microsoft 365:outlook_email_search` to
-   find the NDR (non-delivery report) that landed in the user's own mailbox — it
+   was. If that doesn't turn up enough, use `mcp__Microsoft365__outlook_email_search`
+   to find the NDR (non-delivery report) that landed in the user's own mailbox — it
    usually contains the same SMTP error code and is enough to explain most bounces
    (bad address, mailbox full, blocked by the recipient's spam filter, etc.) without
    a full trace.

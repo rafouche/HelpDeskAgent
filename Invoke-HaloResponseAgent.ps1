@@ -81,47 +81,68 @@ $prompt = $promptTemplate `
 # then (only if it needs remediation actions, not just diagnostics) add entries to
 # config.json's remediation_whitelist. See README's "Adding a new system" section
 # for the full walkthrough.
+# IMPORTANT: Claude Code matches MCP tools as "mcp__<ServerName>__<tool>" - the
+# ServerName is whatever exact name you used with `claude mcp add <name> ...` on
+# THIS machine (case-sensitive; check yours with `claude mcp list`). A bare
+# "ServerName:tool" string (used here previously) never matches anything and
+# --permission-mode dontAsk denies it *silently* - if you add a new system and
+# tool calls seem to just do nothing, this is the first thing to check.
 $allowedTools = @(
     "Read",
 
     # --- Halo: read + reply/update + name-to-ID lookups ---
-    "Halo:list_tickets", "Halo:get_ticket", "Halo:get_ticket_time_entries",
-    "Halo:list_kb_articles", "Halo:get_kb_article",
-    "Halo:update_ticket", "Halo:list_teams", "Halo:list_statuses", "Halo:list_priorities",
-    "Halo:list_agents",
+    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
+    "mcp__Halo__list_kb_articles", "mcp__Halo__get_kb_article",
+    "mcp__Halo__update_ticket", "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
+    "mcp__Halo__list_agents",
 
     # --- Notifications ---
-    "Microsoft 365:outlook_send_mail", "Microsoft 365:outlook_email_search",
+    # NOTE: no "Microsoft365" server is registered on this machine yet (absent
+    # from `claude mcp list`) - register it first (README's "Registering MCP
+    # servers" section; use a name with no spaces, e.g. `claude mcp add
+    # Microsoft365 ...`, so it matches this prefix exactly). Until then these two
+    # entries are harmless no-ops, and on-call email plus the NDR bounce fallback
+    # do not work.
+    "mcp__Microsoft365__outlook_send_mail", "mcp__Microsoft365__outlook_email_search",
 
     # --- M365 / CIPP identity: read + the two whitelisted remediation actions ---
-    # Migrated from the retired custom CIPP Worker to CIPP-ng's built-in MCP server
-    # (registered as "CIPP_MCP" - see README). Action names carried over unchanged.
-    "CIPP_MCP:get_user", "CIPP_MCP:healthcheck", "CIPP_MCP:reset_user_password", "CIPP_MCP:enable_user",
-    # Email delivery diagnostics: CIPP_MCP has no dedicated message-trace tool, but
-    # exposes CIPP's native Message Trace through its generic read-endpoint wrapper
+    # Server registered here as "CIPP" (cipp-mcp.young-math-a33a.workers.dev) -
+    # this is still the ORIGINAL custom CIPP Worker; the migration to CIPP-ng's
+    # built-in MCP (cipp.altecusa.com) hasn't been cut over on this machine yet.
+    # Once you register the CIPP-ng server and are ready to switch, update the
+    # server name here (and re-verify these tool names against it) - see
+    # README's "CIPP MCP swap" section.
+    "mcp__CIPP__get_user", "mcp__CIPP__healthcheck", "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
+    # Email delivery diagnostics via CIPP's generic read-endpoint wrapper
     # (endpoint "ListMessageTrace" - see agent-prompt.md). Falls back to
     # outlook_email_search when that doesn't turn up enough.
-    "CIPP_MCP:cipp_api_get",
+    "mcp__CIPP__cipp_api_get",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
-    "Ninja:get_device", "Ninja:get_device_os_info", "Ninja:get_device_software",
-    "Ninja:list_device_alerts", "Ninja:get_device_os_patches", "Ninja:list_devices",
-    "Ninja:reboot_device", "Ninja:run_script_on_device", "Ninja:list_automation_scripts",
+    "mcp__Ninja__get_device", "mcp__Ninja__get_device_os_info", "mcp__Ninja__get_device_software",
+    "mcp__Ninja__list_device_alerts", "mcp__Ninja__get_device_os_patches", "mcp__Ninja__list_devices",
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device", "mcp__Ninja__list_automation_scripts",
 
     # --- Network, read-only ---
-    "Unifi:list_clients", "Unifi:get_device", "Unifi:list_devices",
-    "Meraki:get_network_client", "Meraki:list_org_device_statuses",
+    "mcp__Unifi__list_clients", "mcp__Unifi__get_device", "mcp__Unifi__list_devices",
+    "mcp__Meraki__get_network_client", "mcp__Meraki__list_org_device_statuses",
 
     # --- Security context, read-only ---
-    "Huntress:list_incident_reports", "Huntress:get_agent",
+    # NOTE: "Huntress" shows "Needs authentication" in `claude mcp list` - run
+    # `claude mcp login Huntress --no-browser` (see README) to complete its
+    # one-time OAuth login before these return anything.
+    "mcp__Huntress__list_incident_reports", "mcp__Huntress__get_agent",
 
     # --- Documentation, read-only (also where per-client 3CX connection details
     #     would live once that system is added - see README) ---
-    "Hudu:asset_index_tool", "Hudu:asset_show_tool", "Hudu:article_index_tool", "Hudu:article_show_tool",
+    # NOTE: registered here as "HUDU" (all caps) - also shows "Needs
+    # authentication"; same one-time `claude mcp login HUDU --no-browser` as
+    # Huntress before these work.
+    "mcp__HUDU__asset_index_tool", "mcp__HUDU__asset_show_tool", "mcp__HUDU__article_index_tool", "mcp__HUDU__article_show_tool",
     # --- Documentation, write. Only ever writes to the "AI-Documented Fixes" folder
     #     from config.json (never edits client-facing docs), so this doesn't need a
     #     remediation_whitelist entry - it never touches a client's live systems. ---
-    "Hudu:article_create_tool", "Hudu:article_edit_tool"
+    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
 )
 # --- 3CX (not yet built): add its tool names as their own block inside the array
 #     above once the multi-tenant 3CX MCP worker exists, e.g.
@@ -136,11 +157,11 @@ $allowedTools = @(
 # Keep this list in sync with $allowedTools above whenever a new mutating tool is
 # added (a new remediation action reuses an existing entry here, so it's rare).
 $mutatingTools = @(
-    "Halo:update_ticket",
-    "Microsoft 365:outlook_send_mail",
-    "CIPP_MCP:reset_user_password", "CIPP_MCP:enable_user",
-    "Ninja:reboot_device", "Ninja:run_script_on_device",
-    "Hudu:article_create_tool", "Hudu:article_edit_tool"
+    "mcp__Halo__update_ticket",
+    "mcp__Microsoft365__outlook_send_mail",
+    "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
+    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
 )
 
 if ($WhatIf) {

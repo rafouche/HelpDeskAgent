@@ -58,7 +58,7 @@ entry to `remediation_whitelist`:
 }
 ```
 That's it — the agent finds the script by name and the tool it needs
-(`Ninja:run_script_on_device`) is already allowed. You only touch
+(`mcp__Ninja__run_script_on_device`) is already allowed. You only touch
 `Invoke-HaloResponseAgent.ps1`'s tool list if you're adding a brand-new *kind* of
 action (e.g. something in a system that isn't touched at all today), not a new
 instance of an existing kind.
@@ -93,24 +93,31 @@ system already wired in never touches the script. Three steps, in order:
 **For 3CX specifically**, since it's per-client (each client has its own 3CX server),
 the natural place for "which 3CX server/API belongs to which client" is Hudu — you
 likely already document client infrastructure there, and the agent already has
-read access to it (`Hudu:asset_index_tool`/`asset_show_tool`). That keeps the same
+read access to it (`mcp__HUDU__asset_index_tool`/`asset_show_tool`). That keeps the same
 "no IDs in config" pattern: the agent looks up the client's 3CX connection details
 from Hudu by company name, same as it looks up Halo team/status IDs by name today.
 
-## CIPP MCP swap — complete
-Moved from the self-built CIPP Worker to CIPP-ng's built-in MCP server, registered
-as `CIPP_MCP` (see "Registering MCP servers" below). Its `get_user`, `healthcheck`,
-`reset_user_password`, and `enable_user` tools carried over from the retired
-worker with the same names, so only the `CIPP:` → `CIPP_MCP:` prefix changed in
-`Invoke-HaloResponseAgent.ps1`. Message Trace didn't need a custom wrapper after
-all — the built-in MCP's generic `cipp_api_get` tool covers it via
-`endpoint: "ListMessageTrace"`, now wired into `agent-prompt.md`.
+## CIPP MCP swap — not actually cut over yet
+The plan is to move from the self-built CIPP Worker to CIPP-ng's built-in MCP
+server, but as of the last check (`claude mcp list` on the production server),
+the registered `CIPP` connector still points at the original custom Worker
+(`cipp-mcp.young-math-a33a.workers.dev`), not CIPP-ng (`cipp.altecusa.com`) — the
+production machine hasn't been switched over. That's fine for now: the script
+uses whatever's registered as `CIPP` and the old worker is still connected and
+working, so there's no rush.
 
-If CIPP-ng ever renames or restructures these tools, re-check them the same way:
-run `.\Invoke-HaloResponseAgent.ps1 -DryRun` after connecting the new MCP, or just
-ask Claude interactively (`claude` with the CIPP_MCP server configured) to list
-its available tools, and update the four `CIPP_MCP:` lines accordingly — nothing
-else in this file or in config.json needs to change either way.
+When you're ready to cut over: register the CIPP-ng MCP server under a clear,
+distinct name (e.g. `CIPPNG` — see "Registering MCP servers" below), confirm its
+tool names (`get_user`, `healthcheck`, `reset_user_password`, `enable_user`,
+`cipp_api_get` all carried over unchanged when checked against a CIPP-ng instance
+directly, but re-verify against your own — run `.\Invoke-HaloResponseAgent.ps1
+-DryRun` or ask `claude` interactively to list that server's tools), then update
+every `mcp__CIPP__...` entry in `Invoke-HaloResponseAgent.ps1` and
+`agent-prompt.md` to the new server name. Nothing in `config.json` needs to
+change either way — remember Claude Code matches MCP tools as
+`mcp__<ServerName>__<tool>` (see "Registering MCP servers" below for why this
+matters), so the rename has to happen in both the allowlist and the prompt, not
+just one.
 
 ## Registering MCP servers (command line / PowerShell)
 Run once per Windows account that will execute the scheduled task (see the note
@@ -151,36 +158,60 @@ setx ANTHROPIC_API_KEY "sk-ant-..."      # API billing — more predictable for 
 ```
 
 ### 2. Register each MCP server
-These connectors (Halo, Microsoft 365, CIPP_MCP, Ninja, UniFi, Meraki,
-Huntress, Hudu) exist today as claude.ai org connectors — their actual
-endpoint URL and credential aren't retrievable from inside a chat session;
-get them from **claude.ai → Settings → Connectors** (or wherever you recorded
-the custom Cloudflare Worker URLs/tokens when you built Halo/Ninja/UniFi/
-Meraki/Huntress/Hudu/the retired CIPP Worker). Most of your own Workers use a
-plain static API key/Bearer token, which registers non-interactively:
+
+**The naming matters, exactly.** Claude Code matches MCP tools as
+`mcp__<ServerName>__<tool>`, where `ServerName` is whatever name you give it in
+`claude mcp add <name> ...` — case-sensitive. `--permission-mode dontAsk` (used
+by `Invoke-HaloResponseAgent.ps1`) denies an unmatched tool name *silently*, with
+no error anywhere — this is exactly the bug that made every scheduled run do
+nothing but call `Read` for months without anyone noticing (see `CLAUDE.md`
+"Known limitations"). After registering, always confirm with `claude mcp list`
+and match the exact names it shows against the `mcp__<ServerName>__<tool>`
+entries in `Invoke-HaloResponseAgent.ps1` — don't assume a connector's display
+name or the vendor's name for it.
+
+Get each connector's endpoint URL and credential from wherever you recorded the
+custom Cloudflare Worker URLs/tokens when you built Halo/Ninja/UniFi/Meraki/
+Huntress/Hudu/CIPP, or from CIPP-ng's own Settings for the new CIPP-ng MCP.
+Most of your own Workers use a plain static API key/Bearer token, which
+registers non-interactively:
 
 ```powershell
-# CIPP-ng's built-in MCP server (generate a dedicated API client for MCP use
-# under CIPP-ng's own Settings > API Client page — don't reuse a human user's
-# session token):
-claude mcp add --transport http CIPP_MCP https://cipp.altecusa.com/api/MCPServer `
-    --header "Authorization: Bearer <token-from-CIPP-ng>" -s user
+# Example: a Worker-hosted connector with a static Bearer token
+claude mcp add --transport http Halo https://<your-halo-worker>/mcp `
+    --header "Authorization: Bearer <token>" -s user
 
-# Repeat per connector, each with its own endpoint/token:
+# Repeat per connector, each with its own endpoint/token. Avoid spaces in the
+# name (e.g. use "Microsoft365", not "Microsoft 365") so the mcp__ prefix stays
+# unambiguous:
 claude mcp add --transport http <Name> <https-url> --header "Authorization: Bearer <token>" -s user
 
-claude mcp list   # verify
+claude mcp list   # verify — note the exact names and connection status
 ```
 
-If any connector turns out to be OAuth-based (browser sign-in) rather than a
-static token, `claude mcp add` will need a one-time interactive login to
-complete — awkward on a headless server. Do that login once on a machine with
-a browser and copy the resulting credentials over, or use that system's
-API-key/service-account option instead if it has one.
+**If a connector shows "Needs authentication"** in `claude mcp list` (this is
+normal for OAuth-based servers like Hudu/Huntress — token auth connectors just
+show "Connected" once added), it needs a one-time interactive login that can't
+complete unattended on a headless server:
+
+```powershell
+claude mcp login <Name> --no-browser
+```
+
+This prints an authorization URL — open it in a browser on any machine, sign in,
+and paste the resulting redirect URL back into the prompt. If the server itself
+has no browser, run this over `ssh -t user@server` so the terminal stays
+interactive for pasting the URL back. **These credentials are stored per-machine
+(Windows Credential Manager) and cannot be copied from one machine to
+another** — the login has to be run against the actual production server, not
+somewhere else and transplanted.
 
 Then confirm the tool names match what's in `Invoke-HaloResponseAgent.ps1` —
 `.\Invoke-HaloResponseAgent.ps1 -DryRun` prints the allowlist without calling
-Claude — before registering the scheduled task.
+Claude — before registering the scheduled task, and run `.\Invoke-HaloResponseAgent.ps1
+-WhatIf` at least once to confirm Halo/CIPP/etc. tool calls actually succeed
+(check `logs\whatif-<date>.log` for permission denials, not just for the script
+completing without a PowerShell error).
 
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets
