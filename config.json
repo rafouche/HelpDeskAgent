@@ -38,9 +38,9 @@
   },
 
   "claude": {
-    "_comment": "Cost/quality controls passed to `claude -p`. Leave a field blank to use the account default (today: claude-opus-5, effort 'high'). See README's 'Reducing per-run cost' section before changing these - a real -WhatIf run cost $4.13 at the defaults for 75 tickets/7 candidates/62 turns, so it's worth comparing a cheaper setting's WOULD DO quality against a known-good run before trusting it live.",
-    "model": "",
-    "effort": ""
+    "_comment": "Cost/quality controls passed to `claude -p`. Leave a field blank to use the account default (claude-opus-5, effort 'high'). Set to Sonnet/medium as the working default after the $4.13/62-turn Opus/high baseline run - compare a few -WhatIf runs' WOULD DO quality against that baseline before trusting escalation/frustration judgment calls at this cheaper setting. See README's 'Reducing per-run cost' section.",
+    "model": "claude-sonnet-5",
+    "effort": "medium"
   },
 
   "remediation_whitelist": [
