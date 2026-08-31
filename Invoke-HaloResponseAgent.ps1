@@ -122,11 +122,14 @@ $allowedTools = @(
     #     from config.json (never edits client-facing docs), so this doesn't need a
     #     remediation_whitelist entry - it never touches a client's live systems. ---
     "Hudu:article_create_tool", "Hudu:article_edit_tool"
-
-    # --- 3CX (not yet built): add its tool names here as their own block once the
-    #     multi-tenant 3CX MCP worker exists. Nothing above needs to change.
-    # "3CX:get_extension_status", "3CX:list_call_logs", ...
 )
+# --- 3CX (not yet built): add its tool names as their own block inside the array
+#     above once the multi-tenant 3CX MCP worker exists, e.g.
+#     "3CX:get_extension_status", "3CX:list_call_logs" - nothing else above needs
+#     to change. (Kept as a comment here, not inside the array literal, since
+#     Windows PowerShell 5.1's parser breaks on a comment-only tail immediately
+#     before an array's closing ')' - always follow any comment inside @( ... )
+#     with at least one more real element before the close.)
 #endregion STATIC TOOL ALLOWLIST
 
 # --- -WhatIf: strip every tool that changes anything, anywhere ---
