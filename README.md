@@ -56,6 +56,13 @@ instance of an existing kind.
 under `halo` in `config.json` (e.g. `follow_up_status_name`) to the name as it appears
 in Halo. No ID lookup needed — the agent resolves it itself.
 
+**To change who the agent works as in Halo**, edit `halo.agent_username` to the exact
+name of the Halo user account (rename the existing temporary account, or create a new
+one and update this to match — either way, nothing else needs to change). The agent
+claims unassigned Help Desk tickets under this name and picks back up anything already
+assigned to it; on escalation it unassigns itself and hands the ticket back to the
+Help Desk team, unassigned, for a human to pick up.
+
 ## Adding a new system (e.g. 3CX later)
 The whole point of the split between `config.json` (day-to-day) and the static
 allowlist (rare) is that adding a new *system* — a new connector like a future 3CX

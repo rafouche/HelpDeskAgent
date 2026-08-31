@@ -48,14 +48,18 @@ else. No team reassignment. The client is never told or shown the word "escalate
 client-facing language is along the lines of "I'm looping in our team," never more
 specific than that.
 
-**Ticket ownership via assignment (planned, not yet built into agent-prompt.md).**
-Roger wants a dedicated Halo agent account for this bot. Workflow: agent assigns
-itself a ticket when it starts working it; unassigns on escalation (so it's visibly
-free for a human); a human can reassign a ticket back to the agent's account for
-wrap-up/closure after they've fixed the underlying issue — the agent needs to
-recognize that case as "confirm and close," not "re-diagnose from scratch." **This
-was designed but not yet implemented in agent-prompt.md — needs the account created
-in Halo first, then the workflow logic added.**
+**Ticket ownership via assignment — implemented.** A dedicated Halo agent account
+(name configurable via `config.json`'s `halo.agent_username`; currently a temporary
+account, "Artie Fischel") is who the agent claims tickets as. It works tickets that
+are either unassigned or already assigned to that name, self-assigning any unassigned
+one it picks up (`Halo:list_agents` resolves the name to an `agent_id`, same
+no-IDs-in-config pattern as everything else). On escalation (`follow_up_status_name`),
+it unassigns itself and resets the team to `help_desk_team_name` in the same
+`update_ticket` call, so the ticket is visibly free for a human on the queue rather
+than sitting under the bot's name. **Not yet built:** a human reassigning a ticket
+back to the agent's account for wrap-up/closure after fixing the underlying issue —
+the agent would need to recognize that case as "confirm and close," not
+"re-diagnose from scratch."
 
 **Cross-client fix history + Hudu documentation.** Before diagnosing anything
 non-trivial, the agent searches past tickets *org-wide* (`Halo:list_tickets` with a
@@ -120,7 +124,9 @@ Not worth building preemptively.
 
 ## Known limitations
 - Sequential ticket processing within a run, not parallel (see above).
-- `on_call.primary.email`/`text_email` in config.json are still placeholders —
-  fill in before relying on emergency escalation.
+- `on_call.primary.email` in config.json is still a placeholder — fill in before
+  relying on emergency escalation. `text_email` may be legitimately left blank (no
+  SMS on-call set up yet) — the agent skips the text and still sends email in that
+  case, this is expected.
 - The Ninja/CIPP tool names in the static allowlist assume specific MCP connector
   setups; re-verify after any future MCP server swap (see CIPP migration above).

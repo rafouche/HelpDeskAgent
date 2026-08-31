@@ -73,6 +73,7 @@ $allowedTools = @(
     "Halo:list_tickets", "Halo:get_ticket", "Halo:get_ticket_time_entries",
     "Halo:list_kb_articles", "Halo:get_kb_article",
     "Halo:update_ticket", "Halo:list_teams", "Halo:list_statuses", "Halo:list_priorities",
+    "Halo:list_agents",
 
     # --- Notifications ---
     "Microsoft 365:outlook_send_mail", "Microsoft 365:outlook_email_search",
