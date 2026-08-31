@@ -38,7 +38,10 @@ $ErrorActionPreference = "Stop"
 $configPath = Join-Path $RootPath "config.json"
 $promptPath = Join-Path $RootPath "agent-prompt.md"
 $logDir     = Join-Path $RootPath "logs"
-$logFileNameTemplate = if ($WhatIf) { "whatif-{0:yyyy-MM-dd}.log" } else { "run-{0:yyyy-MM-dd}.log" }
+$logFileNameTemplate = "run-{0:yyyy-MM-dd}.log"
+if ($WhatIf) {
+    $logFileNameTemplate = "whatif-{0:yyyy-MM-dd}.log"
+}
 $logFile    = Join-Path $logDir ($logFileNameTemplate -f (Get-Date))
 
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
@@ -182,7 +185,10 @@ if ($WhatIf) {
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 try {
     $result = & claude @claudeArgs 2>&1
-    $modeLabel = if ($WhatIf) { "[$timestamp] WHATIF SIMULATION — Business hours: $isBusinessHours" } else { "[$timestamp] Business hours: $isBusinessHours" }
+    $modeLabel = "[$timestamp] Business hours: $isBusinessHours"
+    if ($WhatIf) {
+        $modeLabel = "[$timestamp] WHATIF SIMULATION - Business hours: $isBusinessHours"
+    }
     Add-Content -Path $logFile -Value $modeLabel
     Add-Content -Path $logFile -Value $result
     Add-Content -Path $logFile -Value "----"
