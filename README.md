@@ -22,12 +22,23 @@
    ```powershell
    .\Invoke-HaloResponseAgent.ps1 -DryRun
    ```
-   This prints the exact prompt and tool list without calling Claude — confirm it looks right.
-4. **Run it once for real** and check `logs\run-<date>.log`:
+   This just prints the resolved prompt and tool list without calling Claude at all — confirm it looks right.
+4. **Then simulate a real run** against live data with nothing actually happening:
+   ```powershell
+   .\Invoke-HaloResponseAgent.ps1 -WhatIf
+   ```
+   This calls Claude for real against your live Halo/Ninja/M365/etc. data — full
+   investigation, real reasoning about real open tickets — but every tool that
+   would change something (replies, ticket status/assignment, on-call
+   notifications, reboots, script runs, password resets, Hudu writes) is removed
+   from its allowlist for the run, and it's told to describe what it would have
+   done instead (look for "WOULD DO:" in the output). Check `logs\whatif-<date>.log`
+   and read through it before trusting any of this against real tickets.
+5. **Run it once for real** and check `logs\run-<date>.log`:
    ```powershell
    .\Invoke-HaloResponseAgent.ps1
    ```
-5. **Register the schedule** (as Administrator):
+6. **Register the schedule** (as Administrator):
    ```powershell
    .\Register-HaloResponseAgentTask.ps1
    ```

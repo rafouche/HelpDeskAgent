@@ -14,12 +14,23 @@
     never need to pass this — just run `.\Invoke-HaloResponseAgent.ps1` with no
     arguments, whether by hand, from Task Scheduler, or anywhere else.
 .PARAMETER DryRun
-    Print what would be run without calling claude. Optional — omit for a normal run.
+    Print what would be run without calling claude at all — no prompt, no tool
+    calls, nothing live. Just shows the resolved prompt and tool list.
+.PARAMETER WhatIf
+    Run for real against live Halo/Ninja/M365/etc. data — the agent reads
+    everything and reasons about each ticket exactly as it normally would — but
+    every tool that changes anything (ticket replies/status/assignment, on-call
+    notifications, reboots, script runs, password resets, Hudu writes) is removed
+    from its allowlist and swapped for an instruction to describe what it would
+    have done instead. Nothing is touched anywhere. This is the one to use to see
+    real decisions on real tickets before trusting the schedule; -DryRun only
+    checks the prompt/tool list resolve correctly, it never calls Claude.
 #>
 
 param(
     [string]$RootPath = $PSScriptRoot,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$WhatIf
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,7 +38,8 @@ $ErrorActionPreference = "Stop"
 $configPath = Join-Path $RootPath "config.json"
 $promptPath = Join-Path $RootPath "agent-prompt.md"
 $logDir     = Join-Path $RootPath "logs"
-$logFile    = Join-Path $logDir ("run-{0:yyyy-MM-dd}.log" -f (Get-Date))
+$logFileNameTemplate = if ($WhatIf) { "whatif-{0:yyyy-MM-dd}.log" } else { "run-{0:yyyy-MM-dd}.log" }
+$logFile    = Join-Path $logDir ($logFileNameTemplate -f (Get-Date))
 
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 
@@ -113,6 +125,37 @@ $allowedTools = @(
     # "3CX:get_extension_status", "3CX:list_call_logs", ...
 )
 #endregion STATIC TOOL ALLOWLIST
+
+# --- -WhatIf: strip every tool that changes anything, anywhere ---
+# Keep this list in sync with $allowedTools above whenever a new mutating tool is
+# added (a new remediation action reuses an existing entry here, so it's rare).
+$mutatingTools = @(
+    "Halo:update_ticket",
+    "Microsoft 365:outlook_send_mail",
+    "CIPP_MCP:reset_user_password", "CIPP_MCP:enable_user",
+    "Ninja:reboot_device", "Ninja:run_script_on_device",
+    "Hudu:article_create_tool", "Hudu:article_edit_tool"
+)
+
+if ($WhatIf) {
+    $allowedTools = $allowedTools | Where-Object { $mutatingTools -notcontains $_ }
+    $prompt = @"
+=== SIMULATION MODE (-WhatIf) ===
+Nothing you do this run will actually happen — every tool that changes a ticket,
+sends a notification, or touches a client system has been removed from your
+allowlist on purpose. For each ticket, do the full investigation exactly as
+normal, then instead of calling the tool you'd normally use to act, state plainly
+what you WOULD have done: the exact reply text, which status/team/agent_id you'd
+set, any remediation action and its whitelist justification, any on-call
+notification, any Hudu article. Label each one clearly as "WOULD DO:" so it's
+obvious this is a simulation. Do not attempt to call a tool you no longer have —
+if investigation alone can't rule out an action, just say so.
+===
+
+$prompt
+"@
+}
+
 $allowedToolsArg = ($allowedTools -join ",")
 
 $claudeArgs = @(
@@ -125,16 +168,22 @@ $claudeArgs = @(
 if ($DryRun) {
     Write-Host "=== DRY RUN ==="
     Write-Host "Business hours: $isBusinessHours"
+    Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host "Allowed tools: $allowedToolsArg"
     Write-Host "--- Prompt ---"
     Write-Host $prompt
     return
 }
 
+if ($WhatIf) {
+    Write-Host "=== WHATIF: running for real against live data, but read-only — no ticket, mailbox, device, or Hudu changes will be made ==="
+}
+
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 try {
     $result = & claude @claudeArgs 2>&1
-    Add-Content -Path $logFile -Value "[$timestamp] Business hours: $isBusinessHours"
+    $modeLabel = if ($WhatIf) { "[$timestamp] WHATIF SIMULATION — Business hours: $isBusinessHours" } else { "[$timestamp] Business hours: $isBusinessHours" }
+    Add-Content -Path $logFile -Value $modeLabel
     Add-Content -Path $logFile -Value $result
     Add-Content -Path $logFile -Value "----"
 }
