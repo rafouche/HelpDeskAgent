@@ -51,11 +51,11 @@
       "requires": "Device belongs to the ticket contact, is not a server, and the user has been told a reboot is happening."
     },
     {
-      "name": "Run NinjaOne script: Restart Print Spooler",
+      "name": "Run NinjaOne script: Reset Printing",
       "requires": "Print-related issue only. Script name must match exactly what's in NinjaOne."
     },
     {
-      "name": "Run NinjaOne script: Clear Print Queue",
+      "name": "Run NinjaOne script: Clear Print jobs and restart spooler",
       "requires": "Print-related issue only. Script name must match exactly what's in NinjaOne."
     }
   ]
