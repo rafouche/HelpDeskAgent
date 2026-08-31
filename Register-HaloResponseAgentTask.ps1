@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Registers the Scheduled Task that runs the Halo Response Agent every 10 minutes, 24/7.
 .DESCRIPTION
@@ -8,7 +8,7 @@
 #>
 
 param(
-    # Defaults to Invoke-HaloResponseAgent.ps1 sitting next to this script — as long
+    # Defaults to Invoke-HaloResponseAgent.ps1 sitting next to this script - as long
     # as you keep the deployed files together, this needs no editing either.
     [string]$ScriptPath = (Join-Path $PSScriptRoot "Invoke-HaloResponseAgent.ps1"),
     [int]$IntervalMinutes = 10
@@ -39,4 +39,4 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Description "Runs the Altec Halo Response Agent every $IntervalMinutes minutes, 24/7." `
     -Force
 
-Write-Host "Scheduled task '$taskName' registered — runs every $IntervalMinutes minutes."
+Write-Host "Scheduled task '$taskName' registered - runs every $IntervalMinutes minutes."
