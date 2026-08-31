@@ -139,21 +139,21 @@ $mutatingTools = @(
 
 if ($WhatIf) {
     $allowedTools = $allowedTools | Where-Object { $mutatingTools -notcontains $_ }
-    $prompt = @"
-=== SIMULATION MODE (-WhatIf) ===
-Nothing you do this run will actually happen — every tool that changes a ticket,
-sends a notification, or touches a client system has been removed from your
-allowlist on purpose. For each ticket, do the full investigation exactly as
-normal, then instead of calling the tool you'd normally use to act, state plainly
-what you WOULD have done: the exact reply text, which status/team/agent_id you'd
-set, any remediation action and its whitelist justification, any on-call
-notification, any Hudu article. Label each one clearly as "WOULD DO:" so it's
-obvious this is a simulation. Do not attempt to call a tool you no longer have —
-if investigation alone can't rule out an action, just say so.
-===
-
-$prompt
-"@
+    $simulationBannerLines = @(
+        "=== SIMULATION MODE (-WhatIf) ===",
+        "Nothing you do this run will actually happen - every tool that changes a ticket,",
+        "sends a notification, or touches a client system has been removed from your",
+        "allowlist on purpose. For each ticket, do the full investigation exactly as",
+        "normal, then instead of calling the tool you'd normally use to act, state plainly",
+        "what you WOULD have done: the exact reply text, which status/team/agent_id you'd",
+        "set, any remediation action and its whitelist justification, any on-call",
+        "notification, any Hudu article. Label each one clearly as 'WOULD DO:' so it's",
+        "obvious this is a simulation. Do not attempt to call a tool you no longer have -",
+        "if investigation alone can't rule out an action, just say so.",
+        "==="
+    )
+    $simulationBanner = $simulationBannerLines -join "`n"
+    $prompt = $simulationBanner + "`n`n" + $prompt
 }
 
 $allowedToolsArg = ($allowedTools -join ",")
