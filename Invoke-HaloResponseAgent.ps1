@@ -128,17 +128,16 @@ $allowedTools = @(
     "mcp__Meraki__get_network_client", "mcp__Meraki__list_org_device_statuses",
 
     # --- Security context, read-only ---
-    # NOTE: "Huntress" shows "Needs authentication" in `claude mcp list` - run
-    # `claude mcp login Huntress --no-browser` (see README) to complete its
-    # one-time OAuth login before these return anything.
     "mcp__Huntress__list_incident_reports", "mcp__Huntress__get_agent",
 
     # --- Documentation, read-only (also where per-client 3CX connection details
     #     would live once that system is added - see README) ---
-    # NOTE: registered here as "HUDU" (all caps) - also shows "Needs
-    # authentication"; same one-time `claude mcp login HUDU --no-browser` as
-    # Huntress before these work.
+    # NOTE: registered here as "HUDU" (all caps).
     "mcp__HUDU__asset_index_tool", "mcp__HUDU__asset_show_tool", "mcp__HUDU__article_index_tool", "mcp__HUDU__article_show_tool",
+    # article_folder_index_tool: lets the agent list a folder's contents directly
+    # (config's hudu_fix_folder_name) instead of relying only on keyword search,
+    # which can miss an existing fix article that doesn't share search terms.
+    "mcp__HUDU__article_folder_index_tool",
     # --- Documentation, write. Only ever writes to the "AI-Documented Fixes" folder
     #     from config.json (never edits client-facing docs), so this doesn't need a
     #     remediation_whitelist entry - it never touches a client's live systems. ---

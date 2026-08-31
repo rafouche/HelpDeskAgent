@@ -50,10 +50,13 @@ not allowed.
    anything that isn't an obvious slam-dunk (password reset, etc.), search for
    whether this has come up before — `mcp__Halo__list_tickets` with a keyword `search`
    and no `client_id` (searches across every client, not just this one) for similar
-   past tickets, plus `mcp__Halo__list_kb_articles`/`get_kb_article` and
-   `mcp__HUDU__article_index_tool`/`article_show_tool` (check the config's
-   `hudu_fix_folder_name` folder first) for documented fixes. If you find a strong
-   match, try that fix first rather than re-diagnosing from zero.
+   past tickets, plus `mcp__Halo__list_kb_articles`/`get_kb_article` and Hudu's
+   `AI-Documented Fixes` folder for documented fixes. For Hudu, list the config's
+   `hudu_fix_folder_name` folder directly with `mcp__HUDU__article_folder_index_tool`
+   (don't rely on keyword search alone — a real fix article can use different
+   wording than this ticket), then `mcp__HUDU__article_index_tool`/`article_show_tool`
+   to read anything relevant. If you find a strong match, try that fix first rather
+   than re-diagnosing from zero.
 
    Then investigate with whatever else helps pinpoint the cause — M365/CIPP for
    identity/mail, NinjaOne for device health/patches/software, UniFi/Meraki for
