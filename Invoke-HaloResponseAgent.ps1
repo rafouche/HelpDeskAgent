@@ -1,24 +1,24 @@
-<#
+﻿<#
 .SYNOPSIS
     Runs the Altec Halo Response Agent (Claude Code, headless) for one cycle.
 .DESCRIPTION
     Loads config.json, works out whether it's currently business hours, builds the
     task prompt from agent-prompt.md, and invokes `claude -p` with a fixed, scoped
-    tool allowlist. The allowlist doesn't change based on config.json — config only
+    tool allowlist. The allowlist doesn't change based on config.json - config only
     controls WHICH of those tools the agent is allowed to actually use for what (see
     agent-prompt.md and remediation_whitelist). Intended to run every 5-15 minutes
     via Task Scheduler.
 .PARAMETER RootPath
     Folder containing config.json and agent-prompt.md. Defaults to the folder this
     script itself is sitting in, so as long as all three files stay together, you
-    never need to pass this — just run `.\Invoke-HaloResponseAgent.ps1` with no
+    never need to pass this - just run `.\Invoke-HaloResponseAgent.ps1` with no
     arguments, whether by hand, from Task Scheduler, or anywhere else.
 .PARAMETER DryRun
-    Print what would be run without calling claude at all — no prompt, no tool
+    Print what would be run without calling claude at all - no prompt, no tool
     calls, nothing live. Just shows the resolved prompt and tool list.
 .PARAMETER WhatIf
-    Run for real against live Halo/Ninja/M365/etc. data — the agent reads
-    everything and reasons about each ticket exactly as it normally would — but
+    Run for real against live Halo/Ninja/M365/etc. data - the agent reads
+    everything and reasons about each ticket exactly as it normally would - but
     every tool that changes anything (ticket replies/status/assignment, on-call
     notifications, reboots, script runs, password resets, Hudu writes) is removed
     from its allowlist and swapped for an instruction to describe what it would
@@ -64,17 +64,17 @@ $prompt = $promptTemplate `
     -replace '\{\{IS_BUSINESS_HOURS\}\}', $isBusinessHours `
     -replace '\{\{CONFIG_PATH\}\}', $configPath
 
-#region STATIC TOOL ALLOWLIST — rarely edited
+#region STATIC TOOL ALLOWLIST - rarely edited
 # Everything day-to-day (which team, which remediation, who's on call) lives in
 # config.json and needs no changes here. This list only controls WHICH categories
-# of tool the agent is technically permitted to call at all — it's the outer fence;
+# of tool the agent is technically permitted to call at all - it's the outer fence;
 # config.json's remediation_whitelist is what actually decides whether the agent USES
 # a given action on a given ticket (see agent-prompt.md).
 #
 # Add a line here only when you're introducing a brand-new SYSTEM or a brand-new KIND
 # of action (e.g. the agent should now also touch UniFi firewall rules). A new
 # instance of something already listed here (another NinjaOne script, another M365
-# action of a type already present) only needs a config.json entry — nothing here.
+# action of a type already present) only needs a config.json entry - nothing here.
 #
 # TO ADD A NEW SYSTEM (e.g. 3CX): add its tool names as its own labeled block below,
 # then add matching investigation guidance to agent-prompt.md's "Investigate" step,
@@ -95,11 +95,11 @@ $allowedTools = @(
 
     # --- M365 / CIPP identity: read + the two whitelisted remediation actions ---
     # Migrated from the retired custom CIPP Worker to CIPP-ng's built-in MCP server
-    # (registered as "CIPP_MCP" — see README). Action names carried over unchanged.
+    # (registered as "CIPP_MCP" - see README). Action names carried over unchanged.
     "CIPP_MCP:get_user", "CIPP_MCP:healthcheck", "CIPP_MCP:reset_user_password", "CIPP_MCP:enable_user",
     # Email delivery diagnostics: CIPP_MCP has no dedicated message-trace tool, but
     # exposes CIPP's native Message Trace through its generic read-endpoint wrapper
-    # (endpoint "ListMessageTrace" — see agent-prompt.md). Falls back to
+    # (endpoint "ListMessageTrace" - see agent-prompt.md). Falls back to
     # outlook_email_search when that doesn't turn up enough.
     "CIPP_MCP:cipp_api_get",
 
@@ -116,11 +116,11 @@ $allowedTools = @(
     "Huntress:list_incident_reports", "Huntress:get_agent",
 
     # --- Documentation, read-only (also where per-client 3CX connection details
-    #     would live once that system is added — see README) ---
+    #     would live once that system is added - see README) ---
     "Hudu:asset_index_tool", "Hudu:asset_show_tool", "Hudu:article_index_tool", "Hudu:article_show_tool",
     # --- Documentation, write. Only ever writes to the "AI-Documented Fixes" folder
     #     from config.json (never edits client-facing docs), so this doesn't need a
-    #     remediation_whitelist entry — it never touches a client's live systems. ---
+    #     remediation_whitelist entry - it never touches a client's live systems. ---
     "Hudu:article_create_tool", "Hudu:article_edit_tool"
 
     # --- 3CX (not yet built): add its tool names here as their own block once the
@@ -179,7 +179,7 @@ if ($DryRun) {
 }
 
 if ($WhatIf) {
-    Write-Host "=== WHATIF: running for real against live data, but read-only — no ticket, mailbox, device, or Hudu changes will be made ==="
+    Write-Host "=== WHATIF: running for real against live data, but read-only - no ticket, mailbox, device, or Hudu changes will be made ==="
 }
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
