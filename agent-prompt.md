@@ -57,14 +57,15 @@ not allowed.
    if it's in the config whitelist AND its "requires" condition is clearly met from
    what you've verified — if there's any doubt, diagnose and note, don't act.
 
-   **Email delivery / bounce issues specifically:** if `CIPP:message_trace` is
-   available, use it — trace by sender/recipient (wildcards like `*@domain.com`
-   supported, 10-day lookback max) to see whether the message left the tenant,
-   bounced, or was filtered, and what the actual SMTP error was. If that tool isn't
-   available yet, use `Microsoft 365:outlook_email_search` to find the NDR (non-
-   delivery report) that landed in the user's own mailbox — it usually contains the
-   same SMTP error code and is enough to explain most bounces (bad address, mailbox
-   full, blocked by the recipient's spam filter, etc.) without a full trace.
+   **Email delivery / bounce issues specifically:** call `CIPP_MCP:cipp_api_get` with
+   `endpoint: "ListMessageTrace"` (plus a `tenantFilter`/sender-recipient param —
+   wildcards like `*@domain.com` supported, 10-day lookback max) to see whether the
+   message left the tenant, bounced, or was filtered, and what the actual SMTP error
+   was. If that doesn't turn up enough, use `Microsoft 365:outlook_email_search` to
+   find the NDR (non-delivery report) that landed in the user's own mailbox — it
+   usually contains the same SMTP error code and is enough to explain most bounces
+   (bad address, mailbox full, blocked by the recipient's spam filter, etc.) without
+   a full trace.
 5. **Judge difficulty:**
    - EASY — matches a known simple pattern (password reset, account unlock, printer
      issue, a clearly diagnosed single fix you can explain in a few plain steps or

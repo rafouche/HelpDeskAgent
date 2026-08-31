@@ -78,17 +78,14 @@ $allowedTools = @(
     "Microsoft 365:outlook_send_mail", "Microsoft 365:outlook_email_search",
 
     # --- M365 / CIPP identity: read + the two whitelisted remediation actions ---
-    # NOTE: pinned to the retired custom CIPP Worker's tool names. Once the built-in
-    # CIPP MCP is connected, re-check its actual tool names (Settings > CIPP-API & MCP,
-    # or just look at what shows up in your tool list) and update these four lines —
-    # nothing else in this file or in config.json needs to change either way.
-    "CIPP:get_user", "CIPP:healthcheck", "CIPP:reset_user_password", "CIPP:enable_user",
-    # Email delivery diagnostics: the built-in CIPP MCP may already expose Message
-    # Trace (CIPP's native Tools > Email Tools feature) — worth checking before
-    # building anything. If it's there, uncomment the line below with its real name.
-    # Until then the agent falls back to outlook_email_search for the NDR sitting in
-    # the user's own mailbox, which covers most bounce cases.
-    # "CIPP:message_trace",
+    # Migrated from the retired custom CIPP Worker to CIPP-ng's built-in MCP server
+    # (registered as "CIPP_MCP" — see README). Action names carried over unchanged.
+    "CIPP_MCP:get_user", "CIPP_MCP:healthcheck", "CIPP_MCP:reset_user_password", "CIPP_MCP:enable_user",
+    # Email delivery diagnostics: CIPP_MCP has no dedicated message-trace tool, but
+    # exposes CIPP's native Message Trace through its generic read-endpoint wrapper
+    # (endpoint "ListMessageTrace" — see agent-prompt.md). Falls back to
+    # outlook_email_search when that doesn't turn up enough.
+    "CIPP_MCP:cipp_api_get",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
     "Ninja:get_device", "Ninja:get_device_os_info", "Ninja:get_device_software",

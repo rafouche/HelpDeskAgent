@@ -79,13 +79,51 @@ read access to it (`Hudu:asset_index_tool`/`asset_show_tool`). That keeps the sa
 "no IDs in config" pattern: the agent looks up the client's 3CX connection details
 from Hudu by company name, same as it looks up Halo team/status IDs by name today.
 
-## CIPP MCP swap
-You're moving from the self-built CIPP Worker to CIPP's built-in MCP. Once it's
-connected: check its actual tool names (they may differ from `CIPP:get_user` etc.
-above) and update the four `CIPP:` lines in `Invoke-HaloResponseAgent.ps1` — nothing
-else changes. Also worth checking whether the built-in MCP already exposes Message
-Trace before building a custom wrapper for it (see the commented-out line in the
-script).
+## CIPP MCP swap — complete
+Moved from the self-built CIPP Worker to CIPP-ng's built-in MCP server, registered
+as `CIPP_MCP` (see "Registering MCP servers" below). Its `get_user`, `healthcheck`,
+`reset_user_password`, and `enable_user` tools carried over from the retired
+worker with the same names, so only the `CIPP:` → `CIPP_MCP:` prefix changed in
+`Invoke-HaloResponseAgent.ps1`. Message Trace didn't need a custom wrapper after
+all — the built-in MCP's generic `cipp_api_get` tool covers it via
+`endpoint: "ListMessageTrace"`, now wired into `agent-prompt.md`.
+
+If CIPP-ng ever renames or restructures these tools, re-check them the same way:
+run `.\Invoke-HaloResponseAgent.ps1 -DryRun` after connecting the new MCP, or just
+ask Claude interactively (`claude` with the CIPP_MCP server configured) to list
+its available tools, and update the four `CIPP_MCP:` lines accordingly — nothing
+else in this file or in config.json needs to change either way.
+
+## Registering MCP servers (command line / PowerShell)
+Run once per Windows account that will execute the scheduled task (see the note
+in "Prerequisites" about SYSTEM vs. a dedicated service account — register under
+whichever account actually runs the task, since `-s user` scope is per-account):
+
+```powershell
+# Claude Code CLI itself, if not already installed:
+npm install -g @anthropic-ai/claude-code
+
+# Authenticate (pick one):
+claude setup-token                      # subscription login
+setx ANTHROPIC_API_KEY "sk-ant-..."      # or API billing — more predictable for an unattended service
+
+# Register CIPP-ng's built-in MCP server (URL/token from CIPP-ng's own
+# Settings > API Client / Integrations page — generate a dedicated API client
+# scoped for MCP use, don't reuse a human user's session token):
+claude mcp add --transport http CIPP_MCP https://cipp.altecusa.com/api/MCPServer `
+    --header "Authorization: Bearer <token-from-CIPP-ng>" -s user
+
+# Repeat for the other connectors this agent uses, with each one's own
+# endpoint/token (Halo, Microsoft 365, Ninja, UniFi, Meraki, Huntress, Hudu):
+claude mcp add --transport http <Name> <https-url> --header "Authorization: Bearer <token>" -s user
+
+# Verify:
+claude mcp list
+```
+
+Then confirm the tool names match what's in `Invoke-HaloResponseAgent.ps1` —
+`.\Invoke-HaloResponseAgent.ps1 -DryRun` prints the allowlist without calling
+Claude — before registering the scheduled task.
 
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets

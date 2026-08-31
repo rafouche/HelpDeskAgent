@@ -98,17 +98,18 @@ interval or the task's execution time limit, that's a real architecture change
 Not worth building preemptively.
 
 ## In-flight / not-yet-built
-- **CIPP MCP migration**: Roger is switching from a self-built Cloudflare Workers
-  CIPP MCP to CIPP's own built-in MCP server, retiring the custom one. The four
-  `CIPP:` tool names in `Invoke-HaloResponseAgent.ps1` are pinned to the *retired*
-  worker's naming — verify and update them once the built-in MCP is connected.
-  Also worth checking whether the built-in MCP already exposes CIPP's native
-  Message Trace feature before building anything custom for it.
-- **Email/bounce diagnostics**: currently falls back to finding the NDR in the
-  user's mailbox (`outlook_email_search`) — works for most cases. A real message
-  trace (`CIPP:message_trace`, commented out in the script) needs that tool added
-  to whichever CIPP MCP is live; it runs on CIPP's existing GDAP/CSP-delegated
-  permissions, no new Exchange app registration needed.
+- **CIPP MCP migration — done.** Roger switched from the self-built Cloudflare
+  Workers CIPP MCP to CIPP-ng's own built-in MCP server (registered as `CIPP_MCP`,
+  pointed at the new CIPP-ng deployment). The four identity tool names in
+  `Invoke-HaloResponseAgent.ps1` (`get_user`, `healthcheck`, `reset_user_password`,
+  `enable_user`) carried over unchanged from the retired worker; only the
+  server-name prefix changed from `CIPP:` to `CIPP_MCP:`.
+- **Email/bounce diagnostics**: CIPP_MCP has no dedicated message-trace tool, but
+  its generic `cipp_api_get` wrapper covers CIPP's native Message Trace via
+  `endpoint: "ListMessageTrace"` — wired into `agent-prompt.md`. Falls back to
+  finding the NDR in the user's own mailbox (`outlook_email_search`) when that
+  doesn't turn up enough. Runs on CIPP's existing GDAP/CSP-delegated permissions,
+  no new Exchange app registration needed.
 - **3CX troubleshooting**: planned, not built. Per-client 3CX server API access is
   needed (multi-tenant, matching the 3CX Cloudflare Worker target already planned
   in Roger's broader MCP-servers project). Natural design: store each client's 3CX
@@ -122,4 +123,4 @@ Not worth building preemptively.
 - `on_call.primary.email`/`text_email` in config.json are still placeholders —
   fill in before relying on emergency escalation.
 - The Ninja/CIPP tool names in the static allowlist assume specific MCP connector
-  setups; re-verify after any MCP server swap (see CIPP migration above).
+  setups; re-verify after any future MCP server swap (see CIPP migration above).
