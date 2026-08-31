@@ -37,6 +37,12 @@
     "hudu_fix_folder_name": "AI-Documented Fixes"
   },
 
+  "claude": {
+    "_comment": "Cost/quality controls passed to `claude -p`. Leave a field blank to use the account default (today: claude-opus-5, effort 'high'). See README's 'Reducing per-run cost' section before changing these - a real -WhatIf run cost $4.13 at the defaults for 75 tickets/7 candidates/62 turns, so it's worth comparing a cheaper setting's WOULD DO quality against a known-good run before trusting it live.",
+    "model": "",
+    "effort": ""
+  },
+
   "remediation_whitelist": [
     {
       "name": "Reset M365 password",

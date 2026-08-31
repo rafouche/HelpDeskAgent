@@ -22,6 +22,8 @@ tickets, not just annotates them.
 - `Invoke-HaloResponseAgent.ps1` — computes business-hours context, builds the
   prompt, calls `claude -p` with a scoped tool allowlist, logs output.
 - `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup.
+- `Show-AgentLog.ps1` — pretty-prints a log entry (cost, tokens, permission
+  denials, the report text) instead of the raw single-line JSON blob.
 - `README.md` — setup + how-to-extend instructions for a human.
 
 ## Design decisions and why
@@ -148,6 +150,20 @@ Not worth building preemptively.
   notifications and the NDR bounce-diagnosis fallback are both silent no-ops.
 
 ## Known limitations
+- **Console/log encoding (fixed).** Windows PowerShell 5.1 captured `claude`'s
+  UTF-8 output (em dashes, curly quotes, emoji) using the console's legacy OEM
+  codepage by default, permanently mangling it in the log file (e.g. an em dash
+  became "GÇö"). `Invoke-HaloResponseAgent.ps1` now sets
+  `[Console]::OutputEncoding`/`$OutputEncoding` to UTF-8 before invoking `claude`
+  and writes the log with `-Encoding UTF8`. Logs from before this fix have
+  already-corrupted text that can't be recovered by re-reading them differently.
+- **Per-run cost.** A real 75-ticket/7-candidate `-WhatIf` run cost $4.13 at the
+  account defaults (`claude-opus-5`, effort `high`, adaptive thinking), 62
+  turns. `config.json`'s `claude.model`/`claude.effort` (both blank by default)
+  are the two cheapest levers — see README's "Reducing per-run cost". Not
+  wired in: `--fallback-model` (reliability, not cost — doesn't trigger on rate
+  limits) and lowering the Task Scheduler run frequency (cuts total daily cost,
+  trades off response latency).
 - Sequential ticket processing within a run, not parallel (see above).
 - `on_call.primary.email` in config.json is still a placeholder — fill in before
   relying on emergency escalation. `text_email` may be legitimately left blank (no

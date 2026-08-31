@@ -7,6 +7,7 @@
 | `agent-prompt.md` | The agent's task instructions, run fresh each cycle. |
 | `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, calls `claude -p`. |
 | `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job. |
+| `Show-AgentLog.ps1` | Pretty-prints a log entry (cost, tokens, permission denials, the actual report) instead of raw JSON. |
 
 ## Prerequisites
 1. **Claude Code installed and authenticated** on the Windows Server (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
@@ -32,11 +33,23 @@
    would change something (replies, ticket status/assignment, on-call
    notifications, reboots, script runs, password resets, Hudu writes) is removed
    from its allowlist for the run, and it's told to describe what it would have
-   done instead (look for "WOULD DO:" in the output). Check `logs\whatif-<date>.log`
-   and read through it before trusting any of this against real tickets.
-5. **Run it once for real** and check `logs\run-<date>.log`:
+   done instead (look for "WOULD DO:" in the output). Read through the result
+   before trusting any of this against real tickets — either open
+   `logs\whatif-<date>.log` directly (a single huge JSON line per run), or use
+   the human-readable viewer:
+   ```powershell
+   .\Show-AgentLog.ps1
+   ```
+   With no arguments this shows just the latest entry in whichever log file was
+   modified most recently — cost, tokens, turn count, any permission denials
+   (tool calls that were silently blocked — the first thing to check if the
+   agent seems to do nothing), and the actual report text. Pass `-LogFile` to
+   point at a specific file, `-Last N` for the last N entries, or `-All` for
+   the whole file.
+5. **Run it once for real** and check it the same way:
    ```powershell
    .\Invoke-HaloResponseAgent.ps1
+   .\Show-AgentLog.ps1 -LogFile .\logs\run-<date>.log
    ```
 6. **Register the schedule** (as Administrator):
    ```powershell
@@ -209,9 +222,47 @@ somewhere else and transplanted.
 Then confirm the tool names match what's in `Invoke-HaloResponseAgent.ps1` —
 `.\Invoke-HaloResponseAgent.ps1 -DryRun` prints the allowlist without calling
 Claude — before registering the scheduled task, and run `.\Invoke-HaloResponseAgent.ps1
--WhatIf` at least once to confirm Halo/CIPP/etc. tool calls actually succeed
-(check `logs\whatif-<date>.log` for permission denials, not just for the script
-completing without a PowerShell error).
+-WhatIf` at least once to confirm Halo/CIPP/etc. tool calls actually succeed:
+`.\Show-AgentLog.ps1` after the run shows any permission denials clearly, not
+just whether the script completed without a PowerShell error (a run can finish
+"successfully" while every single tool call inside it was silently denied — see
+`CLAUDE.md`'s note on the tool-name syntax bug for exactly this happening here).
+
+## Reducing per-run cost
+Each `-WhatIf` or real run calls the API for real — a 75-ticket / 7-candidate
+run at the account defaults (`claude-opus-5`, effort `high`, adaptive thinking)
+cost **$4.13** and took 62 turns. `config.json`'s `claude` block controls the
+two cheapest levers, both blank by default (no change from what you have today):
+
+```json
+"claude": {
+  "model": "",
+  "effort": ""
+}
+```
+
+- **`model`** — e.g. `"claude-sonnet-5"` (Sonnet is roughly 60% cheaper per
+  token than Opus: $2/$10 per million tokens vs. $5/$25). Ticket triage —
+  reading tickets, calling lookup tools, drafting replies — doesn't obviously
+  need frontier-tier reasoning the way a hard coding problem might, but
+  **compare a Sonnet `-WhatIf` run's WOULD DO quality against a known-good
+  Opus run before switching the live schedule** — judgment calls on escalation,
+  frustration detection, and root-cause investigation are exactly where a
+  cheaper model is more likely to slip.
+- **`effort`** — one of `low`, `medium`, `high` (default), `xhigh`, `max`.
+  Lower effort means less thinking, fewer/more-consolidated tool calls, and
+  less token spend, at some cost to thoroughness. `medium` is a reasonable
+  first thing to try before touching the model.
+
+Other things worth knowing, not (yet) wired into the script:
+- `--fallback-model sonnet,haiku` makes a run retry on a cheaper model if the
+  primary is overloaded/unavailable — a reliability net, not a cost lever (it
+  doesn't trigger on rate limits), and not currently exposed via config.json.
+- Don't use `--bare` here even though it reduces per-run overhead elsewhere —
+  it also skips MCP entirely, which is this agent's whole job.
+- Running less often (raise `-IntervalMinutes` when registering the scheduled
+  task) cuts total daily cost proportionally, at the cost of slower response
+  to new tickets — a scheduling tradeoff, not a per-run one.
 
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets

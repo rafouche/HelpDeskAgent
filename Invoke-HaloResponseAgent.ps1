@@ -35,6 +35,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell 5.1 captures external-process output using the console's
+# legacy OEM/ANSI codepage by default, not UTF-8 - claude's own output is UTF-8
+# (em dashes, curly quotes, emoji in its replies), so without this the captured
+# text and the log file it's written to end up permanently mangled (e.g. an em
+# dash becomes "GÇö"). Setting both encodings to UTF-8 before invoking claude
+# fixes this for the whole session.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $configPath = Join-Path $RootPath "config.json"
 $promptPath = Join-Path $RootPath "agent-prompt.md"
 $logDir     = Join-Path $RootPath "logs"
@@ -191,10 +200,22 @@ $claudeArgs = @(
     "--permission-mode", "dontAsk"
 )
 
+# Cost/quality controls - see config.json's "claude" block and README's
+# "Reducing per-run cost" section. Blank means "use the account default";
+# nothing changes here unless you set one.
+if ($config.claude.model) {
+    $claudeArgs += @("--model", $config.claude.model)
+}
+if ($config.claude.effort) {
+    $claudeArgs += @("--effort", $config.claude.effort)
+}
+
 if ($DryRun) {
     Write-Host "=== DRY RUN ==="
     Write-Host "Business hours: $isBusinessHours"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
+    Write-Host "Model: $(if ($config.claude.model) { $config.claude.model } else { '(account default)' })"
+    Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
     Write-Host "Allowed tools: $allowedToolsArg"
     Write-Host "--- Prompt ---"
     Write-Host $prompt
@@ -212,11 +233,11 @@ try {
     if ($WhatIf) {
         $modeLabel = "[$timestamp] WHATIF SIMULATION - Business hours: $isBusinessHours"
     }
-    Add-Content -Path $logFile -Value $modeLabel
-    Add-Content -Path $logFile -Value $result
-    Add-Content -Path $logFile -Value "----"
+    Add-Content -Path $logFile -Value $modeLabel -Encoding UTF8
+    Add-Content -Path $logFile -Value $result -Encoding UTF8
+    Add-Content -Path $logFile -Value "----" -Encoding UTF8
 }
 catch {
-    Add-Content -Path $logFile -Value "[$timestamp] ERROR: $($_.Exception.Message)"
+    Add-Content -Path $logFile -Value "[$timestamp] ERROR: $($_.Exception.Message)" -Encoding UTF8
     throw
 }
