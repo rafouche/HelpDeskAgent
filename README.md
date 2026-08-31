@@ -97,29 +97,68 @@ else in this file or in config.json needs to change either way.
 ## Registering MCP servers (command line / PowerShell)
 Run once per Windows account that will execute the scheduled task (see the note
 in "Prerequisites" about SYSTEM vs. a dedicated service account — register under
-whichever account actually runs the task, since `-s user` scope is per-account):
+whichever account actually runs the task, since `-s user` scope is per-account).
+
+### 0. Node.js — required, not bundled
+Windows Server has no Node.js/npm out of the box, and `claude-code` is an npm
+package, so `npm install -g @anthropic-ai/claude-code` fails with
+`npm : The term 'npm' is not recognized...` until Node is installed. Fastest
+path on a server with no package manager already set up:
 
 ```powershell
-# Claude Code CLI itself, if not already installed:
+Invoke-WebRequest -Uri "https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi" -OutFile "$env:TEMP\node.msi"
+Start-Process msiexec.exe -ArgumentList "/i `"$env:TEMP\node.msi`" /qn /norestart" -Wait
+# Close and reopen PowerShell (or refresh PATH in the current session) so node/npm are picked up:
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+node -v
+npm -v
+```
+(`winget install OpenJS.NodeJS.LTS` or `choco install nodejs-lts -y` work too, if either is already set up on the box.)
+
+### 1. Install and authenticate Claude Code
+```powershell
 npm install -g @anthropic-ai/claude-code
+```
+If npm nags about its own update (`npm error code EBADENGINE ... Not compatible
+with your version of node/npm`) right after, ignore it — that's npm's optional
+self-update rejecting itself because it wants a newer Node than the LTS above
+ships; it doesn't affect the `claude-code` install, which already succeeded.
 
-# Authenticate (pick one):
+```powershell
+claude --version   # confirm it's on PATH
+
 claude setup-token                      # subscription login
-setx ANTHROPIC_API_KEY "sk-ant-..."      # or API billing — more predictable for an unattended service
+# or
+setx ANTHROPIC_API_KEY "sk-ant-..."      # API billing — more predictable for an unattended service; restart the shell after setx
+```
 
-# Register CIPP-ng's built-in MCP server (URL/token from CIPP-ng's own
-# Settings > API Client / Integrations page — generate a dedicated API client
-# scoped for MCP use, don't reuse a human user's session token):
+### 2. Register each MCP server
+These connectors (Halo, Microsoft 365, CIPP_MCP, Ninja, UniFi, Meraki,
+Huntress, Hudu) exist today as claude.ai org connectors — their actual
+endpoint URL and credential aren't retrievable from inside a chat session;
+get them from **claude.ai → Settings → Connectors** (or wherever you recorded
+the custom Cloudflare Worker URLs/tokens when you built Halo/Ninja/UniFi/
+Meraki/Huntress/Hudu/the retired CIPP Worker). Most of your own Workers use a
+plain static API key/Bearer token, which registers non-interactively:
+
+```powershell
+# CIPP-ng's built-in MCP server (generate a dedicated API client for MCP use
+# under CIPP-ng's own Settings > API Client page — don't reuse a human user's
+# session token):
 claude mcp add --transport http CIPP_MCP https://cipp.altecusa.com/api/MCPServer `
     --header "Authorization: Bearer <token-from-CIPP-ng>" -s user
 
-# Repeat for the other connectors this agent uses, with each one's own
-# endpoint/token (Halo, Microsoft 365, Ninja, UniFi, Meraki, Huntress, Hudu):
+# Repeat per connector, each with its own endpoint/token:
 claude mcp add --transport http <Name> <https-url> --header "Authorization: Bearer <token>" -s user
 
-# Verify:
-claude mcp list
+claude mcp list   # verify
 ```
+
+If any connector turns out to be OAuth-based (browser sign-in) rather than a
+static token, `claude mcp add` will need a one-time interactive login to
+complete — awkward on a headless server. Do that login once on a machine with
+a browser and copy the resulting credentials over, or use that system's
+API-key/service-account option instead if it has one.
 
 Then confirm the tool names match what's in `Invoke-HaloResponseAgent.ps1` —
 `.\Invoke-HaloResponseAgent.ps1 -DryRun` prints the allowlist without calling
