@@ -3,8 +3,8 @@
     Registers the Scheduled Task that runs the Halo Response Agent every 10 minutes, 24/7.
 .DESCRIPTION
     Run this once, as Administrator, after Invoke-HaloResponseAgent.ps1, config.json,
-    and agent-prompt.md are in place. Re-run it to update the task if you change the
-    interval or script path.
+    classifier-prompt.md, and resolver-prompt.md are in place. Re-run it to update
+    the task if you change the interval or script path.
 #>
 
 param(

@@ -1,13 +1,35 @@
 # Altec Halo Response Agent — Setup
 
+## Two-stage pipeline
+Each cycle runs two kinds of `claude -p` call, not one:
+
+1. **Classifier** (`classifier-prompt.md`) — one cheap, read-only call (Haiku)
+   that finds this cycle's candidate tickets and tags each with a complexity
+   tier: `TRIVIAL`, `TRIVIAL_UNCERTAIN`, `MEDIUM`, or `COMPLEX`.
+2. **Resolver** (`resolver-prompt.md`) — one call *per classified ticket*, with
+   the full MCP tool set, on a model chosen by that ticket's tier (cheap for
+   `TRIVIAL`/`TRIVIAL_UNCERTAIN`, capable for `MEDIUM`/`COMPLEX`). This is what
+   actually investigates, replies, remediates, or escalates.
+
+`TRIVIAL_UNCERTAIN` tickets still get a (cheap) resolver call, instructed to
+skip full investigation and just ask for the one missing piece of information
+— see `CLAUDE.md` for why this is a deliberate simplification of "skip the call
+entirely."
+
+This replaces an earlier design where one `claude -p` call handled every
+ticket itself in a single agentic session — see `CLAUDE.md`'s changelog for
+why (a cheap model can triage; only tickets that need it should pay for a
+bigger one and a full tool loop).
+
 ## Files
 | File | Purpose |
 |---|---|
-| `config.json` | On-call contacts, business hours, Halo IDs, remediation whitelist. **Edit this, not the prompt.** |
-| `agent-prompt.md` | The agent's task instructions, run fresh each cycle. |
-| `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, calls `claude -p`. |
+| `config.json` | On-call contacts, business hours, Halo IDs, remediation whitelist, per-tier model/effort settings. **Edit this, not the prompts.** |
+| `classifier-prompt.md` | Stage 1 instructions: find candidate tickets, tag each with a tier. |
+| `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
+| `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the classifier then a resolver call per ticket. |
 | `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job. |
-| `Show-AgentLog.ps1` | Pretty-prints a log entry (cost, tokens, permission denials, the actual report) instead of raw JSON. |
+| `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
 
 ## Prerequisites
 1. **Claude Code installed and authenticated** on the Windows Server (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
@@ -15,7 +37,10 @@
 3. PowerShell 5.1+ (built into Windows Server).
 
 ## Step by step
-1. Copy all four files to `C:\AltecAgents\HaloResponseAgent\` (or your preferred path — just keep `RootPath` in the scripts consistent).
+1. Copy all six files (`config.json`, `classifier-prompt.md`, `resolver-prompt.md`,
+   `Invoke-HaloResponseAgent.ps1`, `Register-HaloResponseAgentTask.ps1`,
+   `Show-AgentLog.ps1`) to `C:\AltecAgents\HaloResponseAgent\` (or your preferred
+   path — just keep `RootPath` in the scripts consistent).
 2. **Fill in `config.json`:**
    - `on_call.primary.email` and `text_email` (your email-to-SMS gateway address).
    - Everything else already matches what's live in Halo (team/status names). Review `remediation_whitelist` and add/remove entries as you like.
@@ -23,20 +48,25 @@
    ```powershell
    .\Invoke-HaloResponseAgent.ps1 -DryRun
    ```
-   This just prints the resolved prompt and tool list without calling Claude at all — confirm it looks right.
+   This just prints the classifier's resolved prompt/tools/model and the
+   resolver's prompt template/tools/tier-to-model mapping, without calling
+   Claude at all — confirm it looks right. (Ticket ID/tier show as unresolved
+   placeholders in the resolver template here, since no classifier call ran to
+   supply real ones.)
 4. **Then simulate a real run** against live data with nothing actually happening:
    ```powershell
    .\Invoke-HaloResponseAgent.ps1 -WhatIf
    ```
-   This calls Claude for real against your live Halo/Ninja/M365/etc. data — full
-   investigation, real reasoning about real open tickets — but every tool that
-   would change something (replies, ticket status/assignment, on-call
-   notifications, reboots, script runs, password resets, Hudu writes) is removed
-   from its allowlist for the run, and it's told to describe what it would have
-   done instead (look for "WOULD DO:" in the output). Read through the result
+   This runs the classifier for real (it's read-only regardless of `-WhatIf`),
+   then a real resolver call per classified ticket — full investigation, real
+   reasoning about real open tickets — but every tool that would change
+   something (replies, ticket status/assignment, on-call notifications,
+   reboots, script runs, password resets, Hudu writes) is removed from the
+   resolver's allowlist, and it's told to describe what it would have done
+   instead (look for "WOULD DO:" in the output). Read through the result
    before trusting any of this against real tickets — either open
-   `logs\whatif-<date>.log` directly (a single huge JSON line per run), or use
-   the human-readable viewer:
+   `logs\whatif-<date>.log` directly (one `=== HEADER ===` section per
+   classifier/ticket/summary), or use the human-readable viewer:
    ```powershell
    .\Show-AgentLog.ps1
    ```
@@ -94,12 +124,13 @@ MCP — never touches config.json's structure, and adding a new *action* within 
 system already wired in never touches the script. Three steps, in order:
 
 1. **Tool names → `Invoke-HaloResponseAgent.ps1`.** Add the new system's tool names
-   as their own labeled block in the `#region STATIC TOOL ALLOWLIST` section (there's
-   already an empty placeholder block for 3CX). This is a one-time step per system,
-   not per action.
-2. **Investigation guidance → `agent-prompt.md`.** Add a short paragraph to the
-   "Investigate" step telling the agent what this system is for and when to check it
-   — same pattern as the email-diagnostics paragraph already there.
+   as their own labeled block in the `#region STATIC TOOL ALLOWLISTS` section's
+   `$resolverTools` array (there's already an empty placeholder block for 3CX;
+   the classifier's `$classifierTools` almost never needs new entries, since
+   triage only needs Halo). This is a one-time step per system, not per action.
+2. **Investigation guidance → `resolver-prompt.md`.** Add a short paragraph to
+   the "Investigate" step telling the agent what this system is for and when
+   to check it — same pattern as the email-diagnostics paragraph already there.
 3. **Remediation actions (if any) → `config.json`.** Same as any other remediation —
    a plain-English `name` + `requires` entry, no IDs.
 
@@ -126,7 +157,7 @@ tool names (`get_user`, `healthcheck`, `reset_user_password`, `enable_user`,
 directly, but re-verify against your own — run `.\Invoke-HaloResponseAgent.ps1
 -DryRun` or ask `claude` interactively to list that server's tools), then update
 every `mcp__CIPP__...` entry in `Invoke-HaloResponseAgent.ps1` and
-`agent-prompt.md` to the new server name. Nothing in `config.json` needs to
+`resolver-prompt.md` to the new server name. Nothing in `config.json` needs to
 change either way — remember Claude Code matches MCP tools as
 `mcp__<ServerName>__<tool>` (see "Registering MCP servers" below for why this
 matters), so the rename has to happen in both the allowlist and the prompt, not
@@ -229,40 +260,62 @@ just whether the script completed without a PowerShell error (a run can finish
 `CLAUDE.md`'s note on the tool-name syntax bug for exactly this happening here).
 
 ## Reducing per-run cost
-Each `-WhatIf` or real run calls the API for real — a 75-ticket / 7-candidate
-run at the account defaults (`claude-opus-5`, effort `high`, adaptive thinking)
-cost **$4.13** and took 62 turns. `config.json`'s `claude` block controls the
-two cheapest levers, both blank by default (no change from what you have today):
+The classifier/resolver split (see "Two-stage pipeline" above) is itself the
+main cost lever: a single-call design that ran every ticket through one big
+agentic session cost **$4.13** for a 75-ticket / 7-candidate cycle at the
+account defaults (`claude-opus-5`, effort `high`, adaptive thinking, 62 turns)
+— most of that spend was full-tool-loop reasoning applied uniformly, including
+to tickets that turned out to need nothing more than "ask for the missing
+info." The two-stage design instead pays for a full tool loop only on tickets
+the (cheap) classifier actually flagged as needing one.
+
+`config.json`'s `claude` block controls the remaining levers:
 
 ```json
 "claude": {
-  "model": "",
-  "effort": ""
+  "effort": "medium",
+  "classifier_model": "claude-haiku-4-5",
+  "resolver_model_trivial": "claude-haiku-4-5",
+  "resolver_model_medium": "claude-sonnet-5",
+  "resolver_model_complex": "claude-sonnet-5"
 }
 ```
 
-- **`model`** — e.g. `"claude-sonnet-5"` (Sonnet is roughly 60% cheaper per
-  token than Opus: $2/$10 per million tokens vs. $5/$25). Ticket triage —
-  reading tickets, calling lookup tools, drafting replies — doesn't obviously
-  need frontier-tier reasoning the way a hard coding problem might, but
-  **compare a Sonnet `-WhatIf` run's WOULD DO quality against a known-good
-  Opus run before switching the live schedule** — judgment calls on escalation,
-  frustration detection, and root-cause investigation are exactly where a
-  cheaper model is more likely to slip.
-- **`effort`** — one of `low`, `medium`, `high` (default), `xhigh`, `max`.
-  Lower effort means less thinking, fewer/more-consolidated tool calls, and
-  less token spend, at some cost to thoroughness. `medium` is a reasonable
-  first thing to try before touching the model.
+- **`classifier_model`** — always cheap; the classifier never uses write tools
+  and doesn't need frontier-tier reasoning to sort tickets into four buckets.
+- **`resolver_model_trivial`/`_medium`/`_complex`** — the model the resolver
+  uses for a ticket, chosen by the tier the classifier assigned it (`TRIVIAL`
+  and `TRIVIAL_UNCERTAIN` both use `resolver_model_trivial`, since the latter
+  just asks for missing info and stops rather than investigating). Sonnet is
+  roughly 60% cheaper per token than Opus ($2/$10 per million tokens vs.
+  $5/$25); Opus remains an option here for `_complex` if you want extra
+  headroom on genuinely hard tickets specifically, without paying for it on
+  every ticket.
+- **`effort`** — one of `low`, `medium`, `high` (default), `xhigh`, `max`,
+  applied to both the classifier and every resolver call. Lower effort means
+  less thinking, fewer/more-consolidated tool calls, and less token spend, at
+  some cost to thoroughness.
+
+**Compare a few `-WhatIf` runs' WOULD DO quality against a known-good baseline
+before trusting a cheaper setting live** — judgment calls on escalation,
+frustration detection, and root-cause investigation are exactly where a
+cheaper model or lower effort is more likely to slip, and that risk now sits
+specifically on `MEDIUM`/`COMPLEX` tickets (the ones the classifier itself
+flagged as needing real judgment) rather than uniformly across every ticket.
+
+`Show-AgentLog.ps1`'s CYCLE SUMMARY section shows classifier cost, resolver
+cost, and a per-ticket cost/tier/model breakdown every run, so you can verify
+a change actually reduced spend rather than just assuming it did.
 
 Other things worth knowing, not (yet) wired into the script:
-- `--fallback-model sonnet,haiku` makes a run retry on a cheaper model if the
+- `--fallback-model sonnet,haiku` makes a call retry on a cheaper model if the
   primary is overloaded/unavailable — a reliability net, not a cost lever (it
   doesn't trigger on rate limits), and not currently exposed via config.json.
-- Don't use `--bare` here even though it reduces per-run overhead elsewhere —
+- Don't use `--bare` here even though it reduces per-call overhead elsewhere —
   it also skips MCP entirely, which is this agent's whole job.
 - Running less often (raise `-IntervalMinutes` when registering the scheduled
   task) cuts total daily cost proportionally, at the cost of slower response
-  to new tickets — a scheduling tradeoff, not a per-run one.
+  to new tickets — a scheduling tradeoff, not a per-call one.
 
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets

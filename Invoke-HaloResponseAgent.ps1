@@ -2,29 +2,41 @@
 .SYNOPSIS
     Runs the Altec Halo Response Agent (Claude Code, headless) for one cycle.
 .DESCRIPTION
-    Loads config.json, works out whether it's currently business hours, builds the
-    task prompt from agent-prompt.md, and invokes `claude -p` with a fixed, scoped
-    tool allowlist. The allowlist doesn't change based on config.json - config only
-    controls WHICH of those tools the agent is allowed to actually use for what (see
-    agent-prompt.md and remediation_whitelist). Intended to run every 5-15 minutes
-    via Task Scheduler.
+    Two-stage pipeline per cycle:
+      1. CLASSIFIER - one cheap claude -p call (read-only Halo tools, Haiku model)
+         finds this cycle's candidate tickets and tags each with a complexity tier.
+      2. RESOLVER - one claude -p call PER classified ticket, with the full MCP tool
+         set and a model chosen by that ticket's tier, does the actual investigation
+         and (outside -WhatIf) the actual reply/remediation/escalation.
+    This replaces the earlier design where one claude -p call handled every ticket
+    itself in a single agentic session - see CLAUDE.md for why (a cheap model can
+    triage; only tickets that need it should pay for a bigger one and a full tool
+    loop).
 .PARAMETER RootPath
-    Folder containing config.json and agent-prompt.md. Defaults to the folder this
-    script itself is sitting in, so as long as all three files stay together, you
-    never need to pass this - just run `.\Invoke-HaloResponseAgent.ps1` with no
-    arguments, whether by hand, from Task Scheduler, or anywhere else.
+    Folder containing config.json, classifier-prompt.md, and resolver-prompt.md.
+    Defaults to the folder this script itself is sitting in, so as long as all
+    files stay together, you never need to pass this - just run
+    `.\Invoke-HaloResponseAgent.ps1` with no arguments, whether by hand, from Task
+    Scheduler, or anywhere else.
 .PARAMETER DryRun
     Print what would be run without calling claude at all - no prompt, no tool
-    calls, nothing live. Just shows the resolved prompt and tool list.
+    calls, nothing live. Shows the classifier's resolved prompt/tools/model, and
+    the resolver's prompt template/tools/tier-to-model mapping (ticket ID and tier
+    stay as unresolved placeholders here, since no classifier call happened to
+    supply real ones).
 .PARAMETER WhatIf
-    Run for real against live Halo/Ninja/M365/etc. data - the agent reads
-    everything and reasons about each ticket exactly as it normally would - but
-    every tool that changes anything (ticket replies/status/assignment, on-call
-    notifications, reboots, script runs, password resets, Hudu writes) is removed
-    from its allowlist and swapped for an instruction to describe what it would
-    have done instead. Nothing is touched anywhere. This is the one to use to see
-    real decisions on real tickets before trusting the schedule; -DryRun only
-    checks the prompt/tool list resolve correctly, it never calls Claude.
+    Run for real against live Halo/Ninja/M365/etc. data - the classifier runs
+    exactly as it always would (it's read-only regardless), but every resolver
+    call has every tool that changes anything (ticket replies/status/assignment,
+    on-call notifications, reboots, script runs, password resets, Hudu writes)
+    removed from its allowlist and swapped for an instruction to describe what it
+    would have done instead. Nothing is touched anywhere. This is the one to use
+    to see real decisions on real tickets before trusting the schedule; -DryRun
+    only checks the prompt/tool list resolve correctly, it never calls Claude.
+.NOTES
+    Version: 2.0.0 - two-stage classifier/resolver pipeline. Previous versions
+    (implicit v1.x) ran one claude -p call per cycle that handled every ticket
+    itself in a single session.
 #>
 
 param(
@@ -39,23 +51,26 @@ $ErrorActionPreference = "Stop"
 # legacy OEM/ANSI codepage by default, not UTF-8 - claude's own output is UTF-8
 # (em dashes, curly quotes, emoji in its replies), so without this the captured
 # text and the log file it's written to end up permanently mangled (e.g. an em
-# dash becomes "GÇö"). Setting both encodings to UTF-8 before invoking claude
+# dash becomes "GCo"). Setting both encodings to UTF-8 before invoking claude
 # fixes this for the whole session.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$configPath = Join-Path $RootPath "config.json"
-$promptPath = Join-Path $RootPath "agent-prompt.md"
-$logDir     = Join-Path $RootPath "logs"
+$configPath           = Join-Path $RootPath "config.json"
+$classifierPromptPath = Join-Path $RootPath "classifier-prompt.md"
+$resolverPromptPath   = Join-Path $RootPath "resolver-prompt.md"
+$logDir               = Join-Path $RootPath "logs"
+
 $logFileNameTemplate = "run-{0:yyyy-MM-dd}.log"
 if ($WhatIf) {
     $logFileNameTemplate = "whatif-{0:yyyy-MM-dd}.log"
 }
-$logFile    = Join-Path $logDir ($logFileNameTemplate -f (Get-Date))
+$logFile = Join-Path $logDir ($logFileNameTemplate -f (Get-Date))
 
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 
-# --- Load config (used for business-hours math; the agent reads the rest itself) ---
+# --- Load config (used for business-hours math and cost/model settings; the
+#     agent itself reads the rest of config.json directly via the Read tool) ---
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
 # --- Determine business-hours context ---
@@ -64,39 +79,33 @@ $isBusinessDay = $config.business_hours.days -contains $now.DayOfWeek.ToString()
 $startTod = [TimeSpan]::Parse($config.business_hours.start)
 $endTod   = [TimeSpan]::Parse($config.business_hours.end)
 $isBusinessHours = $isBusinessDay -and ($now.TimeOfDay -ge $startTod) -and ($now.TimeOfDay -le $endTod)
+$nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 
-# --- Build the prompt from the template ---
-$promptTemplate = Get-Content $promptPath -Raw
-$prompt = $promptTemplate `
-    -replace '\{\{CURRENT_DATETIME\}\}', $now.ToString("dddd, MMMM d, yyyy h:mm tt") `
-    -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
-    -replace '\{\{IS_BUSINESS_HOURS\}\}', $isBusinessHours `
-    -replace '\{\{CONFIG_PATH\}\}', $configPath
-
-#region STATIC TOOL ALLOWLIST - rarely edited
-# Everything day-to-day (which team, which remediation, who's on call) lives in
-# config.json and needs no changes here. This list only controls WHICH categories
-# of tool the agent is technically permitted to call at all - it's the outer fence;
-# config.json's remediation_whitelist is what actually decides whether the agent USES
-# a given action on a given ticket (see agent-prompt.md).
-#
-# Add a line here only when you're introducing a brand-new SYSTEM or a brand-new KIND
-# of action (e.g. the agent should now also touch UniFi firewall rules). A new
-# instance of something already listed here (another NinjaOne script, another M365
-# action of a type already present) only needs a config.json entry - nothing here.
-#
-# TO ADD A NEW SYSTEM (e.g. 3CX): add its tool names as its own labeled block below,
-# then add matching investigation guidance to agent-prompt.md's "Investigate" step,
-# then (only if it needs remediation actions, not just diagnostics) add entries to
-# config.json's remediation_whitelist. See README's "Adding a new system" section
-# for the full walkthrough.
+#region STATIC TOOL ALLOWLISTS - rarely edited
 # IMPORTANT: Claude Code matches MCP tools as "mcp__<ServerName>__<tool>" - the
 # ServerName is whatever exact name you used with `claude mcp add <name> ...` on
 # THIS machine (case-sensitive; check yours with `claude mcp list`). A bare
-# "ServerName:tool" string (used here previously) never matches anything and
-# --permission-mode dontAsk denies it *silently* - if you add a new system and
-# tool calls seem to just do nothing, this is the first thing to check.
-$allowedTools = @(
+# "ServerName:tool" string never matches anything and --permission-mode dontAsk
+# denies it *silently* - if you add a new system and tool calls seem to just do
+# nothing, this is the first thing to check.
+
+# Classifier: read-only, just enough to find and skim candidate tickets. Never
+# touched by -WhatIf, since it can't mutate anything to begin with.
+$classifierTools = @(
+    "Read",
+    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket",
+    "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
+    "mcp__Halo__list_agents"
+)
+
+# Resolver: the full tool set - everything a ticket might need to be diagnosed
+# or (within the remediation whitelist) fixed. Add a line here only when
+# introducing a brand-new SYSTEM or a brand-new KIND of action (e.g. the agent
+# should now also touch UniFi firewall rules). A new instance of something
+# already listed here (another NinjaOne script, another M365 action of a type
+# already present) only needs a config.json entry - nothing here. See README's
+# "Adding a new system" section for the full walkthrough.
+$resolverTools = @(
     "Read",
 
     # --- Halo: read + reply/update + name-to-ID lookups ---
@@ -123,7 +132,7 @@ $allowedTools = @(
     # README's "CIPP MCP swap" section.
     "mcp__CIPP__get_user", "mcp__CIPP__healthcheck", "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     # Email delivery diagnostics via CIPP's generic read-endpoint wrapper
-    # (endpoint "ListMessageTrace" - see agent-prompt.md). Falls back to
+    # (endpoint "ListMessageTrace" - see resolver-prompt.md). Falls back to
     # outlook_email_search when that doesn't turn up enough.
     "mcp__CIPP__cipp_api_get",
 
@@ -159,11 +168,9 @@ $allowedTools = @(
 #     Windows PowerShell 5.1's parser breaks on a comment-only tail immediately
 #     before an array's closing ')' - always follow any comment inside @( ... )
 #     with at least one more real element before the close.)
-#endregion STATIC TOOL ALLOWLIST
 
-# --- -WhatIf: strip every tool that changes anything, anywhere ---
-# Keep this list in sync with $allowedTools above whenever a new mutating tool is
-# added (a new remediation action reuses an existing entry here, so it's rare).
+# Keep this list in sync with $resolverTools above whenever a new mutating tool
+# is added (a new remediation action reuses an existing entry here, so it's rare).
 $mutatingTools = @(
     "mcp__Halo__update_ticket",
     "mcp__Microsoft365__outlook_send_mail",
@@ -173,52 +180,138 @@ $mutatingTools = @(
 )
 
 if ($WhatIf) {
-    $allowedTools = $allowedTools | Where-Object { $mutatingTools -notcontains $_ }
-    $simulationBannerLines = @(
-        "=== SIMULATION MODE (-WhatIf) ===",
-        "Nothing you do this run will actually happen - every tool that changes a ticket,",
-        "sends a notification, or touches a client system has been removed from your",
-        "allowlist on purpose. For each ticket, do the full investigation exactly as",
-        "normal, then instead of calling the tool you'd normally use to act, state plainly",
-        "what you WOULD have done: the exact reply text, which status/team/agent_id you'd",
-        "set, any remediation action and its whitelist justification, any on-call",
-        "notification, any Hudu article. Label each one clearly as 'WOULD DO:' so it's",
-        "obvious this is a simulation. Do not attempt to call a tool you no longer have -",
-        "if investigation alone can't rule out an action, just say so.",
-        "==="
-    )
-    $simulationBanner = $simulationBannerLines -join "`n"
-    $prompt = $simulationBanner + "`n`n" + $prompt
+    $resolverTools = $resolverTools | Where-Object { $mutatingTools -notcontains $_ }
 }
+#endregion STATIC TOOL ALLOWLISTS
 
-$allowedToolsArg = ($allowedTools -join ",")
-
-$claudeArgs = @(
-    "-p", $prompt,
-    "--allowedTools", $allowedToolsArg,
-    "--output-format", "json",
-    "--permission-mode", "dontAsk"
+$simulationBannerLines = @(
+    "=== SIMULATION MODE (-WhatIf) ===",
+    "Nothing you do this run will actually happen - every tool that changes a ticket,",
+    "sends a notification, or touches a client system has been removed from your",
+    "allowlist on purpose. Do the full investigation exactly as normal, then instead",
+    "of calling the tool you'd normally use to act, state plainly what you WOULD have",
+    "done: the exact reply text, which status/team/agent_id you'd set, any",
+    "remediation action and its whitelist justification, any on-call notification,",
+    "any Hudu article. Label each one clearly as 'WOULD DO:' so it's obvious this is",
+    "a simulation. Do not attempt to call a tool you no longer have - if",
+    "investigation alone can't rule out an action, just say so.",
+    "==="
 )
+$simulationBanner = $simulationBannerLines -join "`n"
 
-# Cost/quality controls - see config.json's "claude" block and README's
-# "Reducing per-run cost" section. Blank means "use the account default";
-# nothing changes here unless you set one.
-if ($config.claude.model) {
-    $claudeArgs += @("--model", $config.claude.model)
+# --- Model selection per tier (config-driven, see config.json's "claude" block) ---
+$modelForTier = @{
+    "TRIVIAL"           = $config.claude.resolver_model_trivial
+    "TRIVIAL_UNCERTAIN" = $config.claude.resolver_model_trivial
+    "MEDIUM"            = $config.claude.resolver_model_medium
+    "COMPLEX"           = $config.claude.resolver_model_complex
 }
-if ($config.claude.effort) {
-    $claudeArgs += @("--effort", $config.claude.effort)
+
+function Get-CleanJsonText {
+    param([string]$Text)
+    $trimmed = $Text.Trim()
+    if ($trimmed.StartsWith('```')) {
+        # drop the opening fence line (``` or ```json) and a trailing ``` line if
+        # present. Guarded with Count checks before every range slice - PowerShell's
+        # ".." operator returns a DESCENDING sequence (not empty) when start > end,
+        # which would misbehave here on a single-line fenced response.
+        $lines = @($trimmed -split "`r?`n")
+        if ($lines.Count -gt 1) {
+            $lines = $lines[1..($lines.Count - 1)]
+        }
+        else {
+            $lines = @()
+        }
+        if ($lines.Count -gt 0 -and $lines[-1].Trim() -eq '```') {
+            if ($lines.Count -gt 1) {
+                $lines = $lines[0..($lines.Count - 2)]
+            }
+            else {
+                $lines = @()
+            }
+        }
+        $trimmed = ($lines -join "`n").Trim()
+    }
+    return $trimmed
 }
+
+function Invoke-ClaudeCLI {
+    param(
+        [string]$Prompt,
+        [string[]]$Tools,
+        [string]$Model,
+        [string]$Effort
+    )
+    $toolsArg = ($Tools -join ",")
+    $claudeArgs = @(
+        "-p", $Prompt,
+        "--allowedTools", $toolsArg,
+        "--output-format", "json",
+        "--permission-mode", "dontAsk"
+    )
+    if ($Model)  { $claudeArgs += @("--model", $Model) }
+    if ($Effort) { $claudeArgs += @("--effort", $Effort) }
+
+    $rawOutput = & claude @claudeArgs 2>&1
+    $rawText = $rawOutput | Out-String
+
+    $parsed = $null
+    try {
+        $parsed = $rawText | ConvertFrom-Json
+    }
+    catch {
+        # leave $parsed as $null - caller decides how to handle an unparsed response
+    }
+
+    return [PSCustomObject]@{
+        Raw    = $rawText
+        Parsed = $parsed
+    }
+}
+
+function Write-LogSection {
+    param(
+        [string]$LogFile,
+        [string]$Header,
+        [string]$Content
+    )
+    Add-Content -Path $LogFile -Value "=== $Header ===" -Encoding UTF8
+    Add-Content -Path $LogFile -Value $Content -Encoding UTF8
+}
+
+# --- Build the classifier prompt ---
+$classifierPromptTemplate = Get-Content $classifierPromptPath -Raw
+$classifierPrompt = $classifierPromptTemplate `
+    -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
+    -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
+    -replace '\{\{CONFIG_PATH\}\}', $configPath
+
+# --- Build the resolver prompt TEMPLATE (ticket ID / tier substituted per ticket later) ---
+$resolverPromptTemplate = Get-Content $resolverPromptPath -Raw
+$resolverPromptTemplate = $resolverPromptTemplate `
+    -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
+    -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
+    -replace '\{\{IS_BUSINESS_HOURS\}\}', $isBusinessHours `
+    -replace '\{\{CONFIG_PATH\}\}', $configPath
 
 if ($DryRun) {
     Write-Host "=== DRY RUN ==="
     Write-Host "Business hours: $isBusinessHours"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
-    Write-Host "Model: $(if ($config.claude.model) { $config.claude.model } else { '(account default)' })"
+    Write-Host ""
+    Write-Host "--- Classifier ---"
+    Write-Host "Model: $($config.claude.classifier_model)"
     Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
-    Write-Host "Allowed tools: $allowedToolsArg"
-    Write-Host "--- Prompt ---"
-    Write-Host $prompt
+    Write-Host "Allowed tools: $($classifierTools -join ',')"
+    Write-Host "--- Classifier prompt ---"
+    Write-Host $classifierPrompt
+    Write-Host ""
+    Write-Host "--- Resolver (per classified ticket) ---"
+    Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX'])"
+    Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
+    Write-Host "Allowed tools: $($resolverTools -join ',')"
+    Write-Host "--- Resolver prompt template (ticket ID/tier shown as placeholders) ---"
+    Write-Host $resolverPromptTemplate
     return
 }
 
@@ -227,17 +320,122 @@ if ($WhatIf) {
 }
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$modeLabel = "[$timestamp] Business hours: $isBusinessHours"
+if ($WhatIf) {
+    $modeLabel = "[$timestamp] WHATIF SIMULATION - Business hours: $isBusinessHours"
+}
+Add-Content -Path $logFile -Value $modeLabel -Encoding UTF8
+
 try {
-    $result = & claude @claudeArgs 2>&1
-    $modeLabel = "[$timestamp] Business hours: $isBusinessHours"
-    if ($WhatIf) {
-        $modeLabel = "[$timestamp] WHATIF SIMULATION - Business hours: $isBusinessHours"
+    # --- Stage 1: classify ---
+    $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
+        -Model $config.claude.classifier_model -Effort $config.claude.effort
+    Write-LogSection -LogFile $logFile -Header "CLASSIFIER" -Content $classifierResult.Raw
+
+    if (-not $classifierResult.Parsed) {
+        throw "Classifier call did not return parseable JSON - see the CLASSIFIER section just written to the log."
     }
-    Add-Content -Path $logFile -Value $modeLabel -Encoding UTF8
-    Add-Content -Path $logFile -Value $result -Encoding UTF8
+    if ($classifierResult.Parsed.is_error) {
+        throw "Classifier call returned an error: $($classifierResult.Parsed.result)"
+    }
+
+    $ticketsJsonText = Get-CleanJsonText -Text $classifierResult.Parsed.result
+    $tickets = $null
+    try {
+        # Wrapped in @(...): ConvertFrom-Json unwraps a single-element JSON array
+        # into a bare object rather than a 1-item array, which would break every
+        # .Count check below on a cycle with exactly one candidate ticket.
+        $tickets = @($ticketsJsonText | ConvertFrom-Json)
+    }
+    catch {
+        throw "Could not parse the classifier's ticket/tier list as JSON. Raw classifier result text: $ticketsJsonText"
+    }
+
+    $classifierCost = 0
+    if ($classifierResult.Parsed.total_cost_usd) { $classifierCost = $classifierResult.Parsed.total_cost_usd }
+
+    # ConvertFrom-Json on the classifier's "[]" (no candidate tickets) can come
+    # back as $null rather than an empty array depending on PowerShell version -
+    # @($null) then has Count 1, not 0, so check for that specifically too.
+    $ticketsIsEmpty = (-not $tickets) -or ($tickets.Count -eq 0) -or ($tickets.Count -eq 1 -and $null -eq $tickets[0])
+    if ($ticketsIsEmpty) {
+        $emptySummary = [PSCustomObject]@{
+            tickets_found       = 0
+            classifier_cost_usd = $classifierCost
+            resolver_cost_usd   = 0
+            total_cost_usd      = $classifierCost
+            tickets             = @()
+        }
+        Write-LogSection -LogFile $logFile -Header "CYCLE SUMMARY" -Content ($emptySummary | ConvertTo-Json -Compress)
+        Add-Content -Path $logFile -Value "----" -Encoding UTF8
+        Write-Host "No candidate tickets this cycle."
+        return
+    }
+
+    # --- Stage 2: resolve each classified ticket, one claude -p call each ---
+    $resolverCost = 0
+    $ticketOutcomes = @()
+
+    foreach ($ticket in $tickets) {
+        $ticketId = $ticket.ticket_id
+        $tier = $ticket.tier
+
+        $model = $modelForTier[$tier]
+        if (-not $model) {
+            Write-Host "Unrecognized tier '$tier' for ticket $ticketId - falling back to the COMPLEX model."
+            $model = $config.claude.resolver_model_complex
+        }
+
+        $resolverPrompt = $resolverPromptTemplate `
+            -replace '\{\{TICKET_ID\}\}', $ticketId `
+            -replace '\{\{TIER\}\}', $tier
+        if ($WhatIf) {
+            $resolverPrompt = $simulationBanner + "`n`n" + $resolverPrompt
+        }
+
+        try {
+            $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $resolverTools `
+                -Model $model -Effort $config.claude.effort
+            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model)" -Content $resolverResult.Raw
+
+            $ticketCost = 0
+            if ($resolverResult.Parsed -and $resolverResult.Parsed.total_cost_usd) {
+                $ticketCost = $resolverResult.Parsed.total_cost_usd
+            }
+            $resolverCost += $ticketCost
+            $ticketOutcomes += [PSCustomObject]@{
+                ticket_id = $ticketId
+                tier      = $tier
+                model     = $model
+                cost_usd  = $ticketCost
+            }
+        }
+        catch {
+            Add-Content -Path $logFile -Value "TICKET $ticketId (tier: $tier, model: $model) ERROR: $($_.Exception.Message)" -Encoding UTF8
+            $ticketOutcomes += [PSCustomObject]@{
+                ticket_id = $ticketId
+                tier      = $tier
+                model     = $model
+                cost_usd  = 0
+                error     = $_.Exception.Message
+            }
+        }
+    }
+
+    $summary = [PSCustomObject]@{
+        tickets_found       = $tickets.Count
+        classifier_cost_usd = $classifierCost
+        resolver_cost_usd   = $resolverCost
+        total_cost_usd      = $classifierCost + $resolverCost
+        tickets             = $ticketOutcomes
+    }
+    Write-LogSection -LogFile $logFile -Header "CYCLE SUMMARY" -Content ($summary | ConvertTo-Json -Depth 5 -Compress)
     Add-Content -Path $logFile -Value "----" -Encoding UTF8
+
+    Write-Host "Cycle complete: $($tickets.Count) ticket(s), total cost `$$($summary.total_cost_usd)"
 }
 catch {
     Add-Content -Path $logFile -Value "[$timestamp] ERROR: $($_.Exception.Message)" -Encoding UTF8
+    Add-Content -Path $logFile -Value "----" -Encoding UTF8
     throw
 }

@@ -38,9 +38,12 @@
   },
 
   "claude": {
-    "_comment": "Cost/quality controls passed to `claude -p`. Leave a field blank to use the account default (claude-opus-5, effort 'high'). Set to Sonnet/medium as the working default after the $4.13/62-turn Opus/high baseline run - compare a few -WhatIf runs' WOULD DO quality against that baseline before trusting escalation/frustration judgment calls at this cheaper setting. See README's 'Reducing per-run cost' section.",
-    "model": "claude-sonnet-5",
-    "effort": "medium"
+    "_comment": "Cost/quality controls for the two-stage classifier/resolver pipeline (see CLAUDE.md). 'effort' applies to both stages if non-blank (blank = account default, currently 'high'). classifier_model is always cheap since it never uses write tools. resolver_model_* is chosen per ticket by the tier the classifier assigned it - TRIVIAL_UNCERTAIN uses resolver_model_trivial too, since that path just asks for missing info and stops rather than investigating. Compare a few -WhatIf runs' WOULD DO quality against a known-good baseline before trusting these at these settings live - see README's 'Reducing per-run cost' section.",
+    "effort": "medium",
+    "classifier_model": "claude-haiku-4-5",
+    "resolver_model_trivial": "claude-haiku-4-5",
+    "resolver_model_medium": "claude-sonnet-5",
+    "resolver_model_complex": "claude-sonnet-5"
   },
 
   "remediation_whitelist": [

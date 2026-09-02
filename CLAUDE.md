@@ -14,19 +14,69 @@ It's a **replacement for a Cloudflare Workers annotation-only bot** (`ai-triage-
 in Roger's other MCP-servers project) — this one actually responds to and closes
 tickets, not just annotates them.
 
+Since v2.0.0, each cycle is a **two-stage pipeline**, not one `claude -p` call
+that handles every ticket itself: a cheap classifier call tags each candidate
+ticket with a complexity tier, then one resolver call per ticket does the
+actual work, on a model chosen by that ticket's tier. See "Two-stage
+classifier/resolver pipeline" below for the full rationale.
+
 ## Files
 - `config.json` — everything a tech should be able to change without touching a
   script: business hours, on-call contact, Halo team/status/priority **names**
-  (never IDs — see "No IDs, ever" below), remediation whitelist, Hudu fix folder.
-- `agent-prompt.md` — the actual task logic run fresh each cycle.
-- `Invoke-HaloResponseAgent.ps1` — computes business-hours context, builds the
-  prompt, calls `claude -p` with a scoped tool allowlist, logs output.
+  (never IDs — see "No IDs, ever" below), remediation whitelist, Hudu fix folder,
+  per-tier model/effort settings.
+- `classifier-prompt.md` — stage 1: find candidate tickets, tag each with a tier.
+  Run once per cycle, read-only, cheap model.
+- `resolver-prompt.md` — stage 2: investigate/resolve *one* specific ticket. Run
+  fresh once per classified ticket per cycle, full tool set, model chosen by tier.
+- `Invoke-HaloResponseAgent.ps1` — computes business-hours context, runs the
+  classifier call, then loops the resolver call once per classified ticket,
+  logs everything.
 - `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup.
-- `Show-AgentLog.ps1` — pretty-prints a log entry (cost, tokens, permission
-  denials, the report text) instead of the raw single-line JSON blob.
+- `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (classifier section,
+  one section per resolved ticket, a cost summary) instead of raw JSON.
 - `README.md` — setup + how-to-extend instructions for a human.
 
 ## Design decisions and why
+
+**Two-stage classifier/resolver pipeline (v2.0.0).** Every cycle used to be one
+`claude -p` call (Opus, full tool set, adaptive thinking) that pulled every
+candidate ticket itself and handled all of them in one long agentic session —
+a real 75-ticket/7-candidate cycle at those settings cost $4.13 over 62 turns,
+most of it full-tool-loop reasoning applied uniformly regardless of how simple
+a given ticket turned out to be. Roger asked for this to split into two calls:
+a cheap **classifier** (`classifier-prompt.md`, Haiku, read-only, no MCP tools
+beyond Halo lookups) that tags each candidate ticket with a complexity tier
+(`TRIVIAL`, `TRIVIAL_UNCERTAIN`, `MEDIUM`, `COMPLEX`), then one **resolver**
+call per ticket (`resolver-prompt.md`, full tool set) on a model selected by
+that tier via `config.json`'s `claude.resolver_model_*` fields — so only
+tickets that actually need a capable model and a full tool loop pay for one.
+
+The literal spec Roger gave was written for raw Anthropic Messages API calls
+(a system prompt parameter, `cache_control`/`ttl`, hand-rolled tool execution)
+— this system runs on the Claude Code CLI (`claude -p`) instead, which has its
+own internal agent loop and MCP integration and doesn't expose that surface.
+Adapted to fit: two `claude -p` calls per cycle (not per literal "system
+prompt"), model selection via `--model`/`--effort` flags (confirmed against
+current Claude Code CLI docs) instead of raw API parameters, no manual
+`cache_control` (Claude Code manages its own caching, not exposed to the
+invoking script).
+
+One deliberate simplification: the spec said a `TRIVIAL_UNCERTAIN` ticket
+should "skip this call entirely — just post a reply asking for the missing
+info and stop," implying a third, distinct code path. Since *something* still
+has to post that reply, and PowerShell has no direct Halo access outside of a
+`claude -p` call, `TRIVIAL_UNCERTAIN` instead gets the ordinary resolver call
+at the cheapest tier's model, with `resolver-prompt.md` instructed to skip
+investigation and just ask for the specific missing piece — same cost profile
+as "skip it," one fewer code path to maintain.
+
+**Cost/token logging per cycle.** `Invoke-HaloResponseAgent.ps1` writes a
+`CYCLE SUMMARY` JSON block after every cycle: `classifier_cost_usd`,
+`resolver_cost_usd`, `total_cost_usd`, and a per-ticket `{ticket_id, tier,
+model, cost_usd}` array — so a config change to `claude.effort` or a
+`resolver_model_*` field can be verified against real numbers (via
+`Show-AgentLog.ps1`) rather than assumed to have helped.
 
 **No IDs anywhere in config.json.** Every Halo/Ninja/etc. reference in config is a
 plain name exactly as it appears in the actual tool (e.g. `"Help Desk"`, not team
@@ -37,12 +87,15 @@ to hunt down a numeric ID, and config can't silently drift out of sync with Halo
 it never stores IDs in the first place.
 
 **Static tool allowlist vs. config.json — different change frequency.** The
-PowerShell script's `--allowedTools` list is the outer fence (what the agent is
-technically capable of calling); `config.json`'s `remediation_whitelist` is what it's
-actually *permitted* to use those tools for on a given ticket. Adding a new instance
-of an existing action type (another NinjaOne script, another M365 action) only needs
-a config.json entry. Adding a brand-new system (e.g. 3CX) needs a new labeled block
-in the script's allowlist — there's already an empty placeholder block for 3CX.
+PowerShell script's `$resolverTools`/`$classifierTools` lists are the outer
+fence (what each stage is technically capable of calling); `config.json`'s
+`remediation_whitelist` is what the resolver is actually *permitted* to use
+its tools for on a given ticket. Adding a new instance of an existing action
+type (another NinjaOne script, another M365 action) only needs a config.json
+entry. Adding a brand-new system (e.g. 3CX) needs a new labeled block in
+`$resolverTools` — there's already an empty placeholder block for 3CX. The
+classifier's tool list almost never changes; it only ever needs enough Halo
+read access to find and skim candidate tickets.
 
 **Escalation = status change only.** By explicit instruction: escalating a ticket
 changes Halo status to `follow_up_status_name` ("Follow Up Needed" — there is no
@@ -97,12 +150,15 @@ matches Roger's standing preference that Altec is the service provider client-fa
 regardless of which vendor tool actually did the work.
 
 ## Multi-ticket handling
-One `claude -p` run works through *all* open Help Desk tickets, one after another —
-sequential within a single process, not concurrent. Fine at current volume. If
-ticket volume ever grows enough that one run doesn't finish within the scheduling
-interval or the task's execution time limit, that's a real architecture change
-(genuine parallelism — multiple processes split by team/range), not a config tweak.
-Not worth building preemptively.
+One classifier call finds every candidate ticket for the cycle; PowerShell then
+loops the resolver call once per ticket, one `claude -p` process at a time, not
+concurrent — same sequential-not-parallel behavior as the original single-call
+design, just as N+1 separate processes instead of one process handling N
+tickets internally. Fine at current volume. If ticket volume ever grows enough
+that one cycle doesn't finish within the scheduling interval or the task's
+execution time limit, that's a real architecture change (genuine parallelism —
+multiple resolver processes in flight at once, not just sequential), not a
+config tweak. Not worth building preemptively.
 
 ## In-flight / not-yet-built
 - **CIPP MCP migration — NOT actually cut over yet, despite an earlier note here
@@ -117,12 +173,12 @@ Not worth building preemptively.
   `cipp_api_get` — these carried over unchanged from the old worker as far as
   could be verified from a separate Claude session hitting the CIPP-ng instance
   directly, but re-check against production), then update the `mcp__CIPP__...`
-  entries in `Invoke-HaloResponseAgent.ps1` and `agent-prompt.md` to the new
+  entries in `Invoke-HaloResponseAgent.ps1` and `resolver-prompt.md` to the new
   server name.
 - **Email/bounce diagnostics**: the CIPP server (old worker, see above) has no
   dedicated message-trace tool, but its generic `cipp_api_get` wrapper covers
   CIPP's native Message Trace via `endpoint: "ListMessageTrace"` — wired into
-  `agent-prompt.md`. Falls back to finding the NDR in the user's own mailbox
+  `resolver-prompt.md`. Falls back to finding the NDR in the user's own mailbox
   (`outlook_email_search`) when that doesn't turn up enough — though see the
   Microsoft365 gap below, that fallback doesn't work either until it's registered.
 - **3CX troubleshooting**: planned, not built. Per-client 3CX server API access is
@@ -157,20 +213,24 @@ Not worth building preemptively.
   `[Console]::OutputEncoding`/`$OutputEncoding` to UTF-8 before invoking `claude`
   and writes the log with `-Encoding UTF8`. Logs from before this fix have
   already-corrupted text that can't be recovered by re-reading them differently.
-- **Per-run cost.** A real 75-ticket/7-candidate `-WhatIf` run cost $4.13 at the
-  account defaults (`claude-opus-5`, effort `high`, adaptive thinking), 62
-  turns. `config.json`'s `claude.model`/`claude.effort` (both blank by default)
-  are the two cheapest levers — see README's "Reducing per-run cost". Not
-  wired in: `--fallback-model` (reliability, not cost — doesn't trigger on rate
-  limits) and lowering the Task Scheduler run frequency (cuts total daily cost,
-  trades off response latency).
-- Sequential ticket processing within a run, not parallel (see above).
+- **Per-cycle cost.** A real 75-ticket/7-candidate cycle cost $4.13 under the
+  original single-call design (`claude-opus-5`, effort `high`, adaptive
+  thinking, 62 turns) — see "Two-stage classifier/resolver pipeline" above for
+  why that became two calls instead. `config.json`'s `claude.effort` and
+  `claude.resolver_model_*`/`classifier_model` are the remaining levers — see
+  README's "Reducing per-run cost". Not wired in: `--fallback-model`
+  (reliability, not cost — doesn't trigger on rate limits) and lowering the
+  Task Scheduler run frequency (cuts total daily cost, trades off response
+  latency).
+- Sequential ticket processing within a cycle, not parallel (see above).
 - `on_call.primary.email` in config.json is still a placeholder — fill in before
   relying on emergency escalation. `text_email` may be legitimately left blank (no
   SMS on-call set up yet) — the agent skips the text and still sends email in that
   case, this is expected.
 - **Tool-name syntax bug that silently broke every MCP call from day one (fixed):**
-  the static allowlist and `agent-prompt.md` used a `Server:tool_name` naming
+  the static allowlist and `agent-prompt.md` (the single-call design's prompt,
+  later split into `classifier-prompt.md`/`resolver-prompt.md` — see "Two-stage
+  classifier/resolver pipeline" above) used a `Server:tool_name` naming
   convention that Claude Code never actually recognizes — it matches MCP tools as
   `mcp__<ServerName>__<tool>`, where `ServerName` is whatever exact name (case-
   sensitive) was used with `claude mcp add` on that machine. With
