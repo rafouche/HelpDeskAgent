@@ -102,8 +102,13 @@ $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 
 # Classifier: read-only, just enough to find and skim candidate tickets. Never
 # touched by -WhatIf, since it can't mutate anything to begin with.
+# ToolSearch: with this many MCP servers/tools registered on the machine, a real
+# run showed a resolver call (see $resolverTools below) getting stuck trying to
+# use ToolSearch to load a tool's schema before calling it, then giving up when
+# it couldn't - included here too so that path, if it comes up, actually works
+# instead of dead-ending.
 $classifierTools = @(
-    "Read",
+    "Read", "ToolSearch",
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket",
     "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
     "mcp__Halo__list_agents"
@@ -117,7 +122,7 @@ $classifierTools = @(
 # already present) only needs a config.json entry - nothing here. See README's
 # "Adding a new system" section for the full walkthrough.
 $resolverTools = @(
-    "Read",
+    "Read", "ToolSearch",
 
     # --- Halo: read + reply/update + name-to-ID lookups ---
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
@@ -148,19 +153,34 @@ $resolverTools = @(
     "mcp__CIPP__cipp_api_get",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
-    # list_organizations/list_org_devices: a real run showed the resolver
-    # reaching for these to identify a device by which org/client it belongs
-    # to (instead of guessing from hostname patterns) and getting silently
-    # denied because they were missing here, not because -WhatIf removed them.
+    # Three straight real runs each turned up a different missing read-only
+    # NinjaOne tool the resolver legitimately wanted (list_org_devices to
+    # identify a device by client instead of guessing from hostname patterns,
+    # get_device_windows_services to check the print spooler, then
+    # get_device_disks/get_device_processors/list_device_antivirus_status/
+    # list_alerts). Rather than keep patching one at a time, every read-only
+    # NinjaOne diagnostic tool is included now - only device/org mutation
+    # (approve/reject_device, update_device, create/update_organization,
+    # set/end_device_maintenance, acknowledge/resolve_alert, approve/
+    # reject_os_patch, Ninja's own create/update_ticket) is left out, since
+    # none of that is something this agent should ever do.
     "mcp__Ninja__get_device", "mcp__Ninja__get_device_os_info", "mcp__Ninja__get_device_software",
-    "mcp__Ninja__list_device_alerts", "mcp__Ninja__get_device_os_patches", "mcp__Ninja__list_devices",
+    "mcp__Ninja__get_device_software_patches", "mcp__Ninja__get_device_disks", "mcp__Ninja__get_device_processors",
+    "mcp__Ninja__get_device_maintenance", "mcp__Ninja__list_devices_detailed",
+    "mcp__Ninja__list_device_alerts", "mcp__Ninja__list_alerts", "mcp__Ninja__list_device_antivirus_status",
+    "mcp__Ninja__get_device_os_patches", "mcp__Ninja__query_os_patches", "mcp__Ninja__query_software_patches",
+    "mcp__Ninja__query_software_inventory", "mcp__Ninja__query_antivirus_threats", "mcp__Ninja__query_backup_jobs",
+    "mcp__Ninja__list_devices",
     "mcp__Ninja__list_organizations", "mcp__Ninja__list_org_devices",
     "mcp__Ninja__get_device_volumes", "mcp__Ninja__get_device_network_interfaces",
     "mcp__Ninja__get_device_windows_services",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device", "mcp__Ninja__list_automation_scripts",
 
-    # --- Network, read-only ---
+    # --- Network, read-only --- (every UniFi tool is a GET/LIST - no
+    # mutating UniFi tool exists at all, so the full set is included)
     "mcp__Unifi__list_clients", "mcp__Unifi__get_device", "mcp__Unifi__list_devices", "mcp__Unifi__list_sites",
+    "mcp__Unifi__get_host", "mcp__Unifi__list_hosts", "mcp__Unifi__get_isp_metrics",
+    "mcp__Unifi__list_network_devices", "mcp__Unifi__list_network_sites",
     "mcp__Meraki__get_network_client", "mcp__Meraki__list_org_device_statuses",
 
     # --- Security context, read-only ---

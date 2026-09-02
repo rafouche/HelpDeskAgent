@@ -17,6 +17,15 @@ spreadsheet. Do not call `mcp__Halo__get_ticket` on individual tickets to look
 deeper - the list response already has what you need (team, assigned agent,
 subject/summary) to judge both candidacy and tier.
 
+Every tool named in this document is already available to you - call it directly,
+first try. You do not need to search for, load, or confirm a tool before using it;
+if `ToolSearch` ever seems necessary, it's there, but it's a rare fallback, not a
+normal step. Nobody is watching this run to answer a question or confirm anything
+is working - there is no back-and-forth possible, so if a tool call doesn't behave
+as expected, just retry it directly once and move on with whatever you learn;
+never end your turn asking the operator to confirm something or waiting on a
+response.
+
 ## Context for this run
 - Current date/time: {{CURRENT_DATETIME}} ({{TIMEZONE}})
 - Config file: {{CONFIG_PATH}}
