@@ -34,6 +34,12 @@
     to see real decisions on real tickets before trusting the schedule; -DryRun
     only checks the prompt/tool list resolve correctly, it never calls Claude.
 .NOTES
+    Version: 2.0.1 - prompts are now piped to claude over stdin instead of
+    passed as a "-p <text>" argument, since embedded double quotes in the
+    prompt files (quoted example phrases) were being truncated/mangled by
+    PowerShell's native-command argument re-quoting - this, not file
+    encoding, was the cause of the classifier reporting its own instructions
+    as "cut off."
     Version: 2.0.0 - two-stage classifier/resolver pipeline. Previous versions
     (implicit v1.x) ran one claude -p call per cycle that handled every ticket
     itself in a single session.
@@ -249,7 +255,7 @@ function Invoke-ClaudeCLI {
     )
     $toolsArg = ($Tools -join ",")
     $claudeArgs = @(
-        "-p", $Prompt,
+        "-p",
         "--allowedTools", $toolsArg,
         "--output-format", "json",
         "--permission-mode", "dontAsk"
@@ -257,7 +263,16 @@ function Invoke-ClaudeCLI {
     if ($Model)  { $claudeArgs += @("--model", $Model) }
     if ($Effort) { $claudeArgs += @("--effort", $Effort) }
 
-    $rawOutput = & claude @claudeArgs 2>&1
+    # The prompt goes in over stdin, not as a "-p <text>" argument. Both prompt
+    # files are full of literal embedded double quotes (example client replies,
+    # quoted phrases like a "how do I..." question) - a real run showed the
+    # classifier receiving its own instructions truncated at exactly one of
+    # these, which is PowerShell mangling an embedded quote while re-quoting
+    # the argument list for the external claude process, not a file/encoding
+    # problem (already ruled out: BOM, hash, and length all verified intact
+    # on disk). Stdin has no argument-parsing step, so this is no longer a
+    # hazard no matter how many quotes a prompt contains.
+    $rawOutput = $Prompt | & claude @claudeArgs 2>&1
     $rawText = $rawOutput | Out-String
 
     $parsed = $null
