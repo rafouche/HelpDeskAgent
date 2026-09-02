@@ -67,6 +67,26 @@
     {
       "name": "Run NinjaOne script: Clear Print jobs and restart spooler",
       "requires": "Print-related issue only. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Flush DNS",
+      "requires": "Network connectivity issue only (can't reach a specific site/service), device not a server. Mac/Linux. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Clear DNS cache",
+      "requires": "Network connectivity issue only (can't reach a specific site/service), device not a server. Windows. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Release & Renew IP Address",
+      "requires": "Network connectivity issue only, device not a server. Windows. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Delete Temporary Files",
+      "requires": "Disk-space or general slowness complaint only, device not a server. Windows. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Windows Update Reset",
+      "requires": "Windows Update stuck, failing, or erroring only. Script name must match exactly what's in NinjaOne."
     }
   ]
 }
