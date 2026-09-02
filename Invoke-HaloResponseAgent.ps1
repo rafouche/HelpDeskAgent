@@ -363,10 +363,22 @@ try {
     $ticketsJsonText = Get-CleanJsonText -Text $classifierResult.Parsed.result
     $tickets = $null
     try {
-        # Wrapped in @(...): ConvertFrom-Json unwraps a single-element JSON array
-        # into a bare object rather than a 1-item array, which would break every
-        # .Count check below on a cycle with exactly one candidate ticket.
-        $tickets = @($ticketsJsonText | ConvertFrom-Json)
+        # ConvertFrom-Json is called directly (via -InputObject), NOT through a
+        # pipe, and only THEN wrapped in @(...). A real run with 4 classified
+        # tickets showed $tickets ending up as a single element containing all
+        # 4 ticket objects nested inside it (every property access on it - like
+        # $ticket.ticket_id - returned all 4 values space-joined, which is
+        # PowerShell's member-enumeration behavior on a collection, not a
+        # single ticket). Piping ConvertFrom-Json's array result through
+        # another pipeline stage can hand that whole array to @(...) as ONE
+        # item instead of enumerating it, double-nesting the result; calling it
+        # directly and wrapping the resulting variable is unambiguous - @() on
+        # an already-array variable is a same-array no-op, and only promotes a
+        # true scalar (the single-candidate case, which ConvertFrom-Json
+        # collapses to a bare object rather than a 1-item array) into a
+        # 1-item array.
+        $parsedTickets = ConvertFrom-Json -InputObject $ticketsJsonText
+        $tickets = @($parsedTickets)
     }
     catch {
         throw "Could not parse the classifier's ticket/tier list as JSON. Raw classifier result text: $ticketsJsonText"
