@@ -37,7 +37,13 @@ plain names - resolve each to its Halo ID:
 - `halo.urgent_priority_names` (an array of names) -> call `mcp__Halo__list_priorities`
   ONCE and match every name in the array against that single response
   (case-insensitive) -> `urgent_priority_ids`, an array in the same order and the
-  same length as `urgent_priority_names`
+  same length as `urgent_priority_names`. Resolve each name independently and
+  carefully - these are different priority levels (e.g. "Urgent" vs "Critical"),
+  so they almost always have different IDs. If you find yourself about to write
+  the same ID for two different names, stop and re-check the list rather than
+  reusing a value out of convenience - a repeated ID here most likely means you
+  matched the wrong entry for one of them, not that two distinct priorities
+  happen to share a record.
 
 That's exactly 4 tool calls total (one per list_* tool) - never call any of them
 more than once, and never call `mcp__Halo__get_ticket` or `mcp__Halo__list_tickets`

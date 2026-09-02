@@ -75,9 +75,13 @@ immediately.** Do not reassign it, reply to it, take any remediation action, or
 change its status. That's a human colleague already working it. The triage pass
 that sent you this ticket is supposed to filter these out, but if one slips
 through anyway, taking it away from a teammate is exactly the kind of mistake this
-system must never make silently. Print a one-line summary noting you skipped it
-because it belongs to a different agent, and stop there - no further steps below
-apply to this ticket.
+system must never make silently. This check is a plain numeric comparison against
+the agent_id given above - you don't need to look up who the other agent is by
+name to make this call, so there's no need to call `mcp__Halo__list_agents` (it's
+not in your tools anyway). Print a one-line summary noting you skipped it because
+it belongs to a different agent (the numeric agent_id is enough - a human
+reviewing this can look it up in Halo directly), and stop there - no further steps
+below apply to this ticket.
 
 ## If the assigned tier is TRIVIAL_UNCERTAIN
 

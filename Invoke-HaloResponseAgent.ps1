@@ -192,6 +192,11 @@ $resolverTools = @(
     # belonged to - never added despite being the same kind of read-only
     # name-to-ID lookup already granted for teams/statuses/agents.
     "mcp__Halo__get_client", "mcp__Halo__list_clients", "mcp__Halo__get_contact", "mcp__Halo__list_contacts",
+    # list_assets: multiple real runs hit "no printer/copier asset tracked in
+    # NinjaOne" (printers/copiers usually aren't RMM-managed) and wanted to
+    # check Halo's own asset registry instead - denied because it was never
+    # added, not because -WhatIf removed it.
+    "mcp__Halo__list_assets",
 
     # --- Notifications ---
     # NOTE: no "Microsoft365" server is registered on this machine yet (absent
@@ -244,7 +249,12 @@ $resolverTools = @(
     "mcp__Unifi__list_clients", "mcp__Unifi__get_device", "mcp__Unifi__list_devices", "mcp__Unifi__list_sites",
     "mcp__Unifi__get_host", "mcp__Unifi__list_hosts", "mcp__Unifi__get_isp_metrics",
     "mcp__Unifi__list_network_devices", "mcp__Unifi__list_network_sites",
+    # list_organizations/list_networks: a real run showed the resolver denied on
+    # list_organizations while investigating a client's network, mirroring the
+    # same Ninja gap fixed earlier - discovering an org without then listing its
+    # networks wouldn't be very useful, so both are added together.
     "mcp__Meraki__get_network_client", "mcp__Meraki__list_org_device_statuses",
+    "mcp__Meraki__list_organizations", "mcp__Meraki__list_networks",
 
     # --- Security context, read-only ---
     "mcp__Huntress__list_incident_reports", "mcp__Huntress__get_agent",
@@ -577,8 +587,22 @@ try {
     $urgentPriorityIds = @($ids.urgent_priority_ids)
     $urgentIdsIsEmpty = (-not $urgentPriorityIds) -or ($urgentPriorityIds.Count -eq 0) -or ($urgentPriorityIds.Count -eq 1 -and $null -eq $urgentPriorityIds[0])
     $urgentNamesCount = @($config.halo.urgent_priority_names).Count
-    if ($urgentIdsIsEmpty -or ($urgentPriorityIds.Count -ne $urgentNamesCount) -or ($urgentPriorityIds -contains $null)) {
+    $urgentIdsWellFormed = (-not $urgentIdsIsEmpty) -and ($urgentPriorityIds.Count -eq $urgentNamesCount) -and (-not ($urgentPriorityIds -contains $null))
+    if (-not $urgentIdsWellFormed) {
         $missingIdFields += "urgent_priority_ids"
+    }
+    elseif ($urgentPriorityIds.Count -gt 1) {
+        # A real run resolved 3 different priority names ("Urgent", "Critical",
+        # "Critial") to the SAME id - passes every check above (no nulls, right
+        # length) but is still almost certainly wrong: distinct priority levels
+        # essentially never share one Halo record. Catch that pattern
+        # specifically, since it's exactly the kind of "looks fine, is actually
+        # wrong" result the other checks can't see - using the wrong urgent
+        # priority id on a genuine emergency ticket is a real, if quiet, harm.
+        $duplicateIds = $urgentPriorityIds | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name }
+        if ($duplicateIds.Count -gt 0) {
+            $missingIdFields += "urgent_priority_ids (two or more different priority names resolved to the same id: $($duplicateIds -join ', ') - almost certainly a resolution error, not a real Halo coincidence)"
+        }
     }
 
     if ($missingIdFields.Count -gt 0) {
