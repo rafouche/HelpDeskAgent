@@ -43,6 +43,19 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.2.0 - the ID resolution stage (added in 2.1.0) is now cached to
+    disk (resolved-ids-cache.json) instead of running a fresh claude -p call
+    every single cycle. The cache is keyed on the exact halo.* names in
+    config.json right now, so any edit to a team/agent/status/priority name
+    invalidates it automatically - no manual "clear the cache" step - plus a
+    time-based expiry (claude.id_cache_max_age_hours, default 24) as a backstop
+    for the rarer case where Halo itself changes (a team renamed, an agent
+    account recreated) without config.json's text changing. A cache read
+    failure of any kind (missing file, corrupted JSON, hand-edited into
+    something unexpected) is treated as a cache miss and falls through to a
+    fresh resolution - caching is purely an optimization, never a new way for
+    this script to fail. Cached or fresh, the resolved IDs go through the same
+    validation before being trusted or written back to the cache.
     Version: 2.1.0 - added an ID pre-resolution stage (id-resolver-prompt.md) that
     runs once per cycle before the classifier: team_id, agent_id, and all three
     status_ids/urgent priority_ids are resolved once and injected into both the
@@ -86,6 +99,7 @@ $ErrorActionPreference = "Stop"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $configPath           = Join-Path $RootPath "config.json"
+$idCachePath          = Join-Path $RootPath "resolved-ids-cache.json"
 $idResolverPromptPath = Join-Path $RootPath "id-resolver-prompt.md"
 $classifierPromptPath = Join-Path $RootPath "classifier-prompt.md"
 $resolverPromptPath   = Join-Path $RootPath "resolver-prompt.md"
@@ -425,10 +439,12 @@ if ($DryRun) {
     Write-Host "Business hours: $isBusinessHours"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host ""
-    Write-Host "--- ID Resolution (runs once per cycle, before the classifier) ---"
+    Write-Host "--- ID Resolution (runs once per cycle, before the classifier - skipped entirely on a cache hit) ---"
     Write-Host "Model: $($config.claude.classifier_model)"
     Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
     Write-Host "Allowed tools: $($idResolverTools -join ',')"
+    Write-Host "Cache file: $idCachePath"
+    Write-Host "Cache max age (hours): $(if ($config.claude.id_cache_max_age_hours) { $config.claude.id_cache_max_age_hours } else { '24 (default)' })"
     Write-Host "--- ID resolver prompt ---"
     Write-Host $idResolverPrompt
     Write-Host ""
@@ -460,35 +476,96 @@ if ($WhatIf) {
 Add-Content -Path $logFile -Value $modeLabel -Encoding UTF8
 
 try {
-    # --- Stage 0: resolve Halo team/agent/status/priority IDs once for this cycle ---
+    # --- Stage 0: resolve Halo team/agent/status/priority IDs once for this cycle,
+    #     using a cache when possible ---
     # These are fixed, deterministic lookups (a name-to-ID match, not ticket-specific
-    # judgment) that never change between tickets in the same cycle, so resolving
-    # them once here - instead of redundantly in the classifier and every single
-    # resolver call - is pure savings. If any name fails to match, abort the whole
-    # cycle rather than let a null/wrong ID silently ride along into every ticket's
-    # resolver call this cycle.
-    $idResolverResult = Invoke-ClaudeCLI -Prompt $idResolverPrompt -Tools $idResolverTools `
-        -Model $config.claude.classifier_model -Effort $config.claude.effort
-    Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $idResolverResult.Raw
-
-    if (-not $idResolverResult.Parsed) {
-        throw "ID resolution call did not return parseable JSON - see the ID RESOLUTION section just written to the log."
+    # judgment) that essentially never change - so beyond resolving them once per
+    # cycle instead of redundantly in the classifier and every resolver call, cache
+    # the result to disk and skip even that one call on every cycle where nothing's
+    # changed. The cache is keyed on the exact halo.* names in config.json right now
+    # - ANY edit to a team/agent/status/priority name invalidates it automatically,
+    # no separate "clear the cache" step needed - plus a time-based expiry
+    # (claude.id_cache_max_age_hours) as a backstop for the rarer case where Halo
+    # itself changes (a team gets renamed, an agent account gets recreated) without
+    # config.json's text changing at all.
+    $currentHaloIdentity = [PSCustomObject]@{
+        help_desk_team_name           = $config.halo.help_desk_team_name
+        agent_username                = $config.halo.agent_username
+        resolved_status_name          = $config.halo.resolved_status_name
+        waiting_on_client_status_name = $config.halo.waiting_on_client_status_name
+        follow_up_status_name         = $config.halo.follow_up_status_name
+        urgent_priority_names         = @($config.halo.urgent_priority_names)
     }
-    if ($idResolverResult.Parsed.is_error) {
-        throw "ID resolution call returned an error: $($idResolverResult.Parsed.result)"
-    }
+    $currentHaloIdentityJson = $currentHaloIdentity | ConvertTo-Json -Compress
 
-    $idJsonText = Get-CleanJsonText -Text $idResolverResult.Parsed.result
+    $idCacheMaxAgeHours = 24
+    if ($config.claude.id_cache_max_age_hours) { $idCacheMaxAgeHours = $config.claude.id_cache_max_age_hours }
+
     $ids = $null
-    try {
-        # Direct -InputObject call, not piped - see the identical note on $tickets
-        # below for why piping ConvertFrom-Json through another stage is unsafe.
-        $ids = ConvertFrom-Json -InputObject $idJsonText
-    }
-    catch {
-        throw "Could not parse the ID resolution JSON. Raw text: $idJsonText"
+    $idResolutionCost = 0
+    $usedCachedIds = $false
+    $cachedResolvedAt = $null
+    $cachedAgeHours = $null
+
+    if (Test-Path $idCachePath) {
+        try {
+            $cached = Get-Content $idCachePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            # Normalize urgent_priority_names the same way $currentHaloIdentity
+            # builds it (always @()-wrapped) before comparing - ConvertFrom-Json
+            # collapses a 1-element JSON array to a bare scalar, which would
+            # otherwise make a single-urgent-priority-name config never match
+            # its own cache (a safe but wasteful always-miss, not a correctness
+            # bug, since it would just mean this edge case never actually caches).
+            if ($cached.input) {
+                $cached.input.urgent_priority_names = @($cached.input.urgent_priority_names)
+            }
+            $cachedInputJson = $cached.input | ConvertTo-Json -Compress
+            $cachedAgeHours = ((Get-Date) - [datetime]$cached.resolved_at).TotalHours
+            if ($cachedInputJson -eq $currentHaloIdentityJson -and $cachedAgeHours -le $idCacheMaxAgeHours) {
+                $ids = $cached.ids
+                $cachedResolvedAt = $cached.resolved_at
+                $usedCachedIds = $true
+            }
+        }
+        catch {
+            # Any problem reading/parsing the cache (missing, corrupted, hand-
+            # edited into something unexpected) - just treat it as a cache miss
+            # and resolve fresh below. Caching is purely an optimization; it
+            # must never become a new way for this script to fail.
+        }
     }
 
+    if (-not $usedCachedIds) {
+        # If any name fails to match, abort the whole cycle rather than let a
+        # null/wrong ID silently ride along into every ticket's resolver call
+        # this cycle - or, just as bad, get written to the cache and silently
+        # reused by every cycle after this one.
+        $idResolverResult = Invoke-ClaudeCLI -Prompt $idResolverPrompt -Tools $idResolverTools `
+            -Model $config.claude.classifier_model -Effort $config.claude.effort
+        Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $idResolverResult.Raw
+
+        if (-not $idResolverResult.Parsed) {
+            throw "ID resolution call did not return parseable JSON - see the ID RESOLUTION section just written to the log."
+        }
+        if ($idResolverResult.Parsed.is_error) {
+            throw "ID resolution call returned an error: $($idResolverResult.Parsed.result)"
+        }
+        if ($idResolverResult.Parsed.total_cost_usd) { $idResolutionCost = $idResolverResult.Parsed.total_cost_usd }
+
+        $idJsonText = Get-CleanJsonText -Text $idResolverResult.Parsed.result
+        try {
+            # Direct -InputObject call, not piped - see the identical note on
+            # $tickets below for why piping ConvertFrom-Json through another
+            # stage is unsafe.
+            $ids = ConvertFrom-Json -InputObject $idJsonText
+        }
+        catch {
+            throw "Could not parse the ID resolution JSON. Raw text: $idJsonText"
+        }
+    }
+
+    # --- Validate the resolved IDs (from cache or freshly resolved) before
+    #     trusting them or writing them to the cache ---
     $missingIdFields = @()
     foreach ($field in @("team_id", "agent_id", "resolved_status_id", "waiting_status_id", "followup_status_id")) {
         if ($null -eq $ids.$field) { $missingIdFields += $field }
@@ -505,10 +582,44 @@ try {
     }
 
     if ($missingIdFields.Count -gt 0) {
+        if ($usedCachedIds) {
+            throw "Cached ID resolution data failed validation: $($missingIdFields -join ', ') - delete $idCachePath to force a fresh resolution, or check config.json's halo section against Halo."
+        }
         throw "ID resolution failed to match: $($missingIdFields -join ', ') - check these names in config.json's halo section against what actually exists in Halo (team/status/priority/agent names are case-insensitive but must otherwise match exactly)."
     }
 
     $urgentPriorityIdsText = ($urgentPriorityIds -join ", ")
+
+    if ($usedCachedIds) {
+        # Log a lightweight confirmation, not the full claude-call section (there
+        # was no claude call this cycle) - shaped like a no-cost claude response so
+        # Show-AgentLog.ps1 renders it the same way as every other section instead
+        # of hitting its "couldn't parse" fallback.
+        $cacheNoteContent = [PSCustomObject]@{
+            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), urgent_priority_ids=$urgentPriorityIdsText"
+        } | ConvertTo-Json -Compress
+        Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
+    }
+    else {
+        # Save a fresh cache now that these IDs are validated - keyed on the exact
+        # config.json names that produced them, so any future edit to those names
+        # invalidates this automatically.
+        $freshCache = [PSCustomObject]@{
+            resolved_at = (Get-Date).ToString("o")
+            input       = $currentHaloIdentity
+            ids         = $ids
+        }
+        try {
+            $tempCachePath = "$idCachePath.tmp"
+            $freshCache | ConvertTo-Json -Depth 5 | Set-Content -Path $tempCachePath -Encoding UTF8
+            Move-Item -Path $tempCachePath -Destination $idCachePath -Force
+        }
+        catch {
+            # Failing to WRITE the cache should never fail the cycle - worst
+            # case, the next cycle just resolves fresh again, same as today.
+            Add-Content -Path $logFile -Value "[$timestamp] WARNING: could not write ID resolution cache to $idCachePath - $($_.Exception.Message)" -Encoding UTF8
+        }
+    }
 
     # Inject the resolved IDs into both the classifier and resolver prompts - from
     # here on, neither needs to look any of these up itself.
@@ -559,9 +670,8 @@ try {
         throw "Could not parse the classifier's ticket/tier list as JSON. Raw classifier result text: $ticketsJsonText"
     }
 
-    $idResolutionCost = 0
-    if ($idResolverResult.Parsed.total_cost_usd) { $idResolutionCost = $idResolverResult.Parsed.total_cost_usd }
-
+    # $idResolutionCost was already set in Stage 0 above (0 on a cache hit, the
+    # real cost on a fresh resolution) - not recomputed here.
     $classifierCost = 0
     if ($classifierResult.Parsed.total_cost_usd) { $classifierCost = $classifierResult.Parsed.total_cost_usd }
 

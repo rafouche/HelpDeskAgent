@@ -305,16 +305,25 @@ flagged as needing real judgment) rather than uniformly across every ticket.
 
 Two more levers, both structural rather than config-driven:
 
-- **ID pre-resolution (v2.1.0).** Team/status/priority/agent name-to-ID lookups
-  are deterministic and don't change between tickets in the same cycle, but the
-  classifier and every single resolver call used to redundantly re-resolve them
-  from scratch. A new stage (`id-resolver-prompt.md`) now resolves them once per
-  cycle, before the classifier, and injects the IDs directly into every
-  downstream prompt - `list_teams`/`list_statuses`/`list_priorities`/
-  `list_agents` were removed from the classifier's and resolver's tool
-  allowlists entirely so the savings are guaranteed, not just hoped-for. If any
-  name fails to resolve against real Halo data, the whole cycle aborts with a
-  clear error rather than silently using a wrong ID on every ticket.
+- **ID pre-resolution (v2.1.0), now cached (v2.2.0).** Team/status/priority/
+  agent name-to-ID lookups are deterministic and don't change between tickets
+  in the same cycle, but the classifier and every single resolver call used to
+  redundantly re-resolve them from scratch. A new stage (`id-resolver-prompt.md`)
+  resolves them once per cycle, before the classifier, and injects the IDs
+  directly into every downstream prompt - `list_teams`/`list_statuses`/
+  `list_priorities`/`list_agents` were removed from the classifier's and
+  resolver's tool allowlists entirely so the savings are guaranteed, not just
+  hoped-for. As of v2.2.0 this resolution itself is cached to
+  `resolved-ids-cache.json`, so most cycles skip even that one call: the cache
+  is keyed on the exact `halo.*` names in `config.json` right now, so editing
+  any of them (renaming the team, switching `agent_username`, etc.) invalidates
+  it automatically, and `claude.id_cache_max_age_hours` (default 24) forces a
+  fresh resolution periodically anyway, as a backstop for the rarer case where
+  Halo itself changes (a team renamed, an agent account recreated) without
+  `config.json`'s text changing at all. If any name fails to resolve (cached or
+  fresh), the whole cycle aborts with a clear error rather than silently using
+  a wrong ID on every ticket - a cache read problem of any kind (missing,
+  corrupted) is always treated as a harmless cache miss, never a failure.
 - **Skipping unchanged tickets.** A ticket already claimed by the agent and
   sitting on "waiting on client" gets a full re-investigation and a full-price
   resolver call on every cycle unless something's actually changed. The

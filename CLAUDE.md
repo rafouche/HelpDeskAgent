@@ -31,7 +31,13 @@ the full rationale.
   (never IDs — see "No IDs anywhere in config.json" below), remediation
   whitelist, Hudu fix folder, per-tier model/effort settings.
 - `id-resolver-prompt.md` — stage 0: resolve config.json's Halo names to IDs.
-  Run once per cycle, read-only, cheap model, before the classifier.
+  Run once per cycle, read-only, cheap model, before the classifier - skipped
+  entirely on a cache hit (see `resolved-ids-cache.json` below).
+- `resolved-ids-cache.json` — gitignored, generated at runtime. Caches stage 0's
+  last successful result plus the exact `halo.*` names that produced it, so a
+  cycle can skip stage 0 entirely when config.json hasn't changed and the cache
+  isn't older than `claude.id_cache_max_age_hours`. Safe to delete any time to
+  force a fresh resolution next run.
 - `classifier-prompt.md` — stage 1: find candidate tickets, tag each with a tier.
   Run once per cycle, read-only, cheap model.
 - `resolver-prompt.md` — stage 2: investigate/resolve *one* specific ticket. Run
@@ -95,7 +101,12 @@ Halo's team/status/priority/agent names to IDs once per cycle and hands the
 numbers to the classifier and every resolver call - `mcp__Ninja__list_automation_scripts`
 is the one lookup still done per-ticket by the resolver itself, since which
 script (if any) applies depends on the specific ticket, not a fixed value for
-the whole run.
+the whole run. Since v2.2.0, that resolution is itself cached to
+`resolved-ids-cache.json` (gitignored - it's runtime state for one specific
+Halo instance, not source), keyed on the exact `halo.*` name values that
+produced it, so editing any of those names invalidates the cache automatically;
+`claude.id_cache_max_age_hours` forces a fresh resolution periodically anyway,
+in case Halo itself changes without config.json changing.
 
 **Static tool allowlist vs. config.json — different change frequency.** The
 PowerShell script's `$resolverTools`/`$classifierTools` lists are the outer
