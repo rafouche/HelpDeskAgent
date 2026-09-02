@@ -49,6 +49,15 @@ anything else, so it's visibly claimed. If it's already assigned to you (a prior
 cycle picked it up and it's still being worked across multiple ticket replies), no
 reassignment needed.
 
+**If it's already assigned to a different agent - not unassigned, not you - stop
+immediately.** Do not reassign it, reply to it, take any remediation action, or
+change its status. That's a human colleague already working it. The triage pass
+that sent you this ticket is supposed to filter these out, but if one slips
+through anyway, taking it away from a teammate is exactly the kind of mistake this
+system must never make silently. Print a one-line summary noting you skipped it
+because it belongs to a different agent, and stop there - no further steps below
+apply to this ticket.
+
 ## If the assigned tier is TRIVIAL_UNCERTAIN
 
 Don't run the full investigate/resolve process below. Read the ticket, identify the

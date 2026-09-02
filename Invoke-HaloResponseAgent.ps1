@@ -156,6 +156,7 @@ $resolverTools = @(
     "mcp__Ninja__list_device_alerts", "mcp__Ninja__get_device_os_patches", "mcp__Ninja__list_devices",
     "mcp__Ninja__list_organizations", "mcp__Ninja__list_org_devices",
     "mcp__Ninja__get_device_volumes", "mcp__Ninja__get_device_network_interfaces",
+    "mcp__Ninja__get_device_windows_services",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device", "mcp__Ninja__list_automation_scripts",
 
     # --- Network, read-only ---
