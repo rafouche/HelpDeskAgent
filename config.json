@@ -1,5 +1,5 @@
-{
-  "_readme": "Everything below uses plain names — exactly what you'd see typing into Halo or NinjaOne. No IDs to look up or manage; the agent finds the technical ID itself each run. To add a remediation action, copy one of the examples in remediation_whitelist and change the wording — nothing else needs to change.",
+﻿{
+  "_readme": "Everything below uses plain names - exactly what you'd see typing into Halo or NinjaOne. No IDs to look up or manage; the agent finds the technical ID itself each run. To add a remediation action, copy one of the examples in remediation_whitelist and change the wording - nothing else needs to change.",
 
   "business_hours": {
     "timezone": "Central Time",
@@ -9,7 +9,7 @@
   },
 
   "on_call": {
-    "_comment": "text_email (email-to-SMS gateway address) can be left blank — e.g. no SMS on-call set up yet. The agent always sends the email notification and simply skips the text when text_email is blank; that's expected, not an error.",
+    "_comment": "text_email (email-to-SMS gateway address) can be left blank - e.g. no SMS on-call set up yet. The agent always sends the email notification and simply skips the text when text_email is blank; that's expected, not an error.",
     "primary": {
       "name": "REPLACE_ME",
       "email": "REPLACE_ME@altecusa.com",
@@ -23,7 +23,7 @@
   },
 
   "halo": {
-    "_comment": "These must match team/status/agent names exactly as they appear in Halo. 'agent_username' is the Halo user account the agent works as: it claims unassigned tickets under that name and picks back up tickets already assigned to it. Change this if you rename the account or swap to a different one — nothing else needs to change, the agent re-resolves the ID by name every run.",
+    "_comment": "These must match team/status/agent names exactly as they appear in Halo. 'agent_username' is the Halo user account the agent works as: it claims unassigned tickets under that name and picks back up tickets already assigned to it. Change this if you rename the account or swap to a different one - nothing else needs to change, the agent re-resolves the ID by name every run.",
     "agent_username": "Artie Fischel",
     "help_desk_team_name": "Help Desk",
     "resolved_status_name": "Resolved",

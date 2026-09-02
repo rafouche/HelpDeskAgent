@@ -71,7 +71,12 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 
 # --- Load config (used for business-hours math and cost/model settings; the
 #     agent itself reads the rest of config.json directly via the Read tool) ---
-$config = Get-Content $configPath -Raw | ConvertFrom-Json
+# -Encoding UTF8 is load-bearing: Windows PowerShell 5.1's Get-Content defaults
+# to the system's legacy codepage for a file with no BOM, silently corrupting
+# any non-ASCII character (em dashes, curly quotes) in config.json/the prompt
+# templates - this is the same root cause as the earlier .ps1 parsing bug, just
+# hitting a data file read at runtime instead of a script being parsed.
+$config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
 # --- Determine business-hours context ---
 $now = Get-Date
@@ -279,15 +284,15 @@ function Write-LogSection {
     Add-Content -Path $LogFile -Value $Content -Encoding UTF8
 }
 
-# --- Build the classifier prompt ---
-$classifierPromptTemplate = Get-Content $classifierPromptPath -Raw
+# --- Build the classifier prompt --- (-Encoding UTF8: see note on $config above)
+$classifierPromptTemplate = Get-Content $classifierPromptPath -Raw -Encoding UTF8
 $classifierPrompt = $classifierPromptTemplate `
     -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
     -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
     -replace '\{\{CONFIG_PATH\}\}', $configPath
 
 # --- Build the resolver prompt TEMPLATE (ticket ID / tier substituted per ticket later) ---
-$resolverPromptTemplate = Get-Content $resolverPromptPath -Raw
+$resolverPromptTemplate = Get-Content $resolverPromptPath -Raw -Encoding UTF8
 $resolverPromptTemplate = $resolverPromptTemplate `
     -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
     -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
