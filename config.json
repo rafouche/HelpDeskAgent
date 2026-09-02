@@ -87,6 +87,22 @@
     {
       "name": "Run NinjaOne script: Windows Update Reset",
       "requires": "Windows Update stuck, failing, or erroring only. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: SFC Scannow",
+      "requires": "Windows system-file corruption suspected (crashes, missing/corrupt system files, erratic OS behavior not explained by anything else), device not a server. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Run Windows Cleanup",
+      "requires": "Disk-space or general slowness complaint, device not a server. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: gpupdate /force",
+      "requires": "Group Policy hasn't applied / a policy-managed setting isn't taking effect, device not a server. Script name must match exactly what's in NinjaOne."
+    },
+    {
+      "name": "Run NinjaOne script: Enable Remote Desktop Service",
+      "requires": "Device belongs to the ticket contact (not a shared/kiosk device) and they've explicitly asked for remote access to their own machine. This is a persistent access change - nothing disables it automatically - so log clearly in the internal note that RDP was enabled and why."
     }
   ]
 }
