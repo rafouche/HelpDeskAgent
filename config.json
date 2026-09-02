@@ -38,8 +38,8 @@
   },
 
   "claude": {
-    "_comment": "Cost/quality controls for the two-stage classifier/resolver pipeline (see CLAUDE.md). 'effort' applies to both stages if non-blank (blank = account default, currently 'high'). classifier_model is always cheap since it never uses write tools. resolver_model_* is chosen per ticket by the tier the classifier assigned it - TRIVIAL_UNCERTAIN uses resolver_model_trivial too, since that path just asks for missing info and stops rather than investigating. Compare a few -WhatIf runs' WOULD DO quality against a known-good baseline before trusting these at these settings live - see README's 'Reducing per-run cost' section.",
-    "effort": "medium",
+    "_comment": "Cost/quality controls for the two-stage classifier/resolver pipeline (see CLAUDE.md). 'effort' applies to both stages if non-blank (blank = account default, currently 'high'). Lowered from 'medium' to 'low' on 2026-09-02 as a cost lever - the classifier/resolver's own tool-call loop, not raw thinking depth, was driving most of the token spend, so this trades some depth for a meaningful per-call discount. classifier_model is always cheap since it never uses write tools. resolver_model_* is chosen per ticket by the tier the classifier assigned it - TRIVIAL_UNCERTAIN uses resolver_model_trivial too, since that path just asks for missing info and stops rather than investigating. Compare a few -WhatIf runs' WOULD DO quality at 'low' against the 'medium' baseline before trusting this live - see README's 'Reducing per-run cost' section. Revert to 'medium' if quality drops noticeably.",
+    "effort": "low",
     "classifier_model": "claude-haiku-4-5",
     "resolver_model_trivial": "claude-haiku-4-5",
     "resolver_model_medium": "claude-sonnet-5",

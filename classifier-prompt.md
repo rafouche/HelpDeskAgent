@@ -48,6 +48,27 @@ entirely. Do this filtering by reading the returned team_id/agent_id fields
 directly against the IDs you just resolved above - no second tool call, no
 script, just judgment.
 
+## Drop already-claimed tickets with nothing new to act on
+
+A ticket already assigned to `config.halo.agent_username` was claimed by a
+prior cycle - it's already been investigated and replied to, and is now
+sitting on "waiting on client" or similar. Sending it to the resolver again
+is only worth the cost if the client has actually said something new since
+our last reply or internal note; if they haven't replied yet, nothing has
+changed and a full re-investigation is pure waste, repeated every cycle
+until they respond.
+
+So for each candidate already assigned to you (not the unassigned ones -
+those always need first-pass handling), call `mcp__Halo__get_ticket` to
+check whether the client's latest message postdates our own last note or
+reply. This is the one exception to the no-`get_ticket` rule above - it's
+bounded to just this already-mine subset, typically a handful of tickets at
+most, not the whole list, and it's the only reliable way to tell "still
+waiting" from "client just replied." If there's nothing newer than what we
+already sent, drop this ticket from the candidate list entirely - do not
+include it in your output. Include it only if the client has replied since,
+or if for some reason it was never actually worked despite being assigned.
+
 ## Classify each candidate into exactly one tier
 
 - **TRIVIAL** - single known action, low risk, clearly matches a pattern like a
