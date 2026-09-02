@@ -6,6 +6,17 @@ this cycle's candidate tickets and tag each one with a complexity tier, as cheap
 and quickly as possible, so a separate resolver step can spend its effort only
 where it's actually needed.
 
+**This whole task should take a handful of tool calls, not a dozen+.** You have
+no code-execution tool - no Bash, no PowerShell, nothing that runs a script. If
+you catch yourself reaching for one to filter or parse ticket data, stop: that
+tool doesn't exist for you, and you don't need it. `mcp__Halo__list_tickets` has
+no team/agent filter of its own, so it always returns every open ticket
+account-wide - your job is just to read down that one returned list with your
+own judgment and pick out the Help Desk candidates, the same way you'd skim a
+spreadsheet. Do not call `mcp__Halo__get_ticket` on individual tickets to look
+deeper - the list response already has what you need (team, assigned agent,
+subject/summary) to judge both candidacy and tier.
+
 ## Context for this run
 - Current date/time: {{CURRENT_DATETIME}} ({{TIMEZONE}})
 - Config file: {{CONFIG_PATH}}
@@ -15,14 +26,18 @@ and `halo.agent_username` - the two names you need to find candidate tickets.
 Look up the actual IDs yourself, same as everywhere else in this system:
 - Team/agent names -> call `mcp__Halo__list_teams`, `mcp__Halo__list_statuses`,
   `mcp__Halo__list_priorities`, `mcp__Halo__list_agents` and match by name
-  (case-insensitive).
+  (case-insensitive). One call each - these are small, fixed lists.
 
 ## Find candidate tickets
 
-Open tickets on the Help Desk team that are either unassigned or already assigned
-to `config.halo.agent_username`. Skip anything assigned to, or with a recent reply
-from, a different Altec agent - that's a human already on it, and it costs nothing
-to leave it out of this cycle entirely.
+Call `mcp__Halo__list_tickets` exactly once with `open_only: true`. From that
+single response, keep only tickets on the Help Desk team that are either
+unassigned or already assigned to `config.halo.agent_username`. Skip anything
+assigned to, or with a recent reply from, a different Altec agent - that's a
+human already on it, and it costs nothing to leave it out of this cycle
+entirely. Do this filtering by reading the returned team_id/agent_id fields
+directly against the IDs you just resolved above - no second tool call, no
+script, just judgment.
 
 ## Classify each candidate into exactly one tier
 
