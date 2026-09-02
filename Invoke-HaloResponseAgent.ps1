@@ -129,6 +129,11 @@ $resolverTools = @(
     "mcp__Halo__list_kb_articles", "mcp__Halo__get_kb_article",
     "mcp__Halo__update_ticket", "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
     "mcp__Halo__list_agents",
+    # get_client/list_clients/get_contact/list_contacts: a real run showed the
+    # resolver denied on get_client while investigating which company a ticket
+    # belonged to - never added despite being the same kind of read-only
+    # name-to-ID lookup already granted for teams/statuses/agents.
+    "mcp__Halo__get_client", "mcp__Halo__list_clients", "mcp__Halo__get_contact", "mcp__Halo__list_contacts",
 
     # --- Notifications ---
     # NOTE: no "Microsoft365" server is registered on this machine yet (absent
