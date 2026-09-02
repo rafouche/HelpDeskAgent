@@ -273,7 +273,7 @@ the (cheap) classifier actually flagged as needing one.
 
 ```json
 "claude": {
-  "effort": "medium",
+  "effort": "low",
   "classifier_model": "claude-haiku-4-5",
   "resolver_model_trivial": "claude-haiku-4-5",
   "resolver_model_medium": "claude-sonnet-5",
@@ -303,9 +303,32 @@ cheaper model or lower effort is more likely to slip, and that risk now sits
 specifically on `MEDIUM`/`COMPLEX` tickets (the ones the classifier itself
 flagged as needing real judgment) rather than uniformly across every ticket.
 
-`Show-AgentLog.ps1`'s CYCLE SUMMARY section shows classifier cost, resolver
-cost, and a per-ticket cost/tier/model breakdown every run, so you can verify
-a change actually reduced spend rather than just assuming it did.
+Two more levers, both structural rather than config-driven:
+
+- **ID pre-resolution (v2.1.0).** Team/status/priority/agent name-to-ID lookups
+  are deterministic and don't change between tickets in the same cycle, but the
+  classifier and every single resolver call used to redundantly re-resolve them
+  from scratch. A new stage (`id-resolver-prompt.md`) now resolves them once per
+  cycle, before the classifier, and injects the IDs directly into every
+  downstream prompt - `list_teams`/`list_statuses`/`list_priorities`/
+  `list_agents` were removed from the classifier's and resolver's tool
+  allowlists entirely so the savings are guaranteed, not just hoped-for. If any
+  name fails to resolve against real Halo data, the whole cycle aborts with a
+  clear error rather than silently using a wrong ID on every ticket.
+- **Skipping unchanged tickets.** A ticket already claimed by the agent and
+  sitting on "waiting on client" gets a full re-investigation and a full-price
+  resolver call on every cycle unless something's actually changed. The
+  classifier now checks (via `get_ticket`, for just this already-claimed
+  subset) whether the client has replied since the agent's last note, and drops
+  the ticket from this cycle's candidates entirely if not. This only shows its
+  effect on real (non-`-WhatIf`) runs, since `-WhatIf` never actually claims a
+  ticket in Halo - a `-WhatIf` test will keep re-showing the same backlog every
+  time regardless of this fix, because nothing ever really got marked handled.
+
+`Show-AgentLog.ps1`'s CYCLE SUMMARY section shows ID resolution cost,
+classifier cost, resolver cost, and a per-ticket cost/tier/model breakdown
+every run, so you can verify a change actually reduced spend rather than just
+assuming it did.
 
 Other things worth knowing, not (yet) wired into the script:
 - `--fallback-model sonnet,haiku` makes a call retry on a cheaper model if the

@@ -2,38 +2,61 @@
 .SYNOPSIS
     Runs the Altec Halo Response Agent (Claude Code, headless) for one cycle.
 .DESCRIPTION
-    Two-stage pipeline per cycle:
+    Three-stage pipeline per cycle:
+      0. ID RESOLUTION - one cheap claude -p call (read-only Halo name-to-ID
+         lookup tools, Haiku model) resolves config.json's plain Halo names
+         (team/agent/status/priority) into IDs once for this cycle. Aborts the
+         whole cycle if any name fails to match, rather than let a bad ID
+         silently reach a ticket. See id-resolver-prompt.md.
       1. CLASSIFIER - one cheap claude -p call (read-only Halo tools, Haiku model)
          finds this cycle's candidate tickets and tags each with a complexity tier.
       2. RESOLVER - one claude -p call PER classified ticket, with the full MCP tool
          set and a model chosen by that ticket's tier, does the actual investigation
          and (outside -WhatIf) the actual reply/remediation/escalation.
+    Stage 0's resolved IDs are injected directly into both the classifier and every
+    resolver call's prompt, so neither stage repeats the same fixed lookups itself -
+    see the "ID pre-resolution" note in Version 2.1.0 below.
     This replaces the earlier design where one claude -p call handled every ticket
     itself in a single agentic session - see CLAUDE.md for why (a cheap model can
     triage; only tickets that need it should pay for a bigger one and a full tool
     loop).
 .PARAMETER RootPath
-    Folder containing config.json, classifier-prompt.md, and resolver-prompt.md.
-    Defaults to the folder this script itself is sitting in, so as long as all
-    files stay together, you never need to pass this - just run
-    `.\Invoke-HaloResponseAgent.ps1` with no arguments, whether by hand, from Task
-    Scheduler, or anywhere else.
+    Folder containing config.json, id-resolver-prompt.md, classifier-prompt.md,
+    and resolver-prompt.md. Defaults to the folder this script itself is sitting
+    in, so as long as all files stay together, you never need to pass this - just
+    run `.\Invoke-HaloResponseAgent.ps1` with no arguments, whether by hand, from
+    Task Scheduler, or anywhere else.
 .PARAMETER DryRun
     Print what would be run without calling claude at all - no prompt, no tool
-    calls, nothing live. Shows the classifier's resolved prompt/tools/model, and
-    the resolver's prompt template/tools/tier-to-model mapping (ticket ID and tier
-    stay as unresolved placeholders here, since no classifier call happened to
-    supply real ones).
+    calls, nothing live. Shows all three stages' resolved prompt/tools/model
+    (ID-resolution placeholders like {{TEAM_ID}}, and per-ticket {{TICKET_ID}}/
+    {{TIER}}, all stay as unresolved placeholders here, since no ID-resolution or
+    classifier call happened to supply real ones).
 .PARAMETER WhatIf
-    Run for real against live Halo/Ninja/M365/etc. data - the classifier runs
-    exactly as it always would (it's read-only regardless), but every resolver
-    call has every tool that changes anything (ticket replies/status/assignment,
-    on-call notifications, reboots, script runs, password resets, Hudu writes)
-    removed from its allowlist and swapped for an instruction to describe what it
-    would have done instead. Nothing is touched anywhere. This is the one to use
-    to see real decisions on real tickets before trusting the schedule; -DryRun
-    only checks the prompt/tool list resolve correctly, it never calls Claude.
+    Run for real against live Halo/Ninja/M365/etc. data - ID resolution and the
+    classifier run exactly as they always would (both are read-only regardless),
+    but every resolver call has every tool that changes anything (ticket
+    replies/status/assignment, on-call notifications, reboots, script runs,
+    password resets, Hudu writes) removed from its allowlist and swapped for an
+    instruction to describe what it would have done instead. Nothing is touched
+    anywhere. This is the one to use to see real decisions on real tickets before
+    trusting the schedule; -DryRun only checks the prompt/tool list resolve
+    correctly, it never calls Claude.
 .NOTES
+    Version: 2.1.0 - added an ID pre-resolution stage (id-resolver-prompt.md) that
+    runs once per cycle before the classifier: team_id, agent_id, and all three
+    status_ids/urgent priority_ids are resolved once and injected into both the
+    classifier and every resolver call's prompt, instead of each of those calls
+    redundantly re-resolving the same fixed Halo names from scratch. A real run
+    showed every resolver call independently repeating 4 identical name-to-ID
+    lookups regardless of which ticket it was working - real, if moderate, waste
+    once you're paying for one resolver call per ticket per cycle. list_teams/
+    list_statuses/list_priorities/list_agents were removed from both the
+    classifier's and resolver's own tool allowlists entirely (not just discouraged
+    in the prompt) so the savings are guaranteed rather than hoped-for. If any
+    config.json name fails to resolve against real Halo data, the whole cycle
+    aborts with a clear error naming exactly which field failed, rather than let
+    a null/wrong ID silently reach every ticket's resolver call this cycle.
     Version: 2.0.1 - prompts are now piped to claude over stdin instead of
     passed as a "-p <text>" argument, since embedded double quotes in the
     prompt files (quoted example phrases) were being truncated/mangled by
@@ -63,6 +86,7 @@ $ErrorActionPreference = "Stop"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $configPath           = Join-Path $RootPath "config.json"
+$idResolverPromptPath = Join-Path $RootPath "id-resolver-prompt.md"
 $classifierPromptPath = Join-Path $RootPath "classifier-prompt.md"
 $resolverPromptPath   = Join-Path $RootPath "resolver-prompt.md"
 $logDir               = Join-Path $RootPath "logs"
@@ -100,6 +124,17 @@ $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 # denies it *silently* - if you add a new system and tool calls seem to just do
 # nothing, this is the first thing to check.
 
+# ID resolver: runs once per cycle, before the classifier, to resolve config.json's
+# plain Halo names (team/agent/status/priority) into IDs - a deterministic lookup
+# that never changes between tickets in the same cycle, so paying for it once here
+# instead of redundantly in the classifier and every single resolver call is pure
+# savings. See id-resolver-prompt.md.
+$idResolverTools = @(
+    "Read", "ToolSearch",
+    "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
+    "mcp__Halo__list_agents"
+)
+
 # Classifier: read-only, just enough to find and skim candidate tickets. Never
 # touched by -WhatIf, since it can't mutate anything to begin with.
 # ToolSearch: with this many MCP servers/tools registered on the machine, a real
@@ -107,11 +142,15 @@ $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 # use ToolSearch to load a tool's schema before calling it, then giving up when
 # it couldn't - included here too so that path, if it comes up, actually works
 # instead of dead-ending.
+# NOTE: list_teams/list_statuses/list_priorities/list_agents are deliberately NOT
+# here - the ID resolver stage above already resolved and validated team_id/
+# agent_id for this run (see {{TEAM_ID}}/{{AGENT_ID}} in classifier-prompt.md), so
+# there's nothing left for the classifier to look up; leaving these tools out
+# entirely (rather than just telling the prompt not to bother) guarantees the
+# savings instead of just hoping the model complies.
 $classifierTools = @(
     "Read", "ToolSearch",
-    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket",
-    "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
-    "mcp__Halo__list_agents"
+    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket"
 )
 
 # Resolver: the full tool set - everything a ticket might need to be diagnosed
@@ -124,11 +163,16 @@ $classifierTools = @(
 $resolverTools = @(
     "Read", "ToolSearch",
 
-    # --- Halo: read + reply/update + name-to-ID lookups ---
+    # --- Halo: read + reply/update ---
+    # list_teams/list_statuses/list_priorities/list_agents are deliberately NOT
+    # here, same reasoning as $classifierTools above - the ID resolver stage
+    # already resolved and validated team_id/agent_id/all three status_ids/
+    # urgent priority_id(s) for this run (see resolver-prompt.md's Context
+    # section), so every ticket's resolver call would otherwise redundantly
+    # redo the same 4 fixed lookups from scratch.
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
     "mcp__Halo__list_kb_articles", "mcp__Halo__get_kb_article",
-    "mcp__Halo__update_ticket", "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
-    "mcp__Halo__list_agents",
+    "mcp__Halo__update_ticket",
     # get_client/list_clients/get_contact/list_contacts: a real run showed the
     # resolver denied on get_client while investigating which company a ticket
     # belonged to - never added despite being the same kind of read-only
@@ -277,10 +321,26 @@ function Get-CleanJsonText {
         return $fenceMatch.Groups[1].Value.Trim()
     }
 
+    # Fallback for an unfenced response: find the outermost span, whichever
+    # bracket type actually opens first - [ for the classifier's array, { for
+    # the ID resolver's object. This has to check WHICH one starts first rather
+    # than always trying [ ] before { } - the ID resolver's object has its own
+    # nested array field (urgent_priority_ids: [...]), so a naive "look for [ ]
+    # first" would grab just that inner array instead of the enclosing object.
     $firstBracket = $trimmed.IndexOf('[')
-    $lastBracket = $trimmed.LastIndexOf(']')
-    if ($firstBracket -ge 0 -and $lastBracket -gt $firstBracket) {
-        return $trimmed.Substring($firstBracket, $lastBracket - $firstBracket + 1)
+    $firstBrace = $trimmed.IndexOf('{')
+
+    if ($firstBrace -ge 0 -and ($firstBracket -lt 0 -or $firstBrace -lt $firstBracket)) {
+        $lastBrace = $trimmed.LastIndexOf('}')
+        if ($lastBrace -gt $firstBrace) {
+            return $trimmed.Substring($firstBrace, $lastBrace - $firstBrace + 1)
+        }
+    }
+    elseif ($firstBracket -ge 0) {
+        $lastBracket = $trimmed.LastIndexOf(']')
+        if ($lastBracket -gt $firstBracket) {
+            return $trimmed.Substring($firstBracket, $lastBracket - $firstBracket + 1)
+        }
     }
 
     return $trimmed
@@ -339,14 +399,20 @@ function Write-LogSection {
     Add-Content -Path $LogFile -Value $Content -Encoding UTF8
 }
 
-# --- Build the classifier prompt --- (-Encoding UTF8: see note on $config above)
+# --- Build the ID resolver prompt --- (-Encoding UTF8: see note on $config above)
+$idResolverPromptTemplate = Get-Content $idResolverPromptPath -Raw -Encoding UTF8
+$idResolverPrompt = $idResolverPromptTemplate -replace '\{\{CONFIG_PATH\}\}', $configPath
+
+# --- Build the classifier prompt (TEAM_ID/AGENT_ID substituted after ID resolution runs) ---
 $classifierPromptTemplate = Get-Content $classifierPromptPath -Raw -Encoding UTF8
 $classifierPrompt = $classifierPromptTemplate `
     -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
     -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
     -replace '\{\{CONFIG_PATH\}\}', $configPath
 
-# --- Build the resolver prompt TEMPLATE (ticket ID / tier substituted per ticket later) ---
+# --- Build the resolver prompt TEMPLATE (ticket ID/tier and the resolved Halo IDs
+#     substituted later - ticket ID/tier per ticket, resolved IDs once after ID
+#     resolution runs) ---
 $resolverPromptTemplate = Get-Content $resolverPromptPath -Raw -Encoding UTF8
 $resolverPromptTemplate = $resolverPromptTemplate `
     -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
@@ -359,18 +425,25 @@ if ($DryRun) {
     Write-Host "Business hours: $isBusinessHours"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host ""
+    Write-Host "--- ID Resolution (runs once per cycle, before the classifier) ---"
+    Write-Host "Model: $($config.claude.classifier_model)"
+    Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
+    Write-Host "Allowed tools: $($idResolverTools -join ',')"
+    Write-Host "--- ID resolver prompt ---"
+    Write-Host $idResolverPrompt
+    Write-Host ""
     Write-Host "--- Classifier ---"
     Write-Host "Model: $($config.claude.classifier_model)"
     Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
     Write-Host "Allowed tools: $($classifierTools -join ',')"
-    Write-Host "--- Classifier prompt ---"
+    Write-Host "--- Classifier prompt (TEAM_ID/AGENT_ID shown as placeholders - only resolved on an actual run) ---"
     Write-Host $classifierPrompt
     Write-Host ""
     Write-Host "--- Resolver (per classified ticket) ---"
     Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX'])"
     Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
     Write-Host "Allowed tools: $($resolverTools -join ',')"
-    Write-Host "--- Resolver prompt template (ticket ID/tier shown as placeholders) ---"
+    Write-Host "--- Resolver prompt template (ticket ID/tier and resolved Halo IDs shown as placeholders - only resolved on an actual run) ---"
     Write-Host $resolverPromptTemplate
     return
 }
@@ -387,6 +460,69 @@ if ($WhatIf) {
 Add-Content -Path $logFile -Value $modeLabel -Encoding UTF8
 
 try {
+    # --- Stage 0: resolve Halo team/agent/status/priority IDs once for this cycle ---
+    # These are fixed, deterministic lookups (a name-to-ID match, not ticket-specific
+    # judgment) that never change between tickets in the same cycle, so resolving
+    # them once here - instead of redundantly in the classifier and every single
+    # resolver call - is pure savings. If any name fails to match, abort the whole
+    # cycle rather than let a null/wrong ID silently ride along into every ticket's
+    # resolver call this cycle.
+    $idResolverResult = Invoke-ClaudeCLI -Prompt $idResolverPrompt -Tools $idResolverTools `
+        -Model $config.claude.classifier_model -Effort $config.claude.effort
+    Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $idResolverResult.Raw
+
+    if (-not $idResolverResult.Parsed) {
+        throw "ID resolution call did not return parseable JSON - see the ID RESOLUTION section just written to the log."
+    }
+    if ($idResolverResult.Parsed.is_error) {
+        throw "ID resolution call returned an error: $($idResolverResult.Parsed.result)"
+    }
+
+    $idJsonText = Get-CleanJsonText -Text $idResolverResult.Parsed.result
+    $ids = $null
+    try {
+        # Direct -InputObject call, not piped - see the identical note on $tickets
+        # below for why piping ConvertFrom-Json through another stage is unsafe.
+        $ids = ConvertFrom-Json -InputObject $idJsonText
+    }
+    catch {
+        throw "Could not parse the ID resolution JSON. Raw text: $idJsonText"
+    }
+
+    $missingIdFields = @()
+    foreach ($field in @("team_id", "agent_id", "resolved_status_id", "waiting_status_id", "followup_status_id")) {
+        if ($null -eq $ids.$field) { $missingIdFields += $field }
+    }
+
+    # Wrapped in @(...): same single-element-collapse guard used for $tickets below -
+    # a urgent_priority_names config with exactly one entry would otherwise resolve
+    # to a bare scalar instead of a 1-item array.
+    $urgentPriorityIds = @($ids.urgent_priority_ids)
+    $urgentIdsIsEmpty = (-not $urgentPriorityIds) -or ($urgentPriorityIds.Count -eq 0) -or ($urgentPriorityIds.Count -eq 1 -and $null -eq $urgentPriorityIds[0])
+    $urgentNamesCount = @($config.halo.urgent_priority_names).Count
+    if ($urgentIdsIsEmpty -or ($urgentPriorityIds.Count -ne $urgentNamesCount) -or ($urgentPriorityIds -contains $null)) {
+        $missingIdFields += "urgent_priority_ids"
+    }
+
+    if ($missingIdFields.Count -gt 0) {
+        throw "ID resolution failed to match: $($missingIdFields -join ', ') - check these names in config.json's halo section against what actually exists in Halo (team/status/priority/agent names are case-insensitive but must otherwise match exactly)."
+    }
+
+    $urgentPriorityIdsText = ($urgentPriorityIds -join ", ")
+
+    # Inject the resolved IDs into both the classifier and resolver prompts - from
+    # here on, neither needs to look any of these up itself.
+    $classifierPrompt = $classifierPrompt `
+        -replace '\{\{TEAM_ID\}\}', $ids.team_id `
+        -replace '\{\{AGENT_ID\}\}', $ids.agent_id
+    $resolverPromptTemplate = $resolverPromptTemplate `
+        -replace '\{\{TEAM_ID\}\}', $ids.team_id `
+        -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
+        -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
+        -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
+        -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
+        -replace '\{\{URGENT_PRIORITY_IDS\}\}', $urgentPriorityIdsText
+
     # --- Stage 1: classify ---
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
         -Model $config.claude.classifier_model -Effort $config.claude.effort
@@ -423,6 +559,9 @@ try {
         throw "Could not parse the classifier's ticket/tier list as JSON. Raw classifier result text: $ticketsJsonText"
     }
 
+    $idResolutionCost = 0
+    if ($idResolverResult.Parsed.total_cost_usd) { $idResolutionCost = $idResolverResult.Parsed.total_cost_usd }
+
     $classifierCost = 0
     if ($classifierResult.Parsed.total_cost_usd) { $classifierCost = $classifierResult.Parsed.total_cost_usd }
 
@@ -432,11 +571,12 @@ try {
     $ticketsIsEmpty = (-not $tickets) -or ($tickets.Count -eq 0) -or ($tickets.Count -eq 1 -and $null -eq $tickets[0])
     if ($ticketsIsEmpty) {
         $emptySummary = [PSCustomObject]@{
-            tickets_found       = 0
-            classifier_cost_usd = $classifierCost
-            resolver_cost_usd   = 0
-            total_cost_usd      = $classifierCost
-            tickets             = @()
+            tickets_found         = 0
+            id_resolution_cost_usd = $idResolutionCost
+            classifier_cost_usd   = $classifierCost
+            resolver_cost_usd     = 0
+            total_cost_usd        = $idResolutionCost + $classifierCost
+            tickets               = @()
         }
         Write-LogSection -LogFile $logFile -Header "CYCLE SUMMARY" -Content ($emptySummary | ConvertTo-Json -Compress)
         Add-Content -Path $logFile -Value "----" -Encoding UTF8
@@ -495,11 +635,12 @@ try {
     }
 
     $summary = [PSCustomObject]@{
-        tickets_found       = $tickets.Count
-        classifier_cost_usd = $classifierCost
-        resolver_cost_usd   = $resolverCost
-        total_cost_usd      = $classifierCost + $resolverCost
-        tickets             = $ticketOutcomes
+        tickets_found          = $tickets.Count
+        id_resolution_cost_usd = $idResolutionCost
+        classifier_cost_usd    = $classifierCost
+        resolver_cost_usd      = $resolverCost
+        total_cost_usd         = $idResolutionCost + $classifierCost + $resolverCost
+        tickets                = $ticketOutcomes
     }
     Write-LogSection -LogFile $logFile -Header "CYCLE SUMMARY" -Content ($summary | ConvertTo-Json -Depth 5 -Compress)
     Add-Content -Path $logFile -Value "----" -Encoding UTF8

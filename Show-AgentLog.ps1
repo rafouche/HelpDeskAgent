@@ -4,11 +4,14 @@
     instead of the raw JSON blobs it writes to logs\run-<date>.log / whatif-<date>.log.
 .DESCRIPTION
     Each cycle appends one entry: a "[timestamp] ..." mode line, then one or more
-    "=== HEADER ===" sections (CLASSIFIER, one TICKET <id> per resolved ticket, and
-    a final CYCLE SUMMARY), then a "----" separator. This splits a log file back
-    into those entries and, per section, prints: cost, tokens, turn count, any
-    permission denials (tool calls that were silently blocked - the first thing to
-    check if something seems to do nothing), and the actual text Claude wrote.
+    "=== HEADER ===" sections (ID RESOLUTION, CLASSIFIER, one TICKET <id> per
+    resolved ticket, and a final CYCLE SUMMARY), then a "----" separator. This
+    splits a log file back into those entries and, per section, prints: cost,
+    tokens, turn count, any permission denials (tool calls that were silently
+    blocked - the first thing to check if something seems to do nothing), and
+    the actual text Claude wrote. Any section other than CYCLE SUMMARY renders
+    the same generic way, so a new stage like ID RESOLUTION needs no dedicated
+    handling here.
 
     Also understands the older, pre-classifier/resolver-pipeline log format (a
     single JSON blob per cycle, no "=== HEADER ===" sections) so historical logs
@@ -106,8 +109,12 @@ function Write-CycleSummarySection {
         return
     }
 
-    Write-Host ("Tickets found: {0}   Classifier cost: `${1:N4}   Resolver cost: `${2:N4}   Total: `${3:N4}" -f `
-        $data.tickets_found, $data.classifier_cost_usd, $data.resolver_cost_usd, $data.total_cost_usd) -ForegroundColor Green
+    # id_resolution_cost_usd is absent in logs written before that stage existed -
+    # default to 0 rather than let a $null hit the :N4 format string.
+    $idResolutionCost = if ($null -ne $data.id_resolution_cost_usd) { $data.id_resolution_cost_usd } else { 0 }
+
+    Write-Host ("Tickets found: {0}   ID resolution cost: `${1:N4}   Classifier cost: `${2:N4}   Resolver cost: `${3:N4}   Total: `${4:N4}" -f `
+        $data.tickets_found, $idResolutionCost, $data.classifier_cost_usd, $data.resolver_cost_usd, $data.total_cost_usd) -ForegroundColor Green
 
     if ($data.tickets -and $data.tickets.Count -gt 0) {
         foreach ($t in $data.tickets) {

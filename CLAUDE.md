@@ -14,27 +14,35 @@ It's a **replacement for a Cloudflare Workers annotation-only bot** (`ai-triage-
 in Roger's other MCP-servers project) — this one actually responds to and closes
 tickets, not just annotates them.
 
-Since v2.0.0, each cycle is a **two-stage pipeline**, not one `claude -p` call
+Since v2.0.0, each cycle is a **multi-stage pipeline**, not one `claude -p` call
 that handles every ticket itself: a cheap classifier call tags each candidate
 ticket with a complexity tier, then one resolver call per ticket does the
-actual work, on a model chosen by that ticket's tier. See "Two-stage
-classifier/resolver pipeline" below for the full rationale.
+actual work, on a model chosen by that ticket's tier. Since v2.1.0, a third,
+even cheaper stage runs first: an ID resolver that resolves Halo's team/status/
+priority/agent names to IDs once per cycle and hands them to both the
+classifier and every resolver call, instead of each of those redundantly
+re-resolving the same fixed lookups from scratch. See "Two-stage
+classifier/resolver pipeline" and "No IDs anywhere in config.json" below for
+the full rationale.
 
 ## Files
 - `config.json` — everything a tech should be able to change without touching a
   script: business hours, on-call contact, Halo team/status/priority **names**
-  (never IDs — see "No IDs, ever" below), remediation whitelist, Hudu fix folder,
-  per-tier model/effort settings.
+  (never IDs — see "No IDs anywhere in config.json" below), remediation
+  whitelist, Hudu fix folder, per-tier model/effort settings.
+- `id-resolver-prompt.md` — stage 0: resolve config.json's Halo names to IDs.
+  Run once per cycle, read-only, cheap model, before the classifier.
 - `classifier-prompt.md` — stage 1: find candidate tickets, tag each with a tier.
   Run once per cycle, read-only, cheap model.
 - `resolver-prompt.md` — stage 2: investigate/resolve *one* specific ticket. Run
   fresh once per classified ticket per cycle, full tool set, model chosen by tier.
-- `Invoke-HaloResponseAgent.ps1` — computes business-hours context, runs the
-  classifier call, then loops the resolver call once per classified ticket,
-  logs everything.
+- `Invoke-HaloResponseAgent.ps1` — computes business-hours context, runs the ID
+  resolver call, then the classifier call, then loops the resolver call once
+  per classified ticket, logs everything.
 - `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup.
-- `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (classifier section,
-  one section per resolved ticket, a cost summary) instead of raw JSON.
+- `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
+  section, classifier section, one section per resolved ticket, a cost
+  summary) instead of raw JSON.
 - `README.md` — setup + how-to-extend instructions for a human.
 
 ## Design decisions and why
@@ -80,11 +88,14 @@ model, cost_usd}` array — so a config change to `claude.effort` or a
 
 **No IDs anywhere in config.json.** Every Halo/Ninja/etc. reference in config is a
 plain name exactly as it appears in the actual tool (e.g. `"Help Desk"`, not team
-ID `1`). The agent resolves the real ID itself at runtime via lookup tools
-(`mcp__Halo__list_teams`, `list_statuses`, `list_priorities`,
-`mcp__Ninja__list_automation_scripts`). Reason: a tech editing config shouldn't need
-to hunt down a numeric ID, and config can't silently drift out of sync with Halo if
-it never stores IDs in the first place.
+ID `1`). Reason: a tech editing config shouldn't need to hunt down a numeric ID,
+and config can't silently drift out of sync with Halo if it never stores IDs in
+the first place. Since v2.1.0, a dedicated ID resolver stage (see below) resolves
+Halo's team/status/priority/agent names to IDs once per cycle and hands the
+numbers to the classifier and every resolver call - `mcp__Ninja__list_automation_scripts`
+is the one lookup still done per-ticket by the resolver itself, since which
+script (if any) applies depends on the specific ticket, not a fixed value for
+the whole run.
 
 **Static tool allowlist vs. config.json — different change frequency.** The
 PowerShell script's `$resolverTools`/`$classifierTools` lists are the outer

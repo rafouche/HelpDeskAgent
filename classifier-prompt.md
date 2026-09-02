@@ -29,13 +29,14 @@ response.
 ## Context for this run
 - Current date/time: {{CURRENT_DATETIME}} ({{TIMEZONE}})
 - Config file: {{CONFIG_PATH}}
+- Help Desk team_id: {{TEAM_ID}}
+- `halo.agent_username` agent_id: {{AGENT_ID}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
-and `halo.agent_username` - the two names you need to find candidate tickets.
-Look up the actual IDs yourself, same as everywhere else in this system:
-- Team/agent names -> call `mcp__Halo__list_teams`, `mcp__Halo__list_statuses`,
-  `mcp__Halo__list_priorities`, `mcp__Halo__list_agents` and match by name
-  (case-insensitive). One call each - these are small, fixed lists.
+and `halo.agent_username` - the two names behind the team_id/agent_id above. A
+separate step already resolved both IDs for this run and validated them against
+Halo, so just use the numbers given above directly - no need to call
+`mcp__Halo__list_teams` or `mcp__Halo__list_agents` yourself.
 
 ## Find candidate tickets
 
@@ -45,7 +46,7 @@ unassigned or already assigned to `config.halo.agent_username`. Skip anything
 assigned to, or with a recent reply from, a different Altec agent - that's a
 human already on it, and it costs nothing to leave it out of this cycle
 entirely. Do this filtering by reading the returned team_id/agent_id fields
-directly against the IDs you just resolved above - no second tool call, no
+directly against the team_id/agent_id given above - no second tool call, no
 script, just judgment.
 
 ## Drop already-claimed tickets with nothing new to act on
