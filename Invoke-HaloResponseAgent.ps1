@@ -148,12 +148,18 @@ $resolverTools = @(
     "mcp__CIPP__cipp_api_get",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
+    # list_organizations/list_org_devices: a real run showed the resolver
+    # reaching for these to identify a device by which org/client it belongs
+    # to (instead of guessing from hostname patterns) and getting silently
+    # denied because they were missing here, not because -WhatIf removed them.
     "mcp__Ninja__get_device", "mcp__Ninja__get_device_os_info", "mcp__Ninja__get_device_software",
     "mcp__Ninja__list_device_alerts", "mcp__Ninja__get_device_os_patches", "mcp__Ninja__list_devices",
+    "mcp__Ninja__list_organizations", "mcp__Ninja__list_org_devices",
+    "mcp__Ninja__get_device_volumes", "mcp__Ninja__get_device_network_interfaces",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device", "mcp__Ninja__list_automation_scripts",
 
     # --- Network, read-only ---
-    "mcp__Unifi__list_clients", "mcp__Unifi__get_device", "mcp__Unifi__list_devices",
+    "mcp__Unifi__list_clients", "mcp__Unifi__get_device", "mcp__Unifi__list_devices", "mcp__Unifi__list_sites",
     "mcp__Meraki__get_network_client", "mcp__Meraki__list_org_device_statuses",
 
     # --- Security context, read-only ---
@@ -162,6 +168,7 @@ $resolverTools = @(
     # --- Documentation, read-only (also where per-client 3CX connection details
     #     would live once that system is added - see README) ---
     # NOTE: registered here as "HUDU" (all caps).
+    "mcp__HUDU__company_index_tool",
     "mcp__HUDU__asset_index_tool", "mcp__HUDU__asset_show_tool", "mcp__HUDU__article_index_tool", "mcp__HUDU__article_show_tool",
     # article_folder_index_tool: lets the agent list a folder's contents directly
     # (config's hudu_fix_folder_name) instead of relying only on keyword search,
@@ -197,15 +204,21 @@ if ($WhatIf) {
 
 $simulationBannerLines = @(
     "=== SIMULATION MODE (-WhatIf) ===",
-    "Nothing you do this run will actually happen - every tool that changes a ticket,",
-    "sends a notification, or touches a client system has been removed from your",
-    "allowlist on purpose. Do the full investigation exactly as normal, then instead",
-    "of calling the tool you'd normally use to act, state plainly what you WOULD have",
-    "done: the exact reply text, which status/team/agent_id you'd set, any",
-    "remediation action and its whitelist justification, any on-call notification,",
-    "any Hudu article. Label each one clearly as 'WOULD DO:' so it's obvious this is",
-    "a simulation. Do not attempt to call a tool you no longer have - if",
-    "investigation alone can't rule out an action, just say so.",
+    "Nothing you do this run will actually happen - ONLY the tools that change a",
+    "ticket, send a notification, or touch a client system have been removed from",
+    "your allowlist on purpose. Every read-only/investigative tool (Halo lookups,",
+    "NinjaOne, UniFi, Meraki, Huntress, Hudu reads, KB search, etc.) is still fully",
+    "present and works exactly as it always does - use it normally, the same as any",
+    "other run. If you're ever unsure whether a specific tool is available, just",
+    "call it: a tool you don't have returns a permission denial, not a broken",
+    "session, so there's no need to ask or guess first. Do the full investigation",
+    "exactly as normal, then instead of calling the tool you'd normally use to act,",
+    "state plainly what you WOULD have done: the exact reply text, which",
+    "status/team/agent_id you'd set, any remediation action and its whitelist",
+    "justification, any on-call notification, any Hudu article. Label each one",
+    "clearly as 'WOULD DO:' so it's obvious this is a simulation. Do not attempt to",
+    "call a tool you no longer have - if investigation alone can't rule out an",
+    "action, just say so.",
     "==="
 )
 $simulationBanner = $simulationBannerLines -join "`n"
