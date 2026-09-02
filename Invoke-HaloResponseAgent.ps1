@@ -221,28 +221,29 @@ $modelForTier = @{
 function Get-CleanJsonText {
     param([string]$Text)
     $trimmed = $Text.Trim()
-    if ($trimmed.StartsWith('```')) {
-        # drop the opening fence line (``` or ```json) and a trailing ``` line if
-        # present. Guarded with Count checks before every range slice - PowerShell's
-        # ".." operator returns a DESCENDING sequence (not empty) when start > end,
-        # which would misbehave here on a single-line fenced response.
-        $lines = @($trimmed -split "`r?`n")
-        if ($lines.Count -gt 1) {
-            $lines = $lines[1..($lines.Count - 1)]
-        }
-        else {
-            $lines = @()
-        }
-        if ($lines.Count -gt 0 -and $lines[-1].Trim() -eq '```') {
-            if ($lines.Count -gt 1) {
-                $lines = $lines[0..($lines.Count - 2)]
-            }
-            else {
-                $lines = @()
-            }
-        }
-        $trimmed = ($lines -join "`n").Trim()
+
+    # The classifier is told to respond with ONLY a JSON array, but a real run
+    # showed it ignoring that and writing a full markdown analysis (headers,
+    # a table, bullet points) with the actual array in a fenced code block at
+    # the end. Rather than trust "JSON only" to always hold, find the JSON
+    # wherever it actually is: prefer a fenced ```json/``` block anywhere in
+    # the text (not just one starting at position 0), then fall back to the
+    # outermost [ ... ] span if no fence is present at all.
+    $fenceMatch = [regex]::Match(
+        $trimmed,
+        '```(?:json)?\s*\r?\n(.*?)\r?\n```',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    if ($fenceMatch.Success) {
+        return $fenceMatch.Groups[1].Value.Trim()
     }
+
+    $firstBracket = $trimmed.IndexOf('[')
+    $lastBracket = $trimmed.LastIndexOf(']')
+    if ($firstBracket -ge 0 -and $lastBracket -gt $firstBracket) {
+        return $trimmed.Substring($firstBracket, $lastBracket - $firstBracket + 1)
+    }
+
     return $trimmed
 }
 

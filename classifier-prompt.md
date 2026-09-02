@@ -64,10 +64,14 @@ resolver's job once it's actually working the ticket that earned it.
 ## Output format - this is the only thing that matters
 
 Respond with **only** a JSON array, nothing else - no prose before or after it, no
-markdown code fence, no explanation. One object per candidate ticket:
+markdown code fence, no explanation, no headers, no bulleted or numbered list, no
+table. Not "here are the candidates, then the array" - just the array, as the
+entire response. One object per candidate ticket:
 
 ```
 [{"ticket_id": 21461, "tier": "TRIVIAL"}, {"ticket_id": 21458, "tier": "COMPLEX"}]
 ```
 
-If there are no candidate tickets this cycle, respond with exactly `[]`.
+If there are no candidate tickets this cycle, respond with exactly `[]`. Whatever
+reasoning led you to each tier, keep it to yourself - a separate process reads only
+this array, so anything else you write is wasted output nobody will ever see.
