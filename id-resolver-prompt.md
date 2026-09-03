@@ -34,26 +34,21 @@ plain names - resolve each to its Halo ID:
   `halo.follow_up_status_name` -> call `mcp__Halo__list_statuses` ONCE and match
   all three names against that single response (case-insensitive) ->
   `resolved_status_id`, `waiting_status_id`, `followup_status_id`
-- `halo.urgent_priority_names` (an array of names) -> call `mcp__Halo__list_priorities`
-  ONCE and match every name in the array against that single response
-  (case-insensitive) -> `urgent_priority_ids`, an array in the same order and the
-  same length as `urgent_priority_names`. Resolve each name independently and
-  carefully - these are different priority levels (e.g. "Urgent" vs "Critical"),
-  so they almost always have different IDs. If you find yourself about to write
-  the same ID for two different names, stop and re-check the list rather than
-  reusing a value out of convenience - a repeated ID here most likely means you
-  matched the wrong entry for one of them, not that two distinct priorities
-  happen to share a record.
 
-That's exactly 4 tool calls total (one per list_* tool) - never call any of them
+Do not resolve `halo.urgent_priority_names` - there is currently no tool that
+can set a ticket's priority, so nothing would ever consume that ID, and Halo's
+priority list is scoped per SLA policy (the same severity tier can have a
+different name under each SLA, e.g. "Urgent"/"Critical"/"Critial" are really
+one tier under three different SLAs, not three distinct levels) - not
+something worth resolving until there's an actual way to act on it.
+
+That's exactly 3 tool calls total (one per list_* tool) - never call any of them
 more than once, and never call `mcp__Halo__get_ticket` or `mcp__Halo__list_tickets`
 at all, you have no need for ticket data here.
 
 If a name doesn't match anything in the corresponding list, don't guess and don't
-omit it - set that specific field to `null` (or, for an entry in
-`urgent_priority_ids`, `null` at that position in the array) so the caller can see
-exactly which name failed to resolve and stop the run rather than silently using a
-wrong ID.
+omit it - set that specific field to `null` so the caller can see exactly which
+name failed to resolve and stop the run rather than silently using a wrong ID.
 
 ## Output format - this is the only thing that matters
 
@@ -62,7 +57,7 @@ markdown code fence, no explanation, no headers, no bulleted list. Exactly these
 keys:
 
 ```
-{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "urgent_priority_ids": [2, 3, null]}
+{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33}
 ```
 
 Every key must be present even if its value is `null`. Whatever reasoning led you

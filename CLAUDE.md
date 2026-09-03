@@ -265,3 +265,49 @@ config tweak. Not worth building preemptively.
   `mcp__<ServerName>__<tool>` form from the start and confirm the server name via
   `claude mcp list` on the actual machine — don't assume it matches the vendor's
   display name.
+
+## Known gaps and future work
+
+Found by directly querying the live Halo instance (`list_ticket_types`,
+`list_priorities`, `get_ticket`, `update_ticket`'s real schema) rather than
+assuming from config.json alone:
+
+- **Ticket type is not used anywhere in this pipeline yet.** Halo has ~30 real
+  ticket types (`mcp__Halo__list_ticket_types`) — Incident, Alert, Huntress,
+  Service Request, Print Services Request, several onboarding/offboarding
+  request types, etc. — each with its own `default_team`/`default_priority`/
+  `default_sla`. Neither the classifier nor the resolver looks at
+  `tickettype_id` today. Worth factoring into classification eventually (e.g. a
+  ticket type could hint at tier, or route to a different investigation path
+  entirely), but that's a real design question, not a config tweak.
+- **Halo scopes priority names per SLA policy, not globally.** `list_priorities`
+  returns rows keyed by both a GUID (`id`) and a small integer (`priorityid`,
+  1–4: top tier/High/Medium/Low), each also carrying an `slaid` (this instance
+  has 3 SLA policies). The same severity tier can have a different display
+  name under each SLA - confirmed "Urgent" (slaid 2), "Critical" (slaid 1), and
+  "Critial" (slaid 3, a typo that's genuinely in Halo, not a config mistake)
+  are all `priorityid: 1` - the same tier, not three distinct ones. A real
+  ticket's own `priority_id` field matches the embedded priority object's
+  `priorityid`, not the GUID - if a priority-setting capability is ever added,
+  resolve to `priorityid`, not `id`.
+- **There is currently no tool that can set a ticket's priority, impact,
+  urgency, or ticket type at all.** `mcp__Halo__update_ticket`'s real parameter
+  schema is only `agent_id`, `note`, `note_is_private`, `status_id`, `team_id`,
+  `ticket_id` - confirmed directly, not assumed. This is why `config.json`'s
+  `halo.urgent_priority_names` is no longer resolved to IDs (see v2.3.0 above)
+  and why the emergency-escalation section of `resolver-prompt.md` can only
+  flag the need for an urgent priority in an internal note rather than actually
+  set one. Closing this gap needs either the Halo MCP server exposing a
+  priority/impact/urgency/type parameter on `update_ticket` (out of this repo's
+  control - that server is a separate project) or a different tool entirely.
+- **Halo already computes its own AI suggestions on every ticket** -
+  `ai_suggested_priority`, `ai_suggested_urgency`, `ai_suggested_impact`, and
+  `ai_suggested_type` are real fields returned by `get_ticket`, unused by this
+  pipeline. Worth considering as an additional signal for the classifier (or a
+  sanity check against its own judgment) once ticket-type/impact-aware
+  classification is actually being designed.
+- **Impact and urgency are separate fields from priority**, following the
+  standard ITIL model (`impact` × `urgency` → `priority`) - `get_ticket` returns
+  `impact`, `urgency`, `impactlevel` (currently always 0 on this instance), and
+  `impactdescription` (currently always blank) as distinct fields from
+  `priority`/`priority_id`. Not consumed anywhere in this pipeline yet.

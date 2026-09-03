@@ -23,7 +23,7 @@
   },
 
   "halo": {
-    "_comment": "These must match team/status/agent names exactly as they appear in Halo. 'agent_username' is the Halo user account the agent works as: it claims unassigned tickets under that name and picks back up tickets already assigned to it. Change this if you rename the account or swap to a different one - nothing else needs to change, the agent re-resolves the ID by name every run.",
+    "_comment": "These must match team/status/agent names exactly as they appear in Halo. 'agent_username' is the Halo user account the agent works as: it claims unassigned tickets under that name and picks back up tickets already assigned to it. Change this if you rename the account or swap to a different one - nothing else needs to change, the agent re-resolves the ID by name every run. 'urgent_priority_names' is currently unused by the pipeline (kept only to document intent) - Halo's list_priorities scopes priority names per SLA policy, so 'Urgent'/'Critical'/'Critial' aren't three severity levels, they're one tier named differently under three different SLAs, and more importantly mcp__Halo__update_ticket has no priority parameter at all, so there's no tool that could act on a resolved ID here yet. See CLAUDE.md's 'Known gaps' section.",
     "agent_username": "Artie Fischel",
     "help_desk_team_name": "Help Desk",
     "resolved_status_name": "Resolved",

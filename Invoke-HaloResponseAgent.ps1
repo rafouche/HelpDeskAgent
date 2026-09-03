@@ -43,6 +43,19 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.3.0 - stopped resolving urgent_priority_names to IDs at all.
+    Direct inspection of a real Halo instance found two things: (1) Halo scopes
+    priorities per SLA policy, so the same severity tier can have a different
+    name under each SLA - "Urgent"/"Critical"/"Critial" turned out to be one
+    tier (priorityid 1) under three different SLAs, not three distinct levels,
+    which is why they'd resolved to the same id (a real, correct result that
+    2.2.0's duplicate-id check would have wrongly flagged as an error on every
+    future cycle - that check is removed along with the resolution it was
+    guarding). (2) mcp__Halo__update_ticket has no priority parameter at all,
+    so nothing could ever have consumed these IDs regardless - resolver-
+    prompt.md's "set an urgent priority" instruction was never actually
+    achievable and has been replaced with an internal-note-only fallback (see
+    its Emergency escalation section) until a tool exists that can act on it.
     Version: 2.2.0 - the ID resolution stage (added in 2.1.0) is now cached to
     disk (resolved-ids-cache.json) instead of running a fresh claude -p call
     every single cycle. The cache is keyed on the exact halo.* names in
@@ -178,12 +191,15 @@ $resolverTools = @(
     "Read", "ToolSearch",
 
     # --- Halo: read + reply/update ---
-    # list_teams/list_statuses/list_priorities/list_agents are deliberately NOT
-    # here, same reasoning as $classifierTools above - the ID resolver stage
-    # already resolved and validated team_id/agent_id/all three status_ids/
-    # urgent priority_id(s) for this run (see resolver-prompt.md's Context
-    # section), so every ticket's resolver call would otherwise redundantly
-    # redo the same 4 fixed lookups from scratch.
+    # list_teams/list_statuses/list_agents are deliberately NOT here, same
+    # reasoning as $classifierTools above - the ID resolver stage already
+    # resolved and validated team_id/agent_id/all three status_ids for this run
+    # (see resolver-prompt.md's Context section), so every ticket's resolver
+    # call would otherwise redundantly redo the same fixed lookups from
+    # scratch. list_priorities was never added here either: get_ticket's own
+    # response already embeds the ticket's current priority object directly,
+    # and there's no tool that can change a ticket's priority anyway (see
+    # resolver-prompt.md's emergency-escalation section).
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
     "mcp__Halo__list_kb_articles", "mcp__Halo__get_kb_article",
     "mcp__Halo__update_ticket",
@@ -348,9 +364,10 @@ function Get-CleanJsonText {
     # Fallback for an unfenced response: find the outermost span, whichever
     # bracket type actually opens first - [ for the classifier's array, { for
     # the ID resolver's object. This has to check WHICH one starts first rather
-    # than always trying [ ] before { } - the ID resolver's object has its own
-    # nested array field (urgent_priority_ids: [...]), so a naive "look for [ ]
-    # first" would grab just that inner array instead of the enclosing object.
+    # than always trying [ ] before { } - if the ID resolver's object ever gains
+    # a nested array-valued field again, a naive "look for [ ] first" would grab
+    # just that inner array instead of the enclosing object (this bit an earlier
+    # version that briefly had an array field here).
     $firstBracket = $trimmed.IndexOf('[')
     $firstBrace = $trimmed.IndexOf('{')
 
@@ -504,7 +521,6 @@ try {
         resolved_status_name          = $config.halo.resolved_status_name
         waiting_on_client_status_name = $config.halo.waiting_on_client_status_name
         follow_up_status_name         = $config.halo.follow_up_status_name
-        urgent_priority_names         = @($config.halo.urgent_priority_names)
     }
     $currentHaloIdentityJson = $currentHaloIdentity | ConvertTo-Json -Compress
 
@@ -520,15 +536,6 @@ try {
     if (Test-Path $idCachePath) {
         try {
             $cached = Get-Content $idCachePath -Raw -Encoding UTF8 | ConvertFrom-Json
-            # Normalize urgent_priority_names the same way $currentHaloIdentity
-            # builds it (always @()-wrapped) before comparing - ConvertFrom-Json
-            # collapses a 1-element JSON array to a bare scalar, which would
-            # otherwise make a single-urgent-priority-name config never match
-            # its own cache (a safe but wasteful always-miss, not a correctness
-            # bug, since it would just mean this edge case never actually caches).
-            if ($cached.input) {
-                $cached.input.urgent_priority_names = @($cached.input.urgent_priority_names)
-            }
             $cachedInputJson = $cached.input | ConvertTo-Json -Compress
             $cachedAgeHours = ((Get-Date) - [datetime]$cached.resolved_at).TotalHours
             if ($cachedInputJson -eq $currentHaloIdentityJson -and $cachedAgeHours -le $idCacheMaxAgeHours) {
@@ -581,30 +588,6 @@ try {
         if ($null -eq $ids.$field) { $missingIdFields += $field }
     }
 
-    # Wrapped in @(...): same single-element-collapse guard used for $tickets below -
-    # a urgent_priority_names config with exactly one entry would otherwise resolve
-    # to a bare scalar instead of a 1-item array.
-    $urgentPriorityIds = @($ids.urgent_priority_ids)
-    $urgentIdsIsEmpty = (-not $urgentPriorityIds) -or ($urgentPriorityIds.Count -eq 0) -or ($urgentPriorityIds.Count -eq 1 -and $null -eq $urgentPriorityIds[0])
-    $urgentNamesCount = @($config.halo.urgent_priority_names).Count
-    $urgentIdsWellFormed = (-not $urgentIdsIsEmpty) -and ($urgentPriorityIds.Count -eq $urgentNamesCount) -and (-not ($urgentPriorityIds -contains $null))
-    if (-not $urgentIdsWellFormed) {
-        $missingIdFields += "urgent_priority_ids"
-    }
-    elseif ($urgentPriorityIds.Count -gt 1) {
-        # A real run resolved 3 different priority names ("Urgent", "Critical",
-        # "Critial") to the SAME id - passes every check above (no nulls, right
-        # length) but is still almost certainly wrong: distinct priority levels
-        # essentially never share one Halo record. Catch that pattern
-        # specifically, since it's exactly the kind of "looks fine, is actually
-        # wrong" result the other checks can't see - using the wrong urgent
-        # priority id on a genuine emergency ticket is a real, if quiet, harm.
-        $duplicateIds = $urgentPriorityIds | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name }
-        if ($duplicateIds.Count -gt 0) {
-            $missingIdFields += "urgent_priority_ids (two or more different priority names resolved to the same id: $($duplicateIds -join ', ') - almost certainly a resolution error, not a real Halo coincidence)"
-        }
-    }
-
     if ($missingIdFields.Count -gt 0) {
         if ($usedCachedIds) {
             throw "Cached ID resolution data failed validation: $($missingIdFields -join ', ') - delete $idCachePath to force a fresh resolution, or check config.json's halo section against Halo."
@@ -612,15 +595,13 @@ try {
         throw "ID resolution failed to match: $($missingIdFields -join ', ') - check these names in config.json's halo section against what actually exists in Halo (team/status/priority/agent names are case-insensitive but must otherwise match exactly)."
     }
 
-    $urgentPriorityIdsText = ($urgentPriorityIds -join ", ")
-
     if ($usedCachedIds) {
         # Log a lightweight confirmation, not the full claude-call section (there
         # was no claude call this cycle) - shaped like a no-cost claude response so
         # Show-AgentLog.ps1 renders it the same way as every other section instead
         # of hitting its "couldn't parse" fallback.
         $cacheNoteContent = [PSCustomObject]@{
-            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), urgent_priority_ids=$urgentPriorityIdsText"
+            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id)"
         } | ConvertTo-Json -Compress
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
     }
@@ -655,8 +636,7 @@ try {
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
-        -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
-        -replace '\{\{URGENT_PRIORITY_IDS\}\}', $urgentPriorityIdsText
+        -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id
 
     # --- Stage 1: classify ---
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
