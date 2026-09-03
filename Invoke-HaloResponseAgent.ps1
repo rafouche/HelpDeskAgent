@@ -42,7 +42,60 @@
     anywhere. This is the one to use to see real decisions on real tickets before
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
+.PARAMETER RequireApproval
+    Run for real, but hold every client-facing reply and remediation action for
+    a human to approve first, rather than sending/running it immediately - the
+    "human guardrails" rollout stage between -WhatIf and unsupervised live
+    running. Needs config.json's halo.ai_waiting_approval_status_name and
+    halo.ai_approved_status_name set to two custom statuses you create in Halo
+    first (see README's "Human approval mode" section) - the switch hard-errors
+    before calling claude at all if either is blank or doesn't resolve.
+    A first-pass ticket gets investigated exactly as normal, but instead of
+    actually replying/acting, the resolver writes what it would have done into
+    a private note, sets the ticket to ai_waiting_approval_status_name, and
+    unassigns itself. A human reviews that note in Halo and flips the status to
+    ai_approved_status_name to approve it (or just leaves it/reassigns it
+    manually to reject). The next cycle picks up any ai_approved_status_name
+    ticket, reassigns itself, actually sends the approved reply, runs any
+    approved remediation action, and applies the originally-intended final
+    status - see the approval banner built at runtime (not a static part of
+    classifier-prompt.md/resolver-prompt.md) for the exact mechanics. The one
+    exception: the brief emergency on-call acknowledgment still sends
+    immediately, same as always, since on-call is already being paged at that
+    same moment - only the detailed follow-up reply and any remediation action
+    wait for approval. Remediation-mutating tools (password reset, reboot,
+    script run) are physically removed from a non-approved ticket's allowlist,
+    not just discouraged in the prompt; the "is this a private draft or a real
+    reply" distinction on `update_ticket` itself can't be enforced that way
+    (both are the same tool, just different arguments), so that part relies on
+    the prompt being followed, the same trust level as the rest of this
+    system's safety rules (ticket-ownership checks, whitelist compliance).
+    Combine with -WhatIf to safely dry-run the whole approval choreography
+    against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.8.0 - added -RequireApproval, a human-sign-off mode for the
+    transition from -WhatIf testing to unsupervised live running (see the
+    .PARAMETER RequireApproval block above for the full mechanics). Two new
+    optional config.json fields (halo.ai_waiting_approval_status_name/
+    ai_approved_status_name, blank unless you're using the switch) resolved
+    from the SAME list_statuses call Stage 0 already makes for the other three
+    statuses - no extra tool call. A new "APPROVED" tier (cheap model, since
+    it's a mechanical replay, not fresh diagnosis) drives a per-ticket tool
+    selection that didn't exist before this version: which tool list a ticket
+    gets now depends on that ticket's OWN tier, not just a single cycle-wide
+    switch, since an APPROVED ticket needs the full mutating toolset to
+    execute what was approved while every other ticket under -RequireApproval
+    gets remediation-mutating tools physically removed. classifier-prompt.md
+    and resolver-prompt.md themselves are unchanged - the whole feature is an
+    "approval banner" built at runtime from Stage 0's resolved IDs and
+    prepended to each prompt only when the switch is active, same pattern as
+    the existing -WhatIf simulation banner, so a run without the switch is
+    byte-for-byte the same prompt as before this version. Confirmed directly
+    (not assumed) that mcp__Halo__update_ticket has no way to edit or delete
+    an existing note - only add a new one - so "delete the private draft note"
+    from the original ask is implemented as "add a note marking the draft
+    historical" instead; see CLAUDE.md for why a literal delete isn't
+    possible here.
     Version: 2.7.3 - the first -WhatIf run after the halopsa-mcp fix landed
     caught a real edge case: ticket 21577 showed agent_id: 1 (the unassigned
     sentinel) but its action history (now readable thanks to that fix) showed
@@ -222,7 +275,8 @@
 param(
     [string]$RootPath = $PSScriptRoot,
     [switch]$DryRun,
-    [switch]$WhatIf
+    [switch]$WhatIf,
+    [switch]$RequireApproval
 )
 
 $ErrorActionPreference = "Stop"
@@ -474,9 +528,32 @@ $mutatingTools = @(
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
 )
 
-if ($WhatIf) {
-    $resolverTools = $resolverTools | Where-Object { $mutatingTools -notcontains $_ }
-}
+# Subset of $mutatingTools that -RequireApproval strips from a non-APPROVED-tier
+# ticket (see the per-ticket tool selection below). Deliberately narrower than
+# $mutatingTools: mcp__Halo__update_ticket itself CANNOT be stripped here, because
+# -RequireApproval's own "draft note + AI Waiting Approval status + unassign"
+# bookkeeping (see the approval banner below) is itself a real update_ticket call
+# that must succeed - only the CONTENT of that call (private draft vs. a real
+# public reply) tells the two apart, which isn't something a tool allowlist can
+# enforce. mcp__Microsoft365__outlook_send_mail is also deliberately absent - the
+# on-call notification it sends is an internal alert to Altec's own team, not
+# client correspondence, so it's never gated. What CAN be enforced at the
+# allowlist level - and is - is that a non-APPROVED-tier ticket physically cannot
+# call a remediation action, regardless of what the prompt says.
+$remediationMutatingTools = @(
+    "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
+)
+
+# Base allowlist plus one pre-filtered variant for -RequireApproval, computed
+# once here - the per-ticket loop below picks which one a given ticket actually
+# gets, since -RequireApproval's filtering depends on that ticket's own tier
+# (APPROVED vs. everything else), not a single cycle-wide switch. -WhatIf's own
+# filtering (by $mutatingTools, a superset of $remediationMutatingTools) is
+# applied inline in that same loop instead of precomputed here, since it always
+# applies uniformly regardless of tier - no per-ticket variant needed for it.
+$resolverToolsFull = $resolverTools
+$resolverToolsApprovalStripped = $resolverToolsFull | Where-Object { $remediationMutatingTools -notcontains $_ }
 #endregion STATIC TOOL ALLOWLISTS
 
 $simulationBannerLines = @(
@@ -509,6 +586,11 @@ $modelForTier = @{
     "TRIVIAL_UNCERTAIN" = $config.claude.resolver_model_trivial
     "MEDIUM"            = $config.claude.resolver_model_medium
     "COMPLEX"           = $config.claude.resolver_model_complex
+    # APPROVED (-RequireApproval only): a human already approved a previously
+    # drafted reply/remediation - this pass replays it rather than re-diagnosing,
+    # so it gets the cheap model like TRIVIAL does, regardless of how complex the
+    # original ticket was.
+    "APPROVED"          = $config.claude.resolver_model_trivial
 }
 
 function Get-CleanJsonText {
@@ -635,6 +717,13 @@ if ($DryRun) {
     Write-Host "=== DRY RUN ==="
     Write-Host "Business hours: $isBusinessHours"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
+    Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
+    if ($RequireApproval) {
+        Write-Host "  NOTE: the approval banner (FLOW A/FLOW B, per-ticket tool selection)" -ForegroundColor Yellow
+        Write-Host "  is built from Stage 0's resolved IDs and isn't shown below - it doesn't" -ForegroundColor Yellow
+        Write-Host "  exist yet at -DryRun's no-Halo-calls preview stage. Run -WhatIf" -ForegroundColor Yellow
+        Write-Host "  -RequireApproval together to see it for real without touching Halo." -ForegroundColor Yellow
+    }
     Write-Host ""
     Write-Host "--- ID Resolution (runs once per cycle, before the classifier - skipped entirely on a cache hit) ---"
     Write-Host "Model: $($config.claude.classifier_model)"
@@ -653,7 +742,7 @@ if ($DryRun) {
     Write-Host $classifierPrompt
     Write-Host ""
     Write-Host "--- Resolver (per classified ticket) ---"
-    Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX'])"
+    Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX']), APPROVED=$($modelForTier['APPROVED'])"
     Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
     Write-Host "Allowed tools: $($resolverTools -join ',')"
     Write-Host "--- Resolver prompt template (ticket ID/tier and resolved Halo IDs shown as placeholders - only resolved on an actual run) ---"
@@ -686,11 +775,13 @@ try {
     # itself changes (a team gets renamed, an agent account gets recreated) without
     # config.json's text changing at all.
     $currentHaloIdentity = [PSCustomObject]@{
-        help_desk_team_name           = $config.halo.help_desk_team_name
-        agent_username                = $config.halo.agent_username
-        resolved_status_name          = $config.halo.resolved_status_name
-        waiting_on_client_status_name = $config.halo.waiting_on_client_status_name
-        follow_up_status_name         = $config.halo.follow_up_status_name
+        help_desk_team_name              = $config.halo.help_desk_team_name
+        agent_username                   = $config.halo.agent_username
+        resolved_status_name             = $config.halo.resolved_status_name
+        waiting_on_client_status_name    = $config.halo.waiting_on_client_status_name
+        follow_up_status_name            = $config.halo.follow_up_status_name
+        ai_waiting_approval_status_name  = $config.halo.ai_waiting_approval_status_name
+        ai_approved_status_name          = $config.halo.ai_approved_status_name
     }
     $currentHaloIdentityJson = $currentHaloIdentity | ConvertTo-Json -Compress
 
@@ -765,6 +856,20 @@ try {
         throw "ID resolution failed to match: $($missingIdFields -join ', ') - check these names in config.json's halo section against what actually exists in Halo (team/status/priority/agent names are case-insensitive but must otherwise match exactly)."
     }
 
+    # ai_waiting_approval_status_id/ai_approved_status_id are optional everywhere
+    # above (a blank config value resolves to null on purpose, not a failure) -
+    # but -RequireApproval can't function at all without both, so it gets its own
+    # hard check here rather than joining the always-required list above.
+    if ($RequireApproval) {
+        $missingApprovalFields = @()
+        foreach ($field in @("ai_waiting_approval_status_id", "ai_approved_status_id")) {
+            if ($null -eq $ids.$field) { $missingApprovalFields += $field }
+        }
+        if ($missingApprovalFields.Count -gt 0) {
+            throw "-RequireApproval needs both halo.ai_waiting_approval_status_name and halo.ai_approved_status_name set in config.json to real Halo status names, but $($missingApprovalFields -join ', ') did not resolve - create both as custom statuses in Halo first (see README's 'Human approval mode' section), then set their exact names in config.json."
+        }
+    }
+
     # ticket_type_names is a readability aid (translates a ticket's bare
     # tickettype_id into a name for the classifier/resolver's own judgment),
     # not a value used in any actual API call - a problem here gets a warning,
@@ -796,7 +901,7 @@ try {
         # Show-AgentLog.ps1 renders it the same way as every other section instead
         # of hitting its "couldn't parse" fallback.
         $cacheNoteContent = [PSCustomObject]@{
-            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ticket_type_names_count=$ticketTypeCount"
+            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ai_waiting_approval_status_id=$($ids.ai_waiting_approval_status_id), ai_approved_status_id=$($ids.ai_approved_status_id), ticket_type_names_count=$ticketTypeCount"
         } | ConvertTo-Json -Compress
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
     }
@@ -834,6 +939,131 @@ try {
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id
+
+    # --- Approval-mode banners (-RequireApproval only) - built here, not up with
+    #     $simulationBanner, because they need $ids.ai_waiting_approval_status_id/
+    #     ai_approved_status_id, which only exist after Stage 0 resolves (or loads
+    #     from cache) above. See CLAUDE.md's "Human approval mode" section for the
+    #     full design rationale. ---
+    if ($RequireApproval) {
+        $classifierApprovalBannerLines = @(
+            "=== APPROVAL MODE (-RequireApproval) ===",
+            "This run requires human sign-off before any client-facing reply or",
+            "remediation action happens for real - see the resolver's own approval-mode",
+            "banner for what that means downstream. It changes two things about how you",
+            "build today's candidate list:",
+            "",
+            "1. SKIP ENTIRELY any ticket whose status_id is $($ids.ai_waiting_approval_status_id)",
+            "   (config's ai_waiting_approval_status_name) - it already has a drafted",
+            "   reply/action sitting in a private note, waiting on a human to review. Do",
+            "   not include it as a candidate; re-processing it wastes cost and risks",
+            "   clobbering the pending draft.",
+            "2. DO include any ticket whose status_id is $($ids.ai_approved_status_id)",
+            "   (config's ai_approved_status_name) as a candidate, even though it's still",
+            "   unassigned (agent_id: 1) - a human approved its draft and it's ready to",
+            "   actually send. Tag it with tier `"APPROVED`" specifically, not your usual",
+            "   TRIVIAL/MEDIUM/COMPLEX judgment - this ticket's tier was already decided",
+            "   last cycle; your only job for it now is flagging it so the resolver runs",
+            "   its approval-completion flow instead of tiering it fresh.",
+            "",
+            "Every other candidate-selection/tiering rule in this document still applies",
+            "as normal to every other ticket.",
+            "==="
+        )
+        $classifierPrompt = ($classifierApprovalBannerLines -join "`n") + "`n`n" + $classifierPrompt
+
+        $approvalBannerLines = @(
+            "=== APPROVAL MODE (-RequireApproval) ===",
+            "This run requires a human to sign off before any client-facing reply or",
+            "remediation action happens for real. Two flows - which one applies depends",
+            "on the tier given above.",
+            "",
+            "FLOW A - tier is APPROVED (a human already approved this ticket's draft):",
+            "skip everything else in this document, including re-diagnosing - do only",
+            "this:",
+            "1. Get this ticket's notes/actions (mcp__Halo__get_ticket_time_entries -",
+            "   despite the name, this is HaloPSA's ticket conversation/notes endpoint)",
+            "   and find the ONE private note starting with the exact line",
+            "   `"[DRAFT PENDING APPROVAL]`". If you find zero or more than one, stop -",
+            "   add an internal note flagging the mismatch and do nothing else; don't",
+            "   guess which draft is the real one.",
+            "2. Read its structure: the text after that first line is the exact",
+            "   client-facing reply a human approved, verbatim - don't edit, improve, or",
+            "   shorten it. A line `"[INTENDED STATUS] <name>`" names the status to set",
+            "   afterward. A line `"[INTENDED ASSIGNMENT] keep`" or `"...unassign`" says",
+            "   whether to stay assigned to yourself or hand back to the Help Desk queue",
+            "   unassigned. A line `"[INTENDED REMEDIATION] none`" or `"...  <description>`"",
+            "   names the exact whitelisted remediation action, if any, queued for this",
+            "   ticket, with enough detail (target device/account) to actually perform it",
+            "   now.",
+            "3. Assign yourself to the ticket (mcp__Halo__update_ticket, your resolved",
+            "   agent_id) - its own call, before anything else below.",
+            "4. If [INTENDED REMEDIATION] isn't `"none`": perform EXACTLY that action now,",
+            "   matching the remediation whitelist the same way you always would. Can't",
+            "   tell exactly what it meant (which device, which account)? Stop and flag it",
+            "   in an internal note rather than guessing or substituting a different",
+            "   target. Real time has passed and you're no longer confident this specific",
+            "   action is still safe to run as recorded? Say so in an internal note and",
+            "   stop rather than run stale intent blindly.",
+            "5. Post the approved text from step 2 as a real, public, client-facing reply",
+            "   (mcp__Halo__update_ticket, note_is_private: false) - its own call,",
+            "   unchanged from what was drafted.",
+            "6. There is no tool that can delete or edit an existing Halo note -",
+            "   update_ticket can only add a new one. So instead of literally deleting the",
+            "   draft, add one more private note in the same final call as step 7:",
+            "   `"Approved and sent - see the reply above. (The draft note above is now`"",
+            "   `"historical, not pending.)`" - this keeps the record unambiguous for anyone",
+            "   reading the ticket later, without a delete that isn't actually possible.",
+            "7. In that same call: set status to [INTENDED STATUS] and agent_id/team_id",
+            "   per [INTENDED ASSIGNMENT] (unassign -> agent_id: 1, team back to",
+            "   help_desk_team_name - same as any other escalation; keep -> leave assigned",
+            "   to yourself).",
+            "8. Print your one-line summary and stop - nothing else in this document",
+            "   applies to an APPROVED-tier ticket (Hudu documentation, if warranted,",
+            "   already happened when the draft was written).",
+            "",
+            "FLOW B - every other tier: work the rest of this document completely",
+            "normally (investigate, judge difficulty, decide on a reply and/or a",
+            "remediation action) with one change at the very end. Wherever this document",
+            "would have you send a real, public, client-facing reply OR take a",
+            "remediation action (password reset/unlock/reboot/script run), do this",
+            "instead, in one update_ticket call:",
+            "1. note: a single private note, in this exact structure - `"[DRAFT PENDING",
+            "   APPROVAL]`" on its own line, then the full client-facing reply text you",
+            "   would have sent, verbatim, exactly as you'd have sent it live; then a line",
+            "   `"[INTENDED STATUS] <name>`" (whichever this document's own rules would",
+            "   have set - resolved_status_name/waiting_on_client_status_name/",
+            "   follow_up_status_name); then a line `"[INTENDED ASSIGNMENT] keep`" or",
+            "   `"...unassign`" (keep if you'd have stayed assigned to yourself -",
+            "   Resolved/Waiting on client -, unassign if you'd have handed it back to the",
+            "   queue - Follow Up Needed/escalation); then a line",
+            "   `"[INTENDED REMEDIATION] none`" or `"...  <exact whitelisted action +",
+            "   target>`" (e.g. `"Reset M365 password for jsmith@client.com`" or `"Run",
+            "   NinjaOne script 'Reset Printing' on device WKS-1234`") - specific enough",
+            "   that FLOW A can execute this exact action later without re-diagnosing.",
+            "2. note_is_private: true.",
+            "3. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name).",
+            "4. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",
+            "   as yours while it waits).",
+            "Do not actually take the remediation action, and do not post any real",
+            "client-facing reply this cycle - only the private draft note above.",
+            "",
+            "ONE EXCEPTION: the brief EMERGENCY acknowledgment (`"We've identified this as",
+            "a priority issue and are notifying our on-call engineer now`") still sends",
+            "for real, immediately, exactly as the emergency section describes - on-call",
+            "is already being paged at the same moment, so this one message isn't held",
+            "back. Only the detailed follow-up reply (once you've actually investigated)",
+            "goes through the draft/approve flow above. The on-call notification itself",
+            "(email/text) is never gated either - it's an internal alert to your own team,",
+            "not client correspondence.",
+            "",
+            "Everything else in this document (investigation, judgment, Hudu",
+            "documentation) still happens normally under FLOW B - only the outgoing",
+            "reply/remediation is held back.",
+            "==="
+        )
+        $approvalBanner = $approvalBannerLines -join "`n"
+    }
 
     # --- Stage 1: classify ---
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
@@ -912,12 +1142,30 @@ try {
         $resolverPrompt = $resolverPromptTemplate `
             -replace '\{\{TICKET_ID\}\}', $ticketId `
             -replace '\{\{TIER\}\}', $tier
+        if ($RequireApproval) {
+            $resolverPrompt = $approvalBanner + "`n`n" + $resolverPrompt
+        }
         if ($WhatIf) {
             $resolverPrompt = $simulationBanner + "`n`n" + $resolverPrompt
         }
 
+        # Which tool list a ticket gets depends on ITS OWN tier, not just the
+        # cycle-wide switches - an APPROVED ticket needs the full mutating set to
+        # actually execute what was approved, while every other ticket under
+        # -RequireApproval gets the remediation-mutating tools physically removed
+        # (see $resolverToolsApprovalStripped above). -WhatIf's full strip always
+        # applies on top, regardless of tier, since nothing should touch anything
+        # real in a simulation run.
+        $ticketTools = $resolverToolsFull
+        if ($RequireApproval -and $tier -ne 'APPROVED') {
+            $ticketTools = $resolverToolsApprovalStripped
+        }
+        if ($WhatIf) {
+            $ticketTools = $ticketTools | Where-Object { $mutatingTools -notcontains $_ }
+        }
+
         try {
-            $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $resolverTools `
+            $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
                 -Model $model -Effort $config.claude.effort
             Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model)" -Content $resolverResult.Raw
 

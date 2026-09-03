@@ -34,6 +34,15 @@ plain names - resolve each to its Halo ID:
   `halo.follow_up_status_name` -> call `mcp__Halo__list_statuses` ONCE and match
   all three names against that single response (case-insensitive) ->
   `resolved_status_id`, `waiting_status_id`, `followup_status_id`
+- `halo.ai_waiting_approval_status_name` and `halo.ai_approved_status_name` ->
+  match against that SAME `list_statuses` response (no extra call) ->
+  `ai_waiting_approval_status_id`, `ai_approved_status_id`. These two are
+  **optional** - unlike every other field above, a blank value in config.json
+  (empty string) is expected and normal (most runs don't use `-RequireApproval`
+  at all), not something to resolve or flag - just set the corresponding ID to
+  `null` directly without attempting a match. Only if the config value is
+  non-blank and still doesn't match anything in `list_statuses` does the
+  "don't guess, set null" rule below apply to it the same as any other field.
 
 You also need to build a lookup table the classifier and resolver both use to
 make sense of a ticket's `tickettype_id` field (a bare number in the ticket
@@ -61,7 +70,7 @@ markdown code fence, no explanation, no headers, no bulleted list. Exactly these
 keys:
 
 ```
-{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ticket_type_names": {"1": "Incident", "21": "Alert"}}
+{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "ticket_type_names": {"1": "Incident", "21": "Alert"}}
 ```
 
 Every key must be present even if its value is `null` (except `ticket_type_names`,

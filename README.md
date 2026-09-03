@@ -76,16 +76,97 @@ bigger one and a full tool loop).
    agent seems to do nothing), and the actual report text. Pass `-LogFile` to
    point at a specific file, `-Last N` for the last N entries, or `-All` for
    the whole file.
-5. **Run it once for real** and check it the same way:
+5. **Once `-WhatIf` looks good, run supervised-live with `-RequireApproval`** before
+   trusting it fully unsupervised — see "Human approval mode" below for what this
+   does and how to set it up. This is the recommended step before 6, not optional
+   busywork: it's the difference between reading transcripts of what the agent
+   *would* have said and seeing exactly what it's about to actually send, with a
+   chance to catch a bad reply before a client ever sees it.
+6. **Run it once fully live** (no `-WhatIf`, no `-RequireApproval`) and check it the
+   same way:
    ```powershell
    .\Invoke-HaloResponseAgent.ps1
    .\Show-AgentLog.ps1 -LogFile .\logs\run-<date>.log
    ```
-6. **Register the schedule** (as Administrator):
+7. **Register the schedule** (as Administrator):
    ```powershell
    .\Register-HaloResponseAgentTask.ps1
    ```
-   Default is every 10 minutes, 24/7. Adjust with `-IntervalMinutes`.
+   Default is every 10 minutes, 24/7. Adjust with `-IntervalMinutes`. If you're
+   still in the `-RequireApproval` rollout stage, edit the scheduled task's action
+   afterward to add `-RequireApproval` to its arguments — `Register-HaloResponseAgentTask.ps1`
+   itself doesn't have a switch for this yet.
+
+## Human approval mode
+
+A middle ground between `-WhatIf` (nothing happens, just narration) and running
+fully live (every reply and remediation action goes out immediately): every
+client-facing reply and remediation action is held for a human to review and
+approve first, in Halo itself, before anything actually reaches a client or
+touches a system.
+
+**One-time setup, before you ever pass `-RequireApproval`:**
+1. In Halo, create two new custom ticket statuses — call them whatever reads
+   clearly to your team, e.g. **"AI Waiting Approval"** and **"AI Approved"**.
+2. Put those exact names in `config.json`'s `halo.ai_waiting_approval_status_name`
+   and `halo.ai_approved_status_name` (case-insensitive, but otherwise exact —
+   same rule as every other name in the `halo` section). Leave both blank if
+   you're not using this mode at all.
+
+**Then run with the switch:**
+```powershell
+.\Invoke-HaloResponseAgent.ps1 -RequireApproval
+```
+(If either status name above is blank or doesn't match a real Halo status, this
+fails immediately with a clear error — it won't silently run unsupervised.)
+
+**What happens on a first-pass ticket:** the agent investigates exactly as
+normal, but instead of sending the reply or running a remediation action for
+real, it writes what it would have done into a **private** note, sets the
+ticket to your `ai_waiting_approval_status_name` status, and unassigns itself.
+Open the ticket in Halo, read that private note — it's the exact client-facing
+text and the exact remediation action (if any) the agent wants to take.
+
+**To approve it:** just change the ticket's status to `ai_approved_status_name`
+in Halo — that's the whole approval action, nothing else to click. On the next
+scheduled run, the agent picks it back up, reassigns itself, actually runs the
+approved remediation action (if any), actually sends the approved reply, and
+sets the ticket to whatever its originally-planned final status was
+(Resolved/Waiting on client/Follow Up Needed). **To reject it:** don't change
+the status — it's your call whether to edit the note yourself and reassign the
+ticket to a person, leave it for the agent to reconsider on a later run, or
+anything else; the agent will just leave an untouched `ai_waiting_approval_status_name`
+ticket alone rather than re-drafting or re-costing on it every cycle.
+
+**One exception:** the brief emergency on-call acknowledgment
+("we've identified this as a priority issue and are notifying our on-call
+engineer") still sends immediately, same as fully-live mode — on-call is
+already being paged at that same moment, so holding back a one-line
+acknowledgment doesn't add safety, only delay. Everything else about that
+ticket (the actual diagnosis, the detailed follow-up reply) still goes through
+the approval flow above.
+
+**What this does and doesn't guarantee:** remediation actions (password reset,
+reboot, running a whitelisted script) are physically blocked on a not-yet-approved
+ticket — the tool itself is removed from that call's allowlist, not just
+discouraged in the prompt, so a mistake there fails loudly rather than quietly
+running. Whether a given `update_ticket` call is the safe private draft or a
+real client-facing reply isn't something a tool allowlist can tell apart (it's
+the same tool either way, just different arguments), so that part relies on the
+agent following the instructions correctly — the same trust level as the rest
+of this system's safety rules (ticket-ownership checks, remediation-whitelist
+compliance), which has held up across many real `-WhatIf` runs so far.
+
+You can also combine both switches (`-WhatIf -RequireApproval`) to see the whole
+draft/approve choreography play out against live ticket data with nothing
+actually written to Halo at all — useful for validating this mode itself before
+trusting it with real client tickets.
+
+Once you're comfortable with what's coming out of this mode, stop passing
+`-RequireApproval` (edit the scheduled task's arguments back) and the agent
+goes back to running exactly as it did before this mode existed — no config
+changes needed, since a run without the switch never looks at either new status
+name at all.
 
 ## Editing config.json — no IDs, ever
 Everything in `config.json` is a plain name, exactly as it appears in Halo or

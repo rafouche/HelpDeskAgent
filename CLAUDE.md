@@ -139,6 +139,71 @@ back to the agent's account for wrap-up/closure after fixing the underlying issu
 the agent would need to recognize that case as "confirm and close," not
 "re-diagnose from scratch."
 
+**Human approval mode (`-RequireApproval`, v2.8.0) — the rollout stage between
+`-WhatIf` and unsupervised live.** Roger's own framing: run live, but hold every
+client-facing reply and remediation action in a private note first, flip a
+status to mark it waiting, and only actually send/run it once a human flips the
+status to approved on a later cycle. Design decisions worth recording:
+- **Two new Halo statuses, not a new mechanism.** `ai_waiting_approval_status_name`/
+  `ai_approved_status_name` in `config.json`'s `halo` section, resolved the same
+  way as every other status name (same `list_statuses` call, no extra tool
+  call) - blank unless you're using the switch, and a hard PS1-level error if
+  the switch is passed while either is blank or unresolved. The "approve"
+  action is just a human changing a ticket's status in Halo directly - no new
+  UI, no new tool, nothing to build there.
+- **Scope of the gate, decided with Roger rather than assumed:** remediation
+  actions (password reset, reboot, script run) wait for approval too, not just
+  the reply text - "Both wait" was the explicit choice over "correspondence
+  only." The one exception is the brief emergency on-call acknowledgment,
+  which still sends immediately since on-call is already being paged at that
+  same moment - "Send immediately" was the explicit choice there, over holding
+  literally every message including that one.
+- **Per-ticket tool selection, not per-cycle.** Before this version, a
+  cycle's resolver tool list was one fixed thing for every ticket (full, or
+  -WhatIf-stripped). This version introduces the first *per-ticket* tool
+  selection: a ticket classified `APPROVED` gets the full mutating toolset (it
+  needs to actually execute what was approved); every other ticket under
+  `-RequireApproval` gets remediation-mutating tools (CIPP reset/enable, Ninja
+  reboot/run-script) physically removed - real defense in depth, not just a
+  prompt instruction, so a reasoning mistake fails loudly (permission denial)
+  rather than quietly executing.
+- **Why `update_ticket` itself can't be stripped for a non-approved ticket:**
+  the draft-mode bookkeeping (writing the private note, setting
+  `ai_waiting_approval_status_name`, unassigning) is ITSELF a real,
+  legitimate `update_ticket` call that must succeed - the same tool a real
+  client-facing reply would also use. Allowlists work at tool-name
+  granularity, not call-content granularity, so there's no way to permit "a
+  private note" but block "a public reply" via the allowlist alone; that
+  distinction is enforced by the prompt (the approval banner), at the same
+  trust level as every other judgment call this system already makes
+  unsupervised (ticket-ownership checks, remediation-whitelist compliance).
+  Worth knowing plainly, not glossing over: this one piece is not physically
+  guaranteed the way the remediation-tool stripping is.
+- **No delete-note tool exists - confirmed directly, not assumed.**
+  `mcp__Halo__update_ticket`'s real schema (agent_id/note/note_is_private/
+  status_id/team_id/ticket_id) can only ADD a note, never edit or delete one -
+  same fact already established when the priority/impact/urgency gap was
+  investigated. Roger's original ask ("delete the private note") therefore
+  becomes "add a new note marking the old draft historical, right after
+  sending the real reply" - the record stays unambiguous for a human reading
+  the ticket later, without a delete that isn't actually possible.
+- **The two-phase note protocol is plain-text, not a structured API.** A
+  first-pass draft note is a private note starting with the literal line
+  `[DRAFT PENDING APPROVAL]`, followed by the exact reply text, then
+  `[INTENDED STATUS] <name>`, `[INTENDED ASSIGNMENT] keep|unassign`, and
+  `[INTENDED REMEDIATION] none|<description>` lines - the only channel
+  connecting the two resolver calls (first-pass and approval-pass) is this
+  note's text, since they're separate `claude -p` sessions with no shared
+  memory. The approval-pass resolver is told to stop and flag rather than
+  guess if it finds zero or more than one such note, or can't tell exactly
+  what a recorded remediation action meant.
+- **`classifier-prompt.md`/`resolver-prompt.md` themselves are unchanged.**
+  The whole feature is an "approval banner" built at runtime in
+  `Invoke-HaloResponseAgent.ps1` from Stage 0's resolved IDs and prepended to
+  each prompt only when `-RequireApproval` is passed - same pattern as the
+  existing `-WhatIf` simulation banner. A run without the switch sends the
+  exact same prompt bytes as before this version existed.
+
 **Cross-client fix history + Hudu documentation.** Before diagnosing anything
 non-trivial, the agent searches past tickets *org-wide* (`mcp__Halo__list_tickets`
 with a `search` term and no `client_id`) plus Halo KB and the Hudu `AI-Documented Fixes`
