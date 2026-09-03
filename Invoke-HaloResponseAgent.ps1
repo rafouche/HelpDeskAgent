@@ -43,6 +43,19 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.7.3 - the first -WhatIf run after the halopsa-mcp fix landed
+    caught a real edge case: ticket 21577 showed agent_id: 1 (the unassigned
+    sentinel) but its action history (now readable thanks to that fix) showed
+    a human colleague actively coordinating an on-site visit and a vendor
+    part - Halo appears to clear the assignment as a side effect of a
+    "Waiting on vendor" status change, not because the ticket is actually
+    free. The resolver caught this correctly on its own judgment, but
+    resolver-prompt.md never told it to check for this, so it was relying on
+    the model happening to look - the same class of gap as the original
+    agent_id: 0 vs 1 sentinel ambiguity. resolver-prompt.md's "Claim the
+    ticket" section now explicitly says to pull action history before
+    claiming an agent_id: 1 ticket and treat recent human activity on it the
+    same as an explicit different-agent assignment.
     Version: 2.7.2 - no code or prompt change, CLAUDE.md correction only. A
     separate session fixed halopsa-mcp itself: 5 of its tools (including
     get_ticket_time_entries/list_time_entries) were silently 404ing because

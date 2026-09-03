@@ -85,6 +85,23 @@ summary noting you skipped it because it belongs to a different agent (the
 numeric agent_id is enough - a human reviewing this can look it up in Halo
 directly), and stop there - no further steps below apply to this ticket.
 
+**`agent_id: 1` is not always a reliable "genuinely unassigned" signal by
+itself - a real run caught a ticket where it wasn't.** A ticket in certain
+workflow statuses (e.g. "Waiting on vendor") can show `agent_id: 1` even
+while a human colleague is actively working it - Halo appears to clear the
+assignment as a side effect of that status, not because the ticket is free.
+Before claiming an `agent_id: 1` ticket, pull its notes/actions
+(`mcp__Halo__get_ticket_time_entries` - despite the name, this is HaloPSA's
+ticket conversation/notes endpoint, not just billable time) and check
+whether a specific human agent has recent activity on it (coordinating a
+vendor/on-site visit, a diagnosis note, a status change they made). If so,
+treat it exactly like the "assigned to a different agent" case above - stop,
+don't claim or touch it, and say in your one-line summary which agent's
+activity you found and why you're treating `agent_id: 1` as not actually
+free. Only proceed with claiming it if the action history is genuinely
+empty or stale (no recent human activity), matching a real first-pass
+unassigned ticket.
+
 ## If the assigned tier is TRIVIAL_UNCERTAIN
 
 Don't run the full investigate/resolve process below. Read the ticket, identify the
