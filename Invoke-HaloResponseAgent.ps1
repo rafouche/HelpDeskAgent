@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.8.1 - two findings from real -WhatIf/-RequireApproval runs.
+    First: on a ticket Halo hasn't triaged yet (a distinct Halo workflow step,
+    not just a status value), mcp__Halo__update_ticket can silently accept a
+    note/agent_id/team_id change and report success while it never actually
+    lands - only status_id reliably takes effect pre-triage. No tool here can
+    trigger Halo's triage directly, so resolver-prompt.md now has a dedicated
+    section requiring a re-fetch-and-confirm after every note/assignment
+    write, one retry via a status-only update (unverified whether this
+    actually triages the ticket, but cheap to try), and a stop-and-flag if it
+    still doesn't land - this is a detection/mitigation fix, not a root-cause
+    fix, since nothing available can confirm or drive Halo's real triage
+    mechanism from here. The -RequireApproval FLOW A/FLOW B banner text now
+    points at this same section too, since their whole mechanism depends on a
+    note actually landing. Second: confirmed directly (no create-contact tool
+    and no user/contact parameter on update_ticket exist in this toolset) that
+    there's currently no way to create a new Halo contact or relink a ticket
+    to one - a real scenario when a new employee at an existing client emails
+    in before their contact record exists. resolver-prompt.md now has the
+    agent flag this with a "NEEDS CONTACT CREATED - " internal note carrying
+    the company/name/email it found in the ticket body, rather than attempt
+    something no available tool can actually do. See CLAUDE.md's "Known gaps"
+    section for what halopsa-mcp would need to add to close this for real.
     Version: 2.8.0 - added -RequireApproval, a human-sign-off mode for the
     transition from -WhatIf testing to unsupervised live running (see the
     .PARAMETER RequireApproval block above for the full mechanics). Two new
@@ -997,7 +1019,10 @@ try {
             "   ticket, with enough detail (target device/account) to actually perform it",
             "   now.",
             "3. Assign yourself to the ticket (mcp__Halo__update_ticket, your resolved",
-            "   agent_id) - its own call, before anything else below.",
+            "   agent_id) - its own call, before anything else below. Verify it landed",
+            "   per resolver-prompt.md's untriaged-ticket section before proceeding - the",
+            "   fact you found a draft note at all means a PRIOR write landed, but that",
+            "   doesn't guarantee THIS one will.",
             "4. If [INTENDED REMEDIATION] isn't `"none`": perform EXACTLY that action now,",
             "   matching the remediation whitelist the same way you always would. Can't",
             "   tell exactly what it meant (which device, which account)? Stop and flag it",
@@ -1017,7 +1042,9 @@ try {
             "7. In that same call: set status to [INTENDED STATUS] and agent_id/team_id",
             "   per [INTENDED ASSIGNMENT] (unassign -> agent_id: 1, team back to",
             "   help_desk_team_name - same as any other escalation; keep -> leave assigned",
-            "   to yourself).",
+            "   to yourself). Verify steps 5-7 all actually landed per",
+            "   resolver-prompt.md's untriaged-ticket section before your summary below -",
+            "   don't report `"sent`" if the reply never actually posted.",
             "8. Print your one-line summary and stop - nothing else in this document",
             "   applies to an APPROVED-tier ticket (Hudu documentation, if warranted,",
             "   already happened when the draft was written).",
@@ -1045,8 +1072,12 @@ try {
             "3. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name).",
             "4. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",
             "   as yours while it waits).",
-            "Do not actually take the remediation action, and do not post any real",
-            "client-facing reply this cycle - only the private draft note above.",
+            "Verify this call actually landed per resolver-prompt.md's untriaged-ticket",
+            "section - an untriaged ticket can silently drop the note/agent_id part of",
+            "this exact call while still applying the status_id part, which would leave",
+            "the ticket looking like it's waiting for approval with nothing to actually",
+            "approve. Do not actually take the remediation action, and do not post any",
+            "real client-facing reply this cycle - only the private draft note above.",
             "",
             "ONE EXCEPTION: the brief EMERGENCY acknowledgment (`"We've identified this as",
             "a priority issue and are notifying our on-call engineer now`") still sends",

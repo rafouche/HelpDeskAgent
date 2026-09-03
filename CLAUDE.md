@@ -406,6 +406,42 @@ assuming from config.json alone:
   for the classifier (or a sanity check against its own judgment) - deferred
   since it's a distinct design question from "does impact/type inform tier at
   all," which v2.4.0 already answers.
+- **No tool exists to create a Halo contact/user, or to relink a ticket to a
+  different one** (found v2.8.1) - confirmed directly by checking the real
+  tool list, not assumed: no `create_contact`/`create_user`-style tool exists
+  anywhere in this toolset, and `mcp__Halo__update_ticket`'s real schema
+  (`agent_id`/`note`/`note_is_private`/`status_id`/`team_id`/`ticket_id`) has
+  no user/contact parameter at all. Real scenario this blocks: a new employee
+  at an existing client company emails in before their contact record exists
+  in Halo, so the ticket has no contact properly linked even though the
+  company name, the person's name, and their email are all sitting in the
+  ticket body. `resolver-prompt.md` now has the agent flag this with a
+  `"NEEDS CONTACT CREATED - "` internal note carrying those three pieces of
+  info, so a human can create the contact and relink the ticket in under a
+  minute, rather than attempt something no available tool can do. Closing
+  this for real needs the Halo MCP server (`halopsa-mcp`, a separate project -
+  see the CIPP/Huntress tool-gap entries elsewhere in this file for how
+  responsive that project's maintainer has been) to add a contact-creation
+  tool and either a user/contact parameter on `update_ticket` or a dedicated
+  "relink ticket to contact" tool.
+- **Halo has its own ticket-triage workflow step that can silently swallow a
+  note/assignment write** (found v2.8.1, via real `-WhatIf`/`-RequireApproval`
+  testing) - distinct from this pipeline's own classifier/tier terminology,
+  and distinct from a ticket's status field. On an untriaged ticket,
+  `update_ticket` accepts a `note`/`agent_id`/`team_id` change and reports
+  success, but the change never actually lands - only `status_id` reliably
+  takes effect. No tool here can trigger Halo's triage directly, and no field
+  on a ticket exposes whether it's been triaged, so this can't be detected in
+  advance, only after the fact by re-fetching and comparing.
+  `resolver-prompt.md` now requires exactly that (re-fetch and confirm after
+  every note/assignment write, one retry via a status-only update, then
+  stop-and-flag for human triage if it still doesn't land) - a
+  detection/mitigation fix, not a root-cause one, since nothing available can
+  drive or confirm Halo's real triage mechanism from here. Worth watching
+  whether the "retry with a status-only update" step actually helps in
+  practice or is just a wasted call - it's an untested hypothesis built on
+  the one thing that IS confirmed (status changes take effect pre-triage),
+  not a confirmed fix in its own right.
 - **CORRECTED - "no tool for ticket notes" was wrong; the bullet that used to
   be here is superseded.** It said `get_ticket_time_entries`/`list_time_entries`
   were "the wrong data entirely (billable labor time, not message content) -

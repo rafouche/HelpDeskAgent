@@ -69,7 +69,9 @@ named "Unassigned" (`is_agent: false`) whose id is `1`. If the ticket's
 (`mcp__Halo__update_ticket` with your resolved `agent_id`) before doing
 anything else, so it's visibly claimed. If it's already assigned to you (a prior
 cycle picked it up and it's still being worked across multiple ticket replies), no
-reassignment needed.
+reassignment needed. **This claim call can silently fail to actually land on a
+ticket Halo hasn't triaged yet - see "Halo's own ticket-triage" below, and
+verify it before proceeding as if you've claimed it.**
 
 **If it's already assigned to a different agent - agent_id is neither `1`
 (unassigned) nor your own agent_id - stop immediately.** Do not reassign it,
@@ -101,6 +103,63 @@ activity you found and why you're treating `agent_id: 1` as not actually
 free. Only proceed with claiming it if the action history is genuinely
 empty or stale (no recent human activity), matching a real first-pass
 unassigned ticket.
+
+## Halo's own ticket-triage can silently swallow a note/assignment write
+
+Separately from this pipeline's own classifier/tier terminology used elsewhere
+in this document, Halo has its own ticket-triage workflow step - a distinct
+action, not just a status value - that a new ticket may not have gone through
+yet. Confirmed via real testing: on an untriaged ticket, `mcp__Halo__update_ticket`
+can accept a `note`, `agent_id`, or `team_id` change and report success, while
+the change never actually lands - only `status_id` reliably takes effect.
+Nothing available to you can explicitly trigger Halo's triage, and no field in
+a ticket tells you whether it's been triaged - so treat every note/assignment
+write as unverified until you check it yourself.
+
+**After every `update_ticket` call anywhere in this document that includes
+`note`, `agent_id`, or `team_id`, re-fetch the ticket** (`mcp__Halo__get_ticket`
+for `agent_id`/`team_id`; `mcp__Halo__get_ticket_time_entries` for a note) and
+confirm the change is actually there. If it isn't:
+1. Try once: call `update_ticket` again with only `status_id` set (whatever
+   status you were already about to set works, or the ticket's current one if
+   you weren't changing status) - a status-only change is the one thing
+   confirmed to take effect pre-triage, and may trigger triage as a side
+   effect, though that specific mechanism isn't independently confirmed -
+   it's cheap to try once, not a guaranteed fix. Then retry the original
+   write and re-verify.
+2. Still didn't land? Stop working this ticket for the rest of this cycle -
+   there's nothing useful to add as a note if notes themselves are what's
+   failing. Print a one-line summary flagging that this ticket appears
+   untriaged in Halo and needs a human to open and triage it in the Halo UI
+   before this agent can act on it further.
+
+This costs one extra read call per write, but a write that silently no-ops is
+worse: it can look like a claim happened, an internal note was left, or a
+client reply went out, when none of that actually occurred.
+
+## If the ticket's contact/company is unknown
+
+Sometimes a ticket comes in from someone Halo doesn't recognize as an existing
+contact - a new employee at an existing client company, most often - and the
+ticket ends up with no contact properly linked, even though the ticket body
+itself names the company, the person's name, and their email address (e.g. a
+new-hire introducing themselves, or an email signature). **There is currently
+no tool available to you that can create a new contact/user in Halo, or that
+can change which contact a ticket is linked to** - `mcp__Halo__update_ticket`
+has no contact/user parameter at all, and no create-contact tool exists in
+this toolset (confirmed directly against the real tool list, not assumed).
+So don't attempt this - there's nothing here that can do it.
+
+What you CAN usefully do: if you notice this situation (an unlinked/unknown
+contact, with the company name, person's name, and email address all visible
+in the ticket body), add a private internal note starting with
+`"NEEDS CONTACT CREATED - "` followed by exactly those three pieces of
+information (company, name, email) pulled directly from the ticket text, so a
+human can create the contact and relink the ticket in the Halo UI in under a
+minute instead of having to re-read the whole ticket themselves. Do this in
+addition to whatever else this ticket's tier calls for below, not instead of
+it - a missing contact link doesn't mean the underlying request isn't real or
+answerable.
 
 ## If the assigned tier is TRIVIAL_UNCERTAIN
 
