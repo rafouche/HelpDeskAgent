@@ -272,14 +272,21 @@ Found by directly querying the live Halo instance (`list_ticket_types`,
 `list_priorities`, `get_ticket`, `update_ticket`'s real schema) rather than
 assuming from config.json alone:
 
-- **Ticket type is not used anywhere in this pipeline yet.** Halo has ~30 real
-  ticket types (`mcp__Halo__list_ticket_types`) — Incident, Alert, Huntress,
-  Service Request, Print Services Request, several onboarding/offboarding
-  request types, etc. — each with its own `default_team`/`default_priority`/
-  `default_sla`. Neither the classifier nor the resolver looks at
-  `tickettype_id` today. Worth factoring into classification eventually (e.g. a
-  ticket type could hint at tier, or route to a different investigation path
-  entirely), but that's a real design question, not a config tweak.
+- **Ticket type and impact are now used for classification (v2.4.0).**
+  `list_tickets`/`get_ticket` already return `tickettype_id`, `impact`, and
+  `urgency` inline - no new tool calls needed. The ID resolver (Stage 0) calls
+  `mcp__Halo__list_ticket_types` once and builds an id->name lookup table
+  (`{{TICKET_TYPE_NAMES}}`, same pattern as team/status/agent), and both
+  `classifier-prompt.md` and `resolver-prompt.md` now treat `impact: 1`
+  ("Company Wide") as a second, independent signal toward COMPLEX/EMERGENCY
+  CANDIDATE, plus give judgment guidance on machine-generated types (Alert,
+  Huntress) and HR/admin-coordination types (New Starter/Leaver/Administrator
+  Rights/Hardware Collection Request). This is prompt-level judgment guidance,
+  not a hard rule engine - there's no per-type routing table, and impact/type
+  don't gate candidacy, only inform the tier the classifier/resolver already
+  judge from wording. A finer-grained design (e.g. a per-type default
+  investigation path) is still open if the current guidance doesn't prove
+  sufficient in practice.
 - **Halo scopes priority names per SLA policy, not globally.** `list_priorities`
   returns rows keyed by both a GUID (`id`) and a small integer (`priorityid`,
   1–4: top tier/High/Medium/Low), each also carrying an `slaid` (this instance
@@ -297,17 +304,15 @@ assuming from config.json alone:
   `halo.urgent_priority_names` is no longer resolved to IDs (see v2.3.0 above)
   and why the emergency-escalation section of `resolver-prompt.md` can only
   flag the need for an urgent priority in an internal note rather than actually
-  set one. Closing this gap needs either the Halo MCP server exposing a
-  priority/impact/urgency/type parameter on `update_ticket` (out of this repo's
-  control - that server is a separate project) or a different tool entirely.
+  set one - the impact/type awareness added in v2.4.0 informs the tier/urgency
+  judgment, it doesn't let the resolver act on impact/priority/type directly.
+  Closing this gap needs either the Halo MCP server exposing a priority/
+  impact/urgency/type parameter on `update_ticket` (out of this repo's control
+  - that server is a separate project) or a different tool entirely.
 - **Halo already computes its own AI suggestions on every ticket** -
   `ai_suggested_priority`, `ai_suggested_urgency`, `ai_suggested_impact`, and
-  `ai_suggested_type` are real fields returned by `get_ticket`, unused by this
-  pipeline. Worth considering as an additional signal for the classifier (or a
-  sanity check against its own judgment) once ticket-type/impact-aware
-  classification is actually being designed.
-- **Impact and urgency are separate fields from priority**, following the
-  standard ITIL model (`impact` × `urgency` → `priority`) - `get_ticket` returns
-  `impact`, `urgency`, `impactlevel` (currently always 0 on this instance), and
-  `impactdescription` (currently always blank) as distinct fields from
-  `priority`/`priority_id`. Not consumed anywhere in this pipeline yet.
+  `ai_suggested_type` are real fields returned by `get_ticket`, still unused by
+  this pipeline even after v2.4.0. Worth considering as an additional signal
+  for the classifier (or a sanity check against its own judgment) - deferred
+  since it's a distinct design question from "does impact/type inform tier at
+  all," which v2.4.0 already answers.

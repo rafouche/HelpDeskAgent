@@ -31,6 +31,7 @@ response.
 - Config file: {{CONFIG_PATH}}
 - Help Desk team_id: {{TEAM_ID}}
 - `halo.agent_username` agent_id: {{AGENT_ID}}
+- Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
 and `halo.agent_username` - the two names behind the team_id/agent_id above. A
@@ -87,6 +88,28 @@ or if for some reason it was never actually worked despite being assigned.
   wording looks** - err toward COMPLEX rather than under-classifying urgency, since
   tier selects which model resolves it and an emergency deserves the more capable
   one even if the ask itself is short.
+
+Two more fields are already sitting in the same `list_tickets` response you're
+already reading - no extra tool call, just look at them:
+
+- **`impact`** - `1` = Company Wide, `2` = Multiple Users, `3` = Single User.
+  `impact: 1` means the ticket itself is telling you this affects the whole
+  client, not just one person - treat that as at least COMPLEX regardless of
+  how mundane the wording sounds, the same way the "active outage" rule above
+  already asks you to. This is a second, independent signal for the same
+  judgment call, not a new one - use it to catch cases the wording alone might
+  undersell.
+- **`tickettype_id`** (translate via the id->name map above) - most candidates
+  will be ordinary end-user request types and don't need special handling. Two
+  patterns worth knowing: a machine-generated monitoring type ("Alert",
+  "Huntress") can read as cryptic or technical - don't under-tier it just
+  because the wording isn't a plain English sentence; judge it by what it's
+  actually reporting, the same as anything else. An HR/admin-coordination type
+  ("New Starter Request", "Leaver Request", "Administrator Rights Request",
+  "Hardware Collection Request" and similar) often needs a human to actually
+  coordinate the outcome even when the ask reads simply - when in doubt on one
+  of these, tier it MEDIUM rather than TRIVIAL so the more capable resolver
+  model is the one deciding whether it can help or just needs to route it.
 
 You're triaging from the ticket list and its latest messages - you don't need the
 full thread history, time entries, or KB/Hudu prior-art search; that's the

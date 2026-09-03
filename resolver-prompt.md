@@ -35,6 +35,7 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - `resolved_status_name` status_id: {{RESOLVED_STATUS_ID}}
 - `waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
+- Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 
 Read the config file first with the Read tool. It has business hours, on-call contact
 info, Halo team/status/agent names, and the whitelist of remediation actions you may
@@ -96,7 +97,16 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    - ONGOING - you (or a prior agent run) already replied, client replied back.
    - EMERGENCY CANDIDATE - language or symptoms suggesting a real outage (server
      down, "everyone is down," phones down, ransomware/security indicators, etc.),
-     checked regardless of time of day or assigned tier.
+     checked regardless of time of day or assigned tier. `get_ticket`'s response
+     includes `impact` (`1` = Company Wide, `2` = Multiple Users, `3` = Single
+     User) directly - `impact: 1` is the ticket itself telling you this affects
+     everyone, which is a strong, independent signal toward EMERGENCY CANDIDATE
+     even if the wording sounds mild; weigh it alongside the language/symptoms
+     above, not instead of them. `tickettype_id` (translate via the id->name map
+     above) is useful context too - a machine-generated type ("Alert",
+     "Huntress") reporting a real outage or security event is still an
+     emergency, judge it by what it's reporting, not by the fact that a
+     monitoring system filed it.
 3. **Check for prior art, then investigate.** Before diagnosing from scratch on
    anything that isn't an obvious slam-dunk (password reset, etc.), search for
    whether this has come up before - `mcp__Halo__list_tickets` with a keyword `search`

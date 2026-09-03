@@ -43,6 +43,22 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.4.0 - ticket-type/impact-aware classification. list_tickets and
+    get_ticket already return tickettype_id, impact, and urgency inline - no
+    new tool calls needed, just better use of data already being fetched. The
+    ID resolver (Stage 0) now also calls list_ticket_types once and builds a
+    ticket_type_names id->name lookup table (same pattern as team/status/
+    agent), injected into both the classifier and resolver prompts as
+    {{TICKET_TYPE_NAMES}}. classifier-prompt.md and resolver-prompt.md both
+    now treat impact:1 ("Company Wide") as a second, independent signal toward
+    COMPLEX/EMERGENCY CANDIDATE alongside the existing wording-based judgment,
+    and both give guidance on machine-generated ticket types (Alert, Huntress -
+    judge by what's reported, not by the fact that a monitoring system filed
+    it) and HR/admin-coordination types (New Starter/Leaver/Administrator
+    Rights/Hardware Collection Request - often need human coordination even
+    when the ask reads simply). A missing/empty ticket_type_names is a warning,
+    not an aborted cycle, since it's a readability aid (translating a bare
+    tickettype_id into a name) rather than a value used in any actual API call.
     Version: 2.3.0 - stopped resolving urgent_priority_names to IDs at all.
     Direct inspection of a real Halo instance found two things: (1) Halo scopes
     priorities per SLA policy, so the same severity tier can have a different
@@ -152,14 +168,17 @@ $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 # nothing, this is the first thing to check.
 
 # ID resolver: runs once per cycle, before the classifier, to resolve config.json's
-# plain Halo names (team/agent/status/priority) into IDs - a deterministic lookup
-# that never changes between tickets in the same cycle, so paying for it once here
-# instead of redundantly in the classifier and every single resolver call is pure
-# savings. See id-resolver-prompt.md.
+# plain Halo names (team/agent/status) into IDs, plus build a ticket-type
+# id-to-name lookup table (list_ticket_types - a small, fixed catalog, same
+# reasoning as team/agent/status) - all deterministic lookups that never change
+# between tickets in the same cycle, so paying for them once here instead of
+# redundantly in the classifier and every single resolver call is pure savings.
+# list_priorities deliberately NOT here - see id-resolver-prompt.md for why
+# urgent_priority_names is no longer resolved at all. See id-resolver-prompt.md.
 $idResolverTools = @(
     "Read", "ToolSearch",
-    "mcp__Halo__list_teams", "mcp__Halo__list_statuses", "mcp__Halo__list_priorities",
-    "mcp__Halo__list_agents"
+    "mcp__Halo__list_teams", "mcp__Halo__list_statuses",
+    "mcp__Halo__list_agents", "mcp__Halo__list_ticket_types"
 )
 
 # Classifier: read-only, just enough to find and skim candidate tickets. Never
@@ -595,13 +614,38 @@ try {
         throw "ID resolution failed to match: $($missingIdFields -join ', ') - check these names in config.json's halo section against what actually exists in Halo (team/status/priority/agent names are case-insensitive but must otherwise match exactly)."
     }
 
+    # ticket_type_names is a readability aid (translates a ticket's bare
+    # tickettype_id into a name for the classifier/resolver's own judgment),
+    # not a value used in any actual API call - a problem here gets a warning,
+    # not an aborted cycle. Worst case, the classifier/resolver just see the
+    # raw numeric tickettype_id without a friendly name this cycle.
+    $ticketTypeNamesText = "(unavailable - ticket type lookup returned nothing usable this cycle)"
+    $ticketTypeCount = 0
+    if ($ids.ticket_type_names) {
+        $ticketTypeProps = @($ids.ticket_type_names.PSObject.Properties)
+        $ticketTypeCount = $ticketTypeProps.Count
+        if ($ticketTypeCount -gt 0) {
+            $ticketTypeNamesText = ($ticketTypeProps | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ", "
+        }
+    }
+    if ($ticketTypeCount -eq 0) {
+        Add-Content -Path $logFile -Value "[$timestamp] WARNING: ticket_type_names is missing/empty this cycle - classifier/resolver will see raw tickettype_id numbers without names." -Encoding UTF8
+    }
+    # Escape any literal '$' in the type names before using this as a -replace
+    # replacement value below - PowerShell's -replace treats an un-escaped '$'
+    # in the replacement string as a regex backreference (e.g. "$1"); '$$' is
+    # how you insert one literal '$'. None of the real type names on this
+    # instance contain one, but ticket types are free-text business data, not
+    # something this script controls, so this is cheap insurance.
+    $ticketTypeNamesText = $ticketTypeNamesText.Replace('$', '$$')
+
     if ($usedCachedIds) {
         # Log a lightweight confirmation, not the full claude-call section (there
         # was no claude call this cycle) - shaped like a no-cost claude response so
         # Show-AgentLog.ps1 renders it the same way as every other section instead
         # of hitting its "couldn't parse" fallback.
         $cacheNoteContent = [PSCustomObject]@{
-            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id)"
+            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ticket_type_names_count=$ticketTypeCount"
         } | ConvertTo-Json -Compress
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
     }
@@ -630,10 +674,12 @@ try {
     # here on, neither needs to look any of these up itself.
     $classifierPrompt = $classifierPrompt `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
-        -replace '\{\{AGENT_ID\}\}', $ids.agent_id
+        -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
+        -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
+        -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id
