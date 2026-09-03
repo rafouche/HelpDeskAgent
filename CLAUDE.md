@@ -236,6 +236,45 @@ Huntress, NinjaOne, UniFi, Meraki, CIPP, or any other underlying tool to a clien
 matches Roger's standing preference that Altec is the service provider client-facing,
 regardless of which vendor tool actually did the work.
 
+**Compliance client exclusion (v2.9.0) — a real boundary, with a real, disclosed
+limit.** `config.json`'s `compliance.excluded_client_names` came directly out of
+a PCI/HIPAA/GLBA/SOX conversation with Roger: some of Altec's clients (a
+dealership, a medical practice, a CPA firm, anything rolling up to a public
+parent company) may carry data types this pipeline shouldn't be routing to a
+third-party AI API at all, at least not without a lot more contractual/legal
+groundwork than exists today. Resolved the same way as team/status/agent names —
+one `mcp__Halo__list_clients` call in Stage 0 — but unlike every other optional
+field in this pipeline, an unresolved name here aborts the WHOLE cycle
+unconditionally (not gated behind `-RequireApproval` or any switch): silently
+under-protecting a client is exactly the failure mode this feature exists to
+prevent, so it fails closed rather than proceeding on a guess.
+
+**The honest limit, checked before building rather than assumed:**
+`mcp__Halo__list_tickets` only supports an INCLUDE filter for a single
+`client_id` — there's no exclude filter and no bulk multi-client filter. That
+means the classifier's account-wide ticket scan (its whole design already
+depends on reading every open ticket to build a candidate list — see "Two-stage
+classifier/resolver pipeline" above) still sees an excluded client's ticket
+subject/summary line every cycle, as an unavoidable side effect of how it
+works today. What this control DOES reliably stop — checked as literally the
+first thing in both `classifier-prompt.md` (drop from candidacy immediately,
+before any other filter) and `resolver-prompt.md` (a check ahead of even
+"Claim the ticket," overriding every other exception in the document,
+including the emergency on-call-acknowledgment carve-out under
+`-RequireApproval`) — is the deep investigation: full ticket body/notes, and
+every downstream Ninja/Huntress/CIPP/Meraki/UniFi tool call, plus any reply or
+action. That's a meaningfully smaller exposure than the full pipeline, but not
+zero, and `config.json`'s own `compliance._comment` says so plainly rather than
+implying a stronger guarantee than what's actually true. This is prompt-level
+enforcement (same trust tier as this system's other safety rules — ticket-
+ownership checks, remediation-whitelist compliance), not a physical
+tool-removal like `-WhatIf`'s: there's no tool-allowlist mechanism that can
+filter by *ticket content*, only by tool name, so nothing at the code level
+can stop the classifier from reading a ticket's subject line short of Halo's
+own API gaining an exclude filter, or a non-AI pre-filter layer sitting in
+front of the classifier - see "Known gaps" for what would actually close this
+the rest of the way.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
@@ -350,6 +389,21 @@ config tweak. Not worth building preemptively.
 Found by directly querying the live Halo instance (`list_ticket_types`,
 `list_priorities`, `get_ticket`, `update_ticket`'s real schema) rather than
 assuming from config.json alone:
+
+- **`compliance.excluded_client_names` (v2.9.0) cannot stop the classifier's
+  account-wide `list_tickets` scan from seeing an excluded client's ticket
+  subject/summary line every cycle** - confirmed directly:
+  `mcp__Halo__list_tickets` supports only an INCLUDE filter for a single
+  `client_id`, no exclude filter, no bulk/multi-client filter. Closing this
+  the rest of the way needs one of: (a) the Halo MCP server adding an exclude-
+  filter or "list tickets NOT in these clients" capability to `list_tickets`
+  (out of this repo's control, same as the priority/urgency/contact-creation
+  gaps above); or (b) a non-AI pre-filter sitting in front of the classifier
+  entirely - e.g. PowerShell itself calling Halo's REST API directly (bypassing
+  the MCP server) to fetch and filter the ticket list before any of it reaches
+  a `claude -p` call - a materially bigger architecture change than anything
+  else in this file, since PS1 currently has no independent Halo API client at
+  all. Worth real design discussion before attempting, not a quick patch.
 
 - **Ticket type and impact are now used for classification (v2.4.0).**
   `list_tickets`/`get_ticket` already return `tickettype_id`, `impact`, and

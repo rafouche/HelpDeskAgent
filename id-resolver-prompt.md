@@ -43,6 +43,22 @@ plain names - resolve each to its Halo ID:
   `null` directly without attempting a match. Only if the config value is
   non-blank and still doesn't match anything in `list_statuses` does the
   "don't guess, set null" rule below apply to it the same as any other field.
+- `compliance.excluded_client_names` -> a JSON array of client names, possibly
+  empty. If it's empty, skip this entirely - output `excluded_client_ids` as
+  `[]` and don't call anything. If it has one or more names in it, call
+  `mcp__Halo__list_clients` ONCE (large enough `count` to cover every client -
+  this is the one case here where under-fetching silently drops a name you
+  need to catch) and resolve EVERY name in the array to its client ID, in the
+  same order, as `excluded_client_ids`. **Unlike every other optional field
+  above, a name in this array that doesn't match anything is not set to
+  `null` and moved past - it's the one case in this whole document where you
+  should treat an unmatched name as seriously as a completely failed
+  resolution below: this list exists to keep specific clients' data from ever
+  reaching this pipeline, and a name that silently fails to resolve means
+  that client is NOT actually protected. Set `excluded_client_ids` to `null`
+  (the whole field, not just one entry) if even one name in the array fails
+  to match, so the caller aborts the cycle rather than run with an
+  incomplete/wrong exclusion list.
 
 You also need to build a lookup table the classifier and resolver both use to
 make sense of a ticket's `tickettype_id` field (a bare number in the ticket
@@ -53,9 +69,11 @@ data, meaningless without a name):
   its `name` (e.g. `"Alert"`). Include every type returned, not just ones you
   recognize - this is a lookup table, not a filtered list.
 
-That's exactly 4 tool calls total (one per list_* tool) - never call any of them
-more than once, and never call `mcp__Halo__get_ticket` or `mcp__Halo__list_tickets`
-at all, you have no need for ticket data here.
+That's exactly 4 tool calls (one per list_* tool), plus one more -
+`mcp__Halo__list_clients` - only if `compliance.excluded_client_names` is
+non-empty. Never call any of them more than once, and never call
+`mcp__Halo__get_ticket` or `mcp__Halo__list_tickets` at all, you have no need
+for ticket data here.
 
 If a name doesn't match anything in the corresponding list, don't guess and don't
 omit it - set that specific field to `null` so the caller can see exactly which
@@ -70,11 +88,14 @@ markdown code fence, no explanation, no headers, no bulleted list. Exactly these
 keys:
 
 ```
-{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "ticket_type_names": {"1": "Incident", "21": "Alert"}}
+{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "excluded_client_ids": [], "ticket_type_names": {"1": "Incident", "21": "Alert"}}
 ```
 
 Every key must be present even if its value is `null` (except `ticket_type_names`,
 which should always be a full object, never null or empty, since
-`list_ticket_types` always returns something). Whatever reasoning led you to each
+`list_ticket_types` always returns something, and except `excluded_client_ids`,
+which should be `[]` rather than `null` when `compliance.excluded_client_names`
+is itself empty - `null` there specifically means "one or more configured names
+failed to resolve," not "nothing configured"). Whatever reasoning led you to each
 match, keep it to yourself - a separate process reads only this object, so
 anything else you write is wasted output nobody will ever see.

@@ -73,6 +73,33 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.0 - added a compliance-driven client exclusion list
+    (config.json's new `compliance.excluded_client_names`), prompted by a
+    direct question about PCI/HIPAA/GLBA/SOX exposure from routing ticket
+    data through a third-party AI API. Resolved the same way as team/status/
+    agent names (one mcp__Halo__list_clients call in Stage 0, only if the
+    list is non-empty), but treated as a hard-fail-if-unresolved field
+    unconditionally (not gated behind any switch) - unlike every other
+    optional field in this pipeline, a name here that fails to resolve
+    aborts the whole cycle, since silently under-protecting a client is the
+    one failure mode this feature exists to prevent.
+    Checked directly before building this: mcp__Halo__list_tickets only
+    supports an INCLUDE filter for a single client_id, no exclude/negative
+    filter and no bulk multi-client filter - so this control cannot stop the
+    classifier's account-wide list_tickets scan from seeing an excluded
+    client's ticket subject/summary line as an unavoidable side effect of how
+    it builds a candidate list every cycle (documented plainly in
+    config.json's own compliance._comment, not glossed over). What it DOES
+    reliably stop, checked as the very first thing in both
+    classifier-prompt.md (drop from candidacy immediately, no exceptions)
+    and resolver-prompt.md (a new check ahead of "Claim the ticket" that
+    overrides every other exception in the document, including the emergency
+    on-call-acknowledgment carve-out under -RequireApproval): the deep
+    investigation, every downstream Ninja/Huntress/CIPP/Meraki/UniFi tool
+    call, and any reply/action. This is prompt-level enforcement (same trust
+    tier as this system's other safety rules), not a physical tool-removal
+    like -WhatIf's - there's no tool-allowlist mechanism that can filter by
+    ticket content, only by tool name.
     Version: 2.8.1 - two findings from real -WhatIf/-RequireApproval runs.
     First: on a ticket Halo hasn't triaged yet (a distinct Halo workflow step,
     not just a status value), mcp__Halo__update_ticket can silently accept a
@@ -364,7 +391,13 @@ $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 $idResolverTools = @(
     "Read", "ToolSearch",
     "mcp__Halo__list_teams", "mcp__Halo__list_statuses",
-    "mcp__Halo__list_agents", "mcp__Halo__list_ticket_types"
+    "mcp__Halo__list_agents", "mcp__Halo__list_ticket_types",
+    # list_clients: only actually called when config.json's
+    # compliance.excluded_client_names is non-empty (id-resolver-prompt.md's own
+    # instruction, not enforced here) - granted unconditionally since it's cheap
+    # to have available and the alternative (conditionally building this array)
+    # isn't worth the complexity for one more tool name.
+    "mcp__Halo__list_clients"
 )
 
 # Classifier: read-only, just enough to find and skim candidate tickets. Never
@@ -804,6 +837,7 @@ try {
         follow_up_status_name            = $config.halo.follow_up_status_name
         ai_waiting_approval_status_name  = $config.halo.ai_waiting_approval_status_name
         ai_approved_status_name          = $config.halo.ai_approved_status_name
+        excluded_client_names            = $config.compliance.excluded_client_names
     }
     $currentHaloIdentityJson = $currentHaloIdentity | ConvertTo-Json -Compress
 
@@ -892,6 +926,16 @@ try {
         }
     }
 
+    # excluded_client_ids is [] when compliance.excluded_client_names is empty
+    # (the normal case) and null specifically when one or more configured names
+    # failed to resolve - this is a compliance boundary, unconditional on any
+    # switch, so a resolution failure aborts every run, not just -RequireApproval
+    # ones. Never let this cycle proceed on a guess about which clients are
+    # actually protected.
+    if ($null -eq $ids.excluded_client_ids) {
+        throw "compliance.excluded_client_names has one or more names that didn't match a real Halo client - check config.json's compliance section against Halo's actual client list (mcp__Halo__list_clients), or the cycle would run without knowing for certain which clients are protected."
+    }
+
     # ticket_type_names is a readability aid (translates a ticket's bare
     # tickettype_id into a name for the classifier/resolver's own judgment),
     # not a value used in any actual API call - a problem here gets a warning,
@@ -917,13 +961,21 @@ try {
     # something this script controls, so this is cheap insurance.
     $ticketTypeNamesText = $ticketTypeNamesText.Replace('$', '$$')
 
+    # excluded_client_ids was already validated non-null above - [] (nothing
+    # configured, the common case) renders as a plain "none" so the classifier/
+    # resolver aren't left comparing against literal empty-array text.
+    $excludedClientIdsText = "none"
+    if ($ids.excluded_client_ids -and @($ids.excluded_client_ids).Count -gt 0) {
+        $excludedClientIdsText = (@($ids.excluded_client_ids) -join ", ")
+    }
+
     if ($usedCachedIds) {
         # Log a lightweight confirmation, not the full claude-call section (there
         # was no claude call this cycle) - shaped like a no-cost claude response so
         # Show-AgentLog.ps1 renders it the same way as every other section instead
         # of hitting its "couldn't parse" fallback.
         $cacheNoteContent = [PSCustomObject]@{
-            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ai_waiting_approval_status_id=$($ids.ai_waiting_approval_status_id), ai_approved_status_id=$($ids.ai_approved_status_id), ticket_type_names_count=$ticketTypeCount"
+            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ai_waiting_approval_status_id=$($ids.ai_waiting_approval_status_id), ai_approved_status_id=$($ids.ai_approved_status_id), excluded_client_ids=[$excludedClientIdsText], ticket_type_names_count=$ticketTypeCount"
         } | ConvertTo-Json -Compress
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
     }
@@ -953,11 +1005,13 @@ try {
     $classifierPrompt = $classifierPrompt `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
-        -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText
+        -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
+        -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
         -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
+        -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id

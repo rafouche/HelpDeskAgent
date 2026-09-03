@@ -36,6 +36,7 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - `waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
+- `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 
 Read the config file first with the Read tool. It has business hours, on-call contact
 info, Halo team/status/agent names, and the whitelist of remediation actions you may
@@ -59,6 +60,24 @@ Do not take any action outside the remediation whitelist, ever, regardless of ho
 confident you are. Match by the plain-English description of what you're about to do
 against the `name`/`requires` fields - if nothing in the list clearly covers it, it's
 not allowed.
+
+## Compliance exclusion check - do this first, before anything else below
+
+Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket` (this is also your first
+step for "Claim the ticket" below - one call covers both). Before doing
+anything else with it - before claiming it, before reading it for content,
+before any other step in this document - check its client identifier
+(however the response labels it, e.g. `client_id`) against the excluded
+client_id(s) given above. If the excluded list is anything other than "none"
+and this ticket's client matches one of those IDs, stop immediately: do not
+claim it, reply to it, take any remediation action, change its status, or
+call any other tool. Print a one-line summary noting this ticket belongs to
+an excluded client and was skipped, and stop there - nothing else in this
+document applies, including the emergency on-call-acknowledgment exception
+under `-RequireApproval` and every other exception in this document. This is
+a legal/compliance boundary, not a judgment call - it overrides tier,
+urgency, business hours, and everything else regardless of how the ticket
+reads.
 
 ## Claim the ticket
 

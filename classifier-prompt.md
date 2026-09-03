@@ -32,6 +32,7 @@ response.
 - Help Desk team_id: {{TEAM_ID}}
 - `halo.agent_username` agent_id: {{AGENT_ID}}
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
+- `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
 and `halo.agent_username` - the two names behind the team_id/agent_id above. A
@@ -49,6 +50,21 @@ human already on it, and it costs nothing to leave it out of this cycle
 entirely. Do this filtering by reading the returned team_id/agent_id fields
 directly against the team_id/agent_id given above - no second tool call, no
 script, just judgment.
+
+**Compliance exclusion comes first, before any of the above, and is not a
+judgment call.** If the excluded client_id(s) list above is anything other
+than "none", drop any ticket whose client identifier (however
+`list_tickets` labels it - e.g. `client_id`) matches one of those IDs from
+your candidate list immediately, regardless of team, assignment, urgency,
+impact, or anything else about the ticket. This exists to keep specific
+clients' tickets out of this pipeline entirely for legal/compliance reasons
+that have nothing to do with how simple or urgent the ticket looks - there is
+no ticket content that overrides it. You will still see that ticket's
+subject/summary line while scanning the full account-wide list (there is no
+way to avoid that and still build a candidate list from the rest) - the
+exclusion is about what happens *after* that: it never becomes a candidate,
+is never tiered, and the resolver (with its much deeper investigation and
+every downstream tool) never sees it at all.
 
 **Halo's "unassigned" sentinel is `agent_id: 1`, not `0`.** Halo has a real
 agent record named "Unassigned" (`is_agent: false`) whose id is `1` - a

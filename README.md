@@ -168,6 +168,35 @@ goes back to running exactly as it did before this mode existed — no config
 changes needed, since a run without the switch never looks at either new status
 name at all.
 
+## Excluding clients for compliance reasons
+
+If any of your clients carry data this pipeline shouldn't be routing to a
+third-party AI API — a dealership, a medical/dental practice, a CPA firm,
+anything rolling up to a public parent company, or anything else your own
+legal/compliance review flags — list their exact Halo client names in
+`config.json`'s `compliance.excluded_client_names`:
+
+```json
+"compliance": {
+  "excluded_client_names": ["Example Dealership Group", "Example Medical Group"]
+}
+```
+
+Every name must match a real Halo client exactly (case-insensitive, same rule
+as everything else in this file) or the whole cycle refuses to run — this
+fails closed on purpose, since a typo here silently leaving a client
+unprotected is worse than the cycle not running at all.
+
+**Read `compliance._comment` in `config.json` (and CLAUDE.md's matching
+section) before relying on this for an actual compliance determination** —
+it stops the deep investigation and every downstream Ninja/Huntress/CIPP/
+Meraki/UniFi tool call for an excluded client's tickets, but Halo's own API
+has no way to exclude a client from the classifier's account-wide ticket
+scan, so that first-pass subject/summary read is not something this control
+eliminates. That's a meaningfully smaller exposure than the full pipeline,
+not a zero one — get this reviewed by whoever handles compliance for that
+client before treating it as sufficient on its own.
+
 ## Editing config.json — no IDs, ever
 Everything in `config.json` is a plain name, exactly as it appears in Halo or
 NinjaOne. The agent looks up the real technical ID itself every run — nobody has to
@@ -450,3 +479,4 @@ documentation, never touches a client's live systems.
 - `-MultipleInstances IgnoreNew` in the scheduled task keeps two runs from overlapping if one takes longer than the interval.
 - Watch the logs for the first week or two, especially escalation and after-hours behavior, before trusting it fully.
 - Nothing in this setup lets the agent act outside the `remediation_whitelist` — everything else it does with M365/Ninja/UniFi/Meraki/Huntress/Hudu is read-only by tool scoping in `Invoke-HaloResponseAgent.ps1`.
+- Before running this against any client with regulated data (PCI/HIPAA/GLBA/SOX or similar), read "Excluding clients for compliance reasons" above — and read it as what it actually guarantees, not what it sounds like it guarantees.

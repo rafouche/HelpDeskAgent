@@ -8,6 +8,11 @@
     "end": "17:00"
   },
 
+  "compliance": {
+    "_comment": "Client/company names, exactly as they appear in Halo, whose tickets this agent must never investigate or act on - a hard boundary, not a judgment call, checked before anything else in both the classifier and resolver. Read this carefully before relying on it: mcp__Halo__list_tickets has no way to EXCLUDE clients server-side (only an include filter for a single client_id), so the classifier's account-wide ticket scan still sees an excluded client's ticket SUBJECT/SUMMARY as an unavoidable side effect of how it builds its candidate list every cycle - this list stops the DEEP investigation (full ticket body/notes, and every downstream Ninja/Huntress/CIPP/Meraki/UniFi tool call) and any reply/action, not that first-pass subject-line read. If you need a stronger guarantee than that for a specific client (e.g. a HIPAA/PCI/GLBA-regulated one), don't rely on this alone - see CLAUDE.md's 'Known gaps' section. Leave the list empty if you have nothing to exclude yet; every name in it must match a real Halo client exactly or the whole cycle aborts rather than silently under-protect one.",
+    "excluded_client_names": []
+  },
+
   "on_call": {
     "_comment": "text_email (email-to-SMS gateway address) can be left blank - e.g. no SMS on-call set up yet. The agent always sends the email notification and simply skips the text when text_email is blank; that's expected, not an error.",
     "primary": {
