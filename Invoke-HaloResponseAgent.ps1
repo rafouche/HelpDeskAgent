@@ -43,6 +43,19 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.6.1 - the v2.6.0 -WhatIf re-test confirmed the unassigned-sentinel
+    fix worked (all 4 candidates correctly claimed as unassigned this run) and
+    surfaced 5 more tool gaps on the same two ticket types that had them before:
+    mcp__CIPP__list_alerts/list_mailbox_permissions (BEC/mailbox-compromise
+    checks on the Huntress escalation ticket) and mcp__Meraki__get_org_vpn_statuses/
+    list_network_devices/get_device_uplink_info (WAN quality check on a
+    call-quality complaint). Added to $resolverTools, same pattern as every
+    prior tool-gap fix. Unrelated to this repo: the same run's last two tickets
+    (21577, 21571) got zero investigation because the Anthropic account had hit
+    its API usage limit mid-cycle ("regain access on 2026-10-01") - visible in
+    the log as an inline API error, not a code bug, but worth knowing since
+    real cycles will silently under-serve the queue the same way until that
+    limit is raised or resets.
     Version: 2.6.0 - fixed a real run where the resolver wrongly skipped 3
     tickets the classifier had explicitly found unassigned, reasoning
     "agent_id: 1, which is neither unassigned (0) nor my assigned agent_id" -
@@ -292,6 +305,11 @@ $resolverTools = @(
     # whether MFA/conditional access was actually enforced for the affected user -
     # denied because none of these three read-only lookups had been added yet.
     "mcp__CIPP__list_tenants", "mcp__CIPP__list_mfa_users", "mcp__CIPP__list_conditional_access",
+    # list_alerts/list_mailbox_permissions: the very next run on that same
+    # Huntress-escalation ticket type hit two more denials while checking for a
+    # BEC-style mailbox compromise (Defender/CIPP alerts, unexpected mailbox
+    # delegate access) - second straight round of CIPP gaps on this ticket type.
+    "mcp__CIPP__list_alerts", "mcp__CIPP__list_mailbox_permissions",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
     # Three straight real runs each turned up a different missing read-only
@@ -328,6 +346,11 @@ $resolverTools = @(
     # networks wouldn't be very useful, so both are added together.
     "mcp__Meraki__get_network_client", "mcp__Meraki__list_org_device_statuses",
     "mcp__Meraki__list_organizations", "mcp__Meraki__list_networks",
+    # get_org_vpn_statuses/list_network_devices/get_device_uplink_info: a real
+    # run investigating a call-quality complaint wanted to check WAN uplink
+    # loss/latency and the office's device list - denied because none of these
+    # three had been added yet, same class of gap as the round above.
+    "mcp__Meraki__get_org_vpn_statuses", "mcp__Meraki__list_network_devices", "mcp__Meraki__get_device_uplink_info",
 
     # --- Security context, read-only ---
     # get_escalation/list_identities/list_organizations: a real run working a
