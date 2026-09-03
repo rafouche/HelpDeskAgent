@@ -76,6 +76,19 @@ function Write-ClaudeResultSection {
             $modelNames = ($data.modelUsage.PSObject.Properties.Name) -join ', '
         }
         Write-Host "Cost: $cost   Turns: $($data.num_turns)   Duration: $([math]::Round($data.duration_ms/1000,1))s   Model: $modelNames" -ForegroundColor DarkGray
+
+        # Cache stats straight from claude -p's own usage block - the only reliable
+        # way to see whether prompt caching (the big fixed tool list + instructions,
+        # repeated on every classifier/resolver call) is actually paying off, rather
+        # than guessing from cost alone. A near-zero cache_read next to a large
+        # cache_creation on every single call (not just the first) is the signal
+        # that something's invalidating the cache every time - a byte-level change
+        # to the prompt or tool list between calls that should otherwise be identical.
+        if ($data.usage -and ($null -ne $data.usage.cache_read_input_tokens -or $null -ne $data.usage.cache_creation_input_tokens)) {
+            $cacheRead = $data.usage.cache_read_input_tokens
+            $cacheCreated = $data.usage.cache_creation_input_tokens
+            Write-Host "Cache: read $cacheRead tok   created $cacheCreated tok   (fresh input: $($data.usage.input_tokens) tok)" -ForegroundColor DarkGray
+        }
     }
 
     if ($data.permission_denials -and $data.permission_denials.Count -gt 0) {

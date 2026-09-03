@@ -177,6 +177,21 @@ duplicate. Keep the article technical and concise (internal SOP style, not clien
 facing): symptom description, root cause if known, the fix, and any caveats. Skip
 this for genuinely trivial fixes (a plain password reset doesn't need a KB article) - it's for anything a future tech or agent run would actually benefit from finding.
 
+**This is one of the only two tools that stay live during a -WhatIf simulation run**
+(see the simulation banner if present) - everything else that changes something is
+simulated (described as "WOULD DO", never actually called), but Hudu writes are
+real even in simulation, since this folder never touches a client's live systems
+either way. That changes what "a fix that worked" means under -WhatIf: nothing was
+actually applied this run, so nothing is *confirmed* fixed. Write the article anyway
+if your investigation gives you real confidence in the fix (not just "this might be
+it"), but title and open it clearly as unverified, e.g. `"[Candidate - untested] <title>"`,
+and say plainly in the body that this came from a simulation run and hasn't been
+confirmed against a real outcome yet. Never write a simulation-sourced article as if
+it were a confirmed fix - a human or a future run needs to be able to tell the
+difference at a glance. If you update an existing confirmed article instead of
+creating a new one, don't strip its confirmed status just because this run was
+simulated - only add to it, and only mark your addition itself as unverified.
+
 
 
 **Business hours, EASY:** Resolve it. Reply as Altec support in plain, non-technical

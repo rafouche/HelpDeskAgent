@@ -43,6 +43,23 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.7.0 - two cost-related changes prompted by real -WhatIf spend
+    ($20+ in testing). First: mcp__HUDU__article_create_tool/article_edit_tool
+    are no longer stripped during -WhatIf - confirmed via `claude -p`'s own JSON
+    output that they only ever write to the isolated "AI-Documented Fixes" Hudu
+    folder, never a client-facing doc, so there's no real-world risk in leaving
+    them live; testing runs now build real, reusable KB content instead of just
+    describing what they'd have written. resolver-prompt.md's "Documenting a fix
+    that worked" section now tells the model to label a simulation-sourced
+    article as unverified/untested, since nothing was actually confirmed fixed
+    this run - never write one as if it were a confirmed production fix. Second:
+    Show-AgentLog.ps1 now prints each stage's cache_read/cache_creation/fresh
+    input token counts (straight from claude -p's own usage block, verified
+    directly by running `claude -p --output-format json` and inspecting the
+    real JSON rather than assuming the field names) - this makes it possible to
+    actually see whether prompt caching (the ~90-entry tool list and fixed
+    instructions repeated on every classifier/resolver call) is paying off,
+    instead of guessing from total cost alone.
     Version: 2.6.1 - the v2.6.0 -WhatIf re-test confirmed the unassigned-sentinel
     fix worked (all 4 candidates correctly claimed as unassigned this run) and
     surfaced 5 more tool gaps on the same two ticket types that had them before:
@@ -372,7 +389,13 @@ $resolverTools = @(
     "mcp__HUDU__article_folder_index_tool",
     # --- Documentation, write. Only ever writes to the "AI-Documented Fixes" folder
     #     from config.json (never edits client-facing docs), so this doesn't need a
-    #     remediation_whitelist entry - it never touches a client's live systems. ---
+    #     remediation_whitelist entry - it never touches a client's live systems.
+    #     Deliberately absent from $mutatingTools below, unlike every other tool in
+    #     this file that changes something: a -WhatIf run keeps these two live so
+    #     testing runs build real, reusable KB content instead of just describing
+    #     what they would have written - see resolver-prompt.md's "Documenting a
+    #     fix that worked" section for how a simulation-sourced article gets
+    #     labeled so it's never mistaken for a confirmed fix. ---
     "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
 )
 # --- 3CX (not yet built): add its tool names as their own block inside the array
@@ -385,12 +408,18 @@ $resolverTools = @(
 
 # Keep this list in sync with $resolverTools above whenever a new mutating tool
 # is added (a new remediation action reuses an existing entry here, so it's rare).
+# mcp__HUDU__article_create_tool/article_edit_tool are deliberately NOT here -
+# see the note where $resolverTools declares them: they only ever write to the
+# isolated "AI-Documented Fixes" folder, never a client's live systems, so they
+# stay live even during -WhatIf runs rather than being simulated like everything
+# else below. resolver-prompt.md's "Documenting a fix that worked" section tells
+# the model how to label a simulation-sourced article so it's never mistaken for
+# a confirmed fix.
 $mutatingTools = @(
     "mcp__Halo__update_ticket",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
-    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
-    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
 )
 
 if ($WhatIf) {
@@ -411,10 +440,13 @@ $simulationBannerLines = @(
     "exactly as normal, then instead of calling the tool you'd normally use to act,",
     "state plainly what you WOULD have done: the exact reply text, which",
     "status/team/agent_id you'd set, any remediation action and its whitelist",
-    "justification, any on-call notification, any Hudu article. Label each one",
-    "clearly as 'WOULD DO:' so it's obvious this is a simulation. Do not attempt to",
-    "call a tool you no longer have - if investigation alone can't rule out an",
-    "action, just say so.",
+    "justification, any on-call notification. Label each one clearly as 'WOULD DO:'",
+    "so it's obvious this is a simulation. Do not attempt to call a tool you no",
+    "longer have - if investigation alone can't rule out an action, just say so.",
+    "ONE EXCEPTION: mcp__HUDU__article_create_tool and article_edit_tool are still",
+    "live and really write, same as any other run - see resolver-prompt.md's",
+    "'Documenting a fix that worked' section for how to label a simulation-sourced",
+    "article so it's never mistaken for a confirmed fix.",
     "==="
 )
 $simulationBanner = $simulationBannerLines -join "`n"
