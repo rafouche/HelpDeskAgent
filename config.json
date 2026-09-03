@@ -23,13 +23,12 @@
   },
 
   "halo": {
-    "_comment": "These must match team/status/agent names exactly as they appear in Halo. 'agent_username' is the Halo user account the agent works as: it claims unassigned tickets under that name and picks back up tickets already assigned to it. Change this if you rename the account or swap to a different one - nothing else needs to change, the agent re-resolves the ID by name every run. 'urgent_priority_names' is currently unused by the pipeline (kept only to document intent) - Halo's list_priorities scopes priority names per SLA policy, so 'Urgent'/'Critical'/'Critial' aren't three severity levels, they're one tier named differently under three different SLAs, and more importantly mcp__Halo__update_ticket has no priority parameter at all, so there's no tool that could act on a resolved ID here yet. See CLAUDE.md's 'Known gaps' section.",
+    "_comment": "These must match team/status/agent names exactly as they appear in Halo. 'agent_username' is the Halo user account the agent works as: it claims unassigned tickets under that name and picks back up tickets already assigned to it. Change this if you rename the account or swap to a different one - nothing else needs to change, the agent re-resolves the ID by name every run. No priority/urgency/impact field here on purpose: mcp__Halo__update_ticket has no parameter for any of them, so there's currently no tool that could act on one - see CLAUDE.md's 'Known gaps' section before re-adding one, and verify any values directly against the live Halo instance rather than assuming (a prior 'urgent_priority_names' here was never independently verified and turned out to reference the wrong field - Halo's per-SLA priority catalog, not the per-ticket-type urgency scale it was meant to represent).",
     "agent_username": "Artie Fischel",
     "help_desk_team_name": "Help Desk",
     "resolved_status_name": "Resolved",
     "waiting_on_client_status_name": "Waiting on client",
-    "follow_up_status_name": "Follow Up Needed",
-    "urgent_priority_names": ["Urgent", "Critical", "Critial"]
+    "follow_up_status_name": "Follow Up Needed"
   },
 
   "knowledge": {

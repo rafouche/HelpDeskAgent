@@ -43,6 +43,23 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.5.0 - removed config.json's halo.urgent_priority_names entirely
+    instead of leaving it in place unused. It was never independently verified
+    against live Halo data when first written (present in this repo's very
+    first commit) - v2.3.0's investigation confirmed its values are real
+    entries in Halo's priority catalog (list_priorities), but the user
+    separately confirmed the actual per-ticket-type urgency scale they see in
+    Halo's UI (Low/Normal/Escalated/Critical under "Incident") doesn't match
+    those names at all - it's a different field (urgency, not priority), and
+    no available tool exposes that specific scale to verify or resolve it
+    against. Since nothing can act on a priority or urgency value either way
+    (no parameter for either on mcp__Halo__update_ticket), keeping an unverified
+    field around to "document intent" was worse than not having it - a config
+    value nobody can act on and nobody had checked was itself the omission.
+    Lesson for future config/prompt work: verify any Halo-name-shaped config
+    value directly against the live instance before trusting it, and prefer
+    deleting a confirmed-unused field over leaving it with an explanatory
+    comment - a comment doesn't stop it from being read as authoritative.
     Version: 2.4.0 - ticket-type/impact-aware classification. list_tickets and
     get_ticket already return tickettype_id, impact, and urgency inline - no
     new tool calls needed, just better use of data already being fetched. The
@@ -173,8 +190,9 @@ $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
 # reasoning as team/agent/status) - all deterministic lookups that never change
 # between tickets in the same cycle, so paying for them once here instead of
 # redundantly in the classifier and every single resolver call is pure savings.
-# list_priorities deliberately NOT here - see id-resolver-prompt.md for why
-# urgent_priority_names is no longer resolved at all. See id-resolver-prompt.md.
+# list_priorities deliberately NOT here - config.json has no priority/urgency
+# field to resolve at all (see its halo._comment for why), and there's no
+# tool that could act on a resolved priority/urgency ID regardless.
 $idResolverTools = @(
     "Read", "ToolSearch",
     "mcp__Halo__list_teams", "mcp__Halo__list_statuses",

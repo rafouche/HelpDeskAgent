@@ -287,28 +287,39 @@ assuming from config.json alone:
   judge from wording. A finer-grained design (e.g. a per-type default
   investigation path) is still open if the current guidance doesn't prove
   sufficient in practice.
-- **Halo scopes priority names per SLA policy, not globally.** `list_priorities`
-  returns rows keyed by both a GUID (`id`) and a small integer (`priorityid`,
-  1–4: top tier/High/Medium/Low), each also carrying an `slaid` (this instance
-  has 3 SLA policies). The same severity tier can have a different display
-  name under each SLA - confirmed "Urgent" (slaid 2), "Critical" (slaid 1), and
-  "Critial" (slaid 3, a typo that's genuinely in Halo, not a config mistake)
-  are all `priorityid: 1` - the same tier, not three distinct ones. A real
-  ticket's own `priority_id` field matches the embedded priority object's
-  `priorityid`, not the GUID - if a priority-setting capability is ever added,
-  resolve to `priorityid`, not `id`.
+- **Halo has (at least) two separate severity scales - priority and urgency -
+  and they are NOT the same list.** `list_priorities` returns rows keyed by
+  both a GUID (`id`) and a small integer (`priorityid`, 1-4: top tier/High/
+  Medium/Low), each also carrying an `slaid` (this instance has 3 SLA
+  policies) - confirmed "Urgent" (slaid 2), "Critical" (slaid 1), and "Critial"
+  (slaid 3, a typo that's genuinely in Halo, not a config mistake) are all
+  `priorityid: 1`, the same tier under three different SLAs. Separately, the
+  user confirmed the actual urgency scale visible in Halo's UI for the
+  "Incident" ticket type is Low/Normal/Escalated/Critical - a different field
+  (`urgency`, not `priority`/`priority_id`) with names that don't match
+  `list_priorities` at all. `list_ticket_types` doesn't expose a per-type
+  urgency matrix either, and no `list_urgencies`-style tool exists - **there is
+  currently no way to independently verify or resolve urgency values through
+  any available tool.** `config.json`'s `halo.urgent_priority_names` (present
+  since this repo's first commit, matched against `list_priorities` in v2.3.0
+  but never actually verified against the real urgency scale it was likely
+  meant to represent) was removed entirely in v2.5.0 rather than left in place
+  unverified - see v2.5.0 above for the reasoning. If a priority- or urgency-
+  setting capability is ever added, resolve `priorityid` (not the GUID `id`)
+  for priority; urgency's real value list still needs to be found (Halo admin
+  UI export, a different endpoint, or asking the user to supply it directly)
+  before it can be resolved by name at all.
 - **There is currently no tool that can set a ticket's priority, impact,
   urgency, or ticket type at all.** `mcp__Halo__update_ticket`'s real parameter
   schema is only `agent_id`, `note`, `note_is_private`, `status_id`, `team_id`,
-  `ticket_id` - confirmed directly, not assumed. This is why `config.json`'s
-  `halo.urgent_priority_names` is no longer resolved to IDs (see v2.3.0 above)
-  and why the emergency-escalation section of `resolver-prompt.md` can only
-  flag the need for an urgent priority in an internal note rather than actually
-  set one - the impact/type awareness added in v2.4.0 informs the tier/urgency
-  judgment, it doesn't let the resolver act on impact/priority/type directly.
-  Closing this gap needs either the Halo MCP server exposing a priority/
-  impact/urgency/type parameter on `update_ticket` (out of this repo's control
-  - that server is a separate project) or a different tool entirely.
+  `ticket_id` - confirmed directly, not assumed. This is why the emergency-
+  escalation section of `resolver-prompt.md` can only flag the need for an
+  urgent priority in an internal note rather than actually set one - the
+  impact/type awareness added in v2.4.0 informs the tier/urgency judgment, it
+  doesn't let the resolver act on impact/priority/type directly. Closing this
+  gap needs either the Halo MCP server exposing a priority/impact/urgency/type
+  parameter on `update_ticket` (out of this repo's control - that server is a
+  separate project) or a different tool entirely.
 - **Halo already computes its own AI suggestions on every ticket** -
   `ai_suggested_priority`, `ai_suggested_urgency`, `ai_suggested_impact`, and
   `ai_suggested_type` are real fields returned by `get_ticket`, still unused by

@@ -35,13 +35,6 @@ plain names - resolve each to its Halo ID:
   all three names against that single response (case-insensitive) ->
   `resolved_status_id`, `waiting_status_id`, `followup_status_id`
 
-Do not resolve `halo.urgent_priority_names` - there is currently no tool that
-can set a ticket's priority, so nothing would ever consume that ID, and Halo's
-priority list is scoped per SLA policy (the same severity tier can have a
-different name under each SLA, e.g. "Urgent"/"Critical"/"Critial" are really
-one tier under three different SLAs, not three distinct levels) - not
-something worth resolving until there's an actual way to act on it.
-
 You also need to build a lookup table the classifier and resolver both use to
 make sense of a ticket's `tickettype_id` field (a bare number in the ticket
 data, meaningless without a name):
