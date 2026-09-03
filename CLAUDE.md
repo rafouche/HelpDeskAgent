@@ -341,18 +341,34 @@ assuming from config.json alone:
   for the classifier (or a sanity check against its own judgment) - deferred
   since it's a distinct design question from "does impact/type inform tier at
   all," which v2.4.0 already answers.
-- **There is currently no tool that returns a ticket's notes/actions/message
-  history.** A real run on ticket 21571 (2.02 hrs already logged, status
-  already "Waiting on client") needed to see what a prior agent had actually
-  told the client before adding to it - `get_ticket` only takes `ticket_id`
-  (no parameter to request notes/actions/conversation, confirmed directly
-  against its real schema) and returns bare metadata, no actions array.
-  `get_ticket_time_entries`/`list_time_entries` were tried as a fallback but
-  are the wrong data entirely (billable labor time, not message content) -
-  confirmed via their own schemas/descriptions, so adding them to the
-  allowlist would not have closed this gap even though the run's permission
-  denials made it look like an allowlist issue. The resolver's actual
-  response (flag it for human review rather than guess or reply blind) was
-  correct given the real limitation. Closing this needs the Halo MCP server
-  to expose a new tool (e.g. a ticket-actions/conversation endpoint) - out of
-  this repo's control, same category as the priority/urgency/type gaps above.
+- **CORRECTED - "no tool for ticket notes" was wrong; the bullet that used to
+  be here is superseded.** It said `get_ticket_time_entries`/`list_time_entries`
+  were "the wrong data entirely (billable labor time, not message content) -
+  confirmed via their own schemas/descriptions." That was a real mistake, not
+  just an outdated finding: it was inferred from the tools' name/description
+  text, not from an actual query - I have no way to call the live Halo MCP
+  server from where that conclusion was written, only `ToolSearch` schema
+  lookups. A separate session later pulled `halopsa-mcp` itself, cross-checked
+  every endpoint against HaloPSA's live OpenAPI spec, and found
+  `get_ticket_time_entries`/`list_time_entries` were pointed at `/Action`
+  (404 on every call - matches what ticket 21571's run actually observed)
+  instead of the real path `/Actions`, HaloPSA's ticket conversation/notes
+  endpoint (`conversationonly`/`excludeprivate`/`includehtmlnote`/
+  `includehtmlemail` params). Fixed at the source and verified live against
+  that same ticket 21571: 7 real actions came back, including a private note
+  with full text, author, and timestamp. Four other tools had the same class
+  of bug (`list_contacts`/`get_contact` -> `/Users` not `/Customer`;
+  `list_opportunities`/`get_opportunity` -> `/Opportunities` not `/Opportunity`;
+  `list_contracts`/`get_contract` -> `/ClientContract` not `/Contract`;
+  `list_software_licences` -> `/SoftwareLicence` not `/SoftwareLicences`) -
+  none of those were ever added to this repo's allowlist, so no action needed
+  on them here beyond noting they're fixed. **Lesson layered on top of the
+  v2.5.0/v2.6.0 ones**: "confirmed via its own schema" is not the same claim
+  as "confirmed by calling it" - say which one actually happened, because a
+  tool's name/description can be simply wrong about what it does, not just
+  silent about it. `get_ticket_time_entries` was already in `$resolverTools`
+  before and after this correction (see `Invoke-HaloResponseAgent.ps1`) - it
+  needed no allowlist change, only a fixed server behind it. `resolver-prompt.md`
+  step 1 ("Read full history... notes/time entries") already told the
+  resolver to use it - the instruction was right all along; only the tool
+  underneath it was broken.

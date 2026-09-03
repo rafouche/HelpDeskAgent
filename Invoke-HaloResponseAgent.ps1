@@ -43,6 +43,20 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.7.2 - no code or prompt change, CLAUDE.md correction only. A
+    separate session fixed halopsa-mcp itself: 5 of its tools (including
+    get_ticket_time_entries/list_time_entries) were silently 404ing because
+    they called resource paths that don't exist in HaloPSA's live API -
+    confirmed against the real OpenAPI spec and verified live. Once pointed
+    at the right path, get_ticket_time_entries turns out to be HaloPSA's
+    ticket conversation/notes endpoint, not a time-tracking-only endpoint -
+    proving the "no tool exists for ticket notes" conclusion in v2.7.1's
+    CLAUDE.md entry wrong. Nothing here needed to change: get_ticket_time_entries
+    was already in $resolverTools, and resolver-prompt.md's step 1 already
+    told the resolver to read "notes/time entries" - both were already
+    correct, only the tool underneath them was broken, and that's fixed
+    upstream now. See CLAUDE.md's corrected entry for the full trace and the
+    methodology lesson (a tool's description isn't the same as a live call).
     Version: 2.7.1 - the first full 6-ticket cycle after the account's spend
     limit was raised (separate from credit balance - see CLAUDE.md if this
     trips again) validated the v2.7.0 Hudu-during-WhatIf change working as
