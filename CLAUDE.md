@@ -238,12 +238,26 @@ config tweak. Not worth building preemptively.
 - **Per-cycle cost.** A real 75-ticket/7-candidate cycle cost $4.13 under the
   original single-call design (`claude-opus-5`, effort `high`, adaptive
   thinking, 62 turns) — see "Two-stage classifier/resolver pipeline" above for
-  why that became two calls instead. `config.json`'s `claude.effort` and
+  why that became two calls instead. Under the current two-stage pipeline (v2.6+,
+  tiered models, effort `low`, ID-resolution caching), a real 6-candidate
+  `-WhatIf` cycle cost $2.53 (classifier $0.16, resolver $2.38 across 2
+  TRIVIAL/MEDIUM/COMPLEX tickets each). `config.json`'s `claude.effort` and
   `claude.resolver_model_*`/`classifier_model` are the remaining levers — see
   README's "Reducing per-run cost". Not wired in: `--fallback-model`
   (reliability, not cost — doesn't trigger on rate limits) and lowering the
   Task Scheduler run frequency (cuts total daily cost, trades off response
   latency).
+  **Repeated `-WhatIf` testing against the same live backlog is not
+  representative of production cost and inflates the testing bill**: because
+  simulation mode never actually claims/resolves a ticket in real Halo, the
+  same unassigned tickets stay candidates and get fully re-investigated from
+  scratch on every single test run - the classifier-prompt.md logic that
+  skips an already-claimed ticket with nothing new to act on never gets a
+  chance to kick in during testing, since nothing is ever really claimed. In
+  production this doesn't happen the same way (a resolved/claimed ticket
+  drops out of future candidate lists for real) - so don't extrapolate a
+  cost-per-day from `-WhatIf` runs against a static backlog without
+  accounting for this.
 - Sequential ticket processing within a cycle, not parallel (see above).
 - `on_call.primary.email` in config.json is still a placeholder — fill in before
   relying on emergency escalation. `text_email` may be legitimately left blank (no
@@ -327,3 +341,18 @@ assuming from config.json alone:
   for the classifier (or a sanity check against its own judgment) - deferred
   since it's a distinct design question from "does impact/type inform tier at
   all," which v2.4.0 already answers.
+- **There is currently no tool that returns a ticket's notes/actions/message
+  history.** A real run on ticket 21571 (2.02 hrs already logged, status
+  already "Waiting on client") needed to see what a prior agent had actually
+  told the client before adding to it - `get_ticket` only takes `ticket_id`
+  (no parameter to request notes/actions/conversation, confirmed directly
+  against its real schema) and returns bare metadata, no actions array.
+  `get_ticket_time_entries`/`list_time_entries` were tried as a fallback but
+  are the wrong data entirely (billable labor time, not message content) -
+  confirmed via their own schemas/descriptions, so adding them to the
+  allowlist would not have closed this gap even though the run's permission
+  denials made it look like an allowlist issue. The resolver's actual
+  response (flag it for human review rather than guess or reply blind) was
+  correct given the real limitation. Closing this needs the Halo MCP server
+  to expose a new tool (e.g. a ticket-actions/conversation endpoint) - out of
+  this repo's control, same category as the priority/urgency/type gaps above.

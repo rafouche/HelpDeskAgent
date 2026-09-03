@@ -43,6 +43,26 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.7.1 - the first full 6-ticket cycle after the account's spend
+    limit was raised (separate from credit balance - see CLAUDE.md if this
+    trips again) validated the v2.7.0 Hudu-during-WhatIf change working as
+    intended: ticket 21608 wrote a new "[Candidate - untested]" article,
+    ticket 21607 immediately found and correctly reused it later the same
+    cycle instead of duplicating it. Added mcp__Meraki__list_network_clients
+    (denied while investigating a call-quality ticket's network, same class
+    of gap as the round before). Investigated, rather than assumed, a
+    denial on mcp__Halo__list_time_entries: confirmed via its real schema
+    that it (and get_ticket_time_entries) return only billable labor time,
+    not a ticket's notes/actions/message history, and get_ticket has no
+    parameter to request that either - so this is a genuine Halo MCP server
+    capability gap, not an allowlist fix, and adding list_time_entries
+    wouldn't have helped despite looking like every other tool-gap fix this
+    session. Documented in CLAUDE.md rather than "fixed" by adding a tool
+    that doesn't solve it. Also documented in CLAUDE.md: repeated -WhatIf
+    runs against the same live backlog never actually claim a ticket, so the
+    same tickets get re-investigated at full cost every run - not
+    representative of production cost, where a claimed/resolved ticket
+    actually drops out of future cycles.
     Version: 2.7.0 - two cost-related changes prompted by real -WhatIf spend
     ($20+ in testing). First: mcp__HUDU__article_create_tool/article_edit_tool
     are no longer stripped during -WhatIf - confirmed via `claude -p`'s own JSON
@@ -368,6 +388,11 @@ $resolverTools = @(
     # loss/latency and the office's device list - denied because none of these
     # three had been added yet, same class of gap as the round above.
     "mcp__Meraki__get_org_vpn_statuses", "mcp__Meraki__list_network_devices", "mcp__Meraki__get_device_uplink_info",
+    # list_network_clients: same call-quality-complaint ticket type, a follow-up
+    # run wanted the connected-client list for a network (distinct from
+    # get_network_client, which needs one client's ID/MAC already known) - denied
+    # because it hadn't been added yet.
+    "mcp__Meraki__list_network_clients",
 
     # --- Security context, read-only ---
     # get_escalation/list_identities/list_organizations: a real run working a
