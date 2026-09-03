@@ -43,6 +43,21 @@
     trusting the schedule; -DryRun only checks the prompt/tool list resolve
     correctly, it never calls Claude.
 .NOTES
+    Version: 2.6.0 - fixed a real run where the resolver wrongly skipped 3
+    tickets the classifier had explicitly found unassigned, reasoning
+    "agent_id: 1, which is neither unassigned (0) nor my assigned agent_id" -
+    a live mcp__Halo__list_agents call confirmed agent_id 1 is Halo's own
+    "Unassigned" placeholder record (name "Unassigned", is_agent: false), not
+    a colleague; every prior run this session had correctly treated it as
+    unassigned, but neither prompt ever said so explicitly, leaving it for the
+    model to guess. classifier-prompt.md and resolver-prompt.md now both state
+    the sentinel value directly, and the two escalation "unassign yourself"
+    steps in resolver-prompt.md (which used agent_id: 0, never verified
+    against live data) now use agent_id: 1 to match. Also closed 6 tool gaps
+    a real Huntress security-escalation ticket hit: added
+    mcp__Huntress__get_escalation/list_identities/list_organizations and
+    mcp__CIPP__list_tenants/list_mfa_users/list_conditional_access to
+    $resolverTools (all read-only, same pattern as every prior tool-gap fix).
     Version: 2.5.0 - removed config.json's halo.urgent_priority_names entirely
     instead of leaving it in place unused. It was never independently verified
     against live Halo data when first written (present in this repo's very
@@ -272,6 +287,11 @@ $resolverTools = @(
     # (endpoint "ListMessageTrace" - see resolver-prompt.md). Falls back to
     # outlook_email_search when that doesn't turn up enough.
     "mcp__CIPP__cipp_api_get",
+    # list_tenants/list_mfa_users/list_conditional_access: a real run investigating
+    # a security-flagged ticket wanted to confirm which tenant it was checking and
+    # whether MFA/conditional access was actually enforced for the affected user -
+    # denied because none of these three read-only lookups had been added yet.
+    "mcp__CIPP__list_tenants", "mcp__CIPP__list_mfa_users", "mcp__CIPP__list_conditional_access",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
     # Three straight real runs each turned up a different missing read-only
@@ -310,7 +330,13 @@ $resolverTools = @(
     "mcp__Meraki__list_organizations", "mcp__Meraki__list_networks",
 
     # --- Security context, read-only ---
+    # get_escalation/list_identities/list_organizations: a real run working a
+    # Huntress security escalation ticket wanted to pull the escalation's own
+    # detail (not just the incident report list) and check the affected
+    # identity/org context - denied because none of these three had been
+    # added yet, same class of gap as the earlier Ninja/UniFi/Meraki rounds.
     "mcp__Huntress__list_incident_reports", "mcp__Huntress__get_agent",
+    "mcp__Huntress__get_escalation", "mcp__Huntress__list_identities", "mcp__Huntress__list_organizations",
 
     # --- Documentation, read-only (also where per-client 3CX connection details
     #     would live once that system is added - see README) ---

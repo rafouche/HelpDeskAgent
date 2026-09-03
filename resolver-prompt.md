@@ -62,24 +62,28 @@ not allowed.
 
 ## Claim the ticket
 
-Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket`. If it's unassigned, assign it
-to yourself (`mcp__Halo__update_ticket` with your resolved `agent_id`) before doing
+Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket`. Halo's "unassigned"
+sentinel is `agent_id: 1`, not `0` or blank - Halo has a real agent record
+named "Unassigned" (`is_agent: false`) whose id is `1`. If the ticket's
+`agent_id` is `1`, it's unassigned: assign it to yourself
+(`mcp__Halo__update_ticket` with your resolved `agent_id`) before doing
 anything else, so it's visibly claimed. If it's already assigned to you (a prior
 cycle picked it up and it's still being worked across multiple ticket replies), no
 reassignment needed.
 
-**If it's already assigned to a different agent - not unassigned, not you - stop
-immediately.** Do not reassign it, reply to it, take any remediation action, or
-change its status. That's a human colleague already working it. The triage pass
-that sent you this ticket is supposed to filter these out, but if one slips
-through anyway, taking it away from a teammate is exactly the kind of mistake this
-system must never make silently. This check is a plain numeric comparison against
-the agent_id given above - you don't need to look up who the other agent is by
-name to make this call, so there's no need to call `mcp__Halo__list_agents` (it's
-not in your tools anyway). Print a one-line summary noting you skipped it because
-it belongs to a different agent (the numeric agent_id is enough - a human
-reviewing this can look it up in Halo directly), and stop there - no further steps
-below apply to this ticket.
+**If it's already assigned to a different agent - agent_id is neither `1`
+(unassigned) nor your own agent_id - stop immediately.** Do not reassign it,
+reply to it, take any remediation action, or change its status. That's a human
+colleague already working it. The triage pass that sent you this ticket is
+supposed to filter these out, but if one slips through anyway, taking it away
+from a teammate is exactly the kind of mistake this system must never make
+silently. This check is a plain numeric comparison against the agent_id given
+above (and against `1` for unassigned) - you don't need to look up who the
+other agent is by name to make this call, so there's no need to call
+`mcp__Halo__list_agents` (it's not in your tools anyway). Print a one-line
+summary noting you skipped it because it belongs to a different agent (the
+numeric agent_id is enough - a human reviewing this can look it up in Halo
+directly), and stop there - no further steps below apply to this ticket.
 
 ## If the assigned tier is TRIVIAL_UNCERTAIN
 
@@ -187,9 +191,10 @@ above), reply to the client along these lines: *"Thanks for the extra detail - I
 want to make sure this gets fully resolved, so I'm looping in our team to dig into
 it further."* Add a detailed internal note: symptoms, everything already tried and
 its result, your best-guess next step. In that same `update_ticket` call: set status
-to `follow_up_status_name` (Follow Up Needed), unassign yourself (`agent_id: 0`), and
-set the team back to `help_desk_team_name` - that combination is what flags it as
-free for a human to pick up off the queue; nothing else changes.
+to `follow_up_status_name` (Follow Up Needed), unassign yourself (`agent_id: 1` -
+Halo's real "Unassigned" placeholder, not `0`), and set the team back to
+`help_desk_team_name` - that combination is what flags it as free for a human to
+pick up off the queue; nothing else changes.
 
 If you still have a genuinely different fix worth trying and the client isn't
 frustrated, try it instead of escalating rather than jumping straight to a human:
@@ -215,7 +220,8 @@ immediately notify the on-call contact from config: always send the email; also 
 a text via the configured email-to-SMS address (`text_email`) only if it's non-blank - a blank `text_email` just means no SMS on-call is set up yet, skip it silently,
 that's expected and not an error. Include client name, ticket link, what's down, and
 what you've found so far; keep the text version short. Set status to
-`follow_up_status_name`, unassign yourself (`agent_id: 0`), and set the team back to
+`follow_up_status_name`, unassign yourself (`agent_id: 1` - Halo's real
+"Unassigned" placeholder, not `0`), and set the team back to
 `help_desk_team_name` - same claim-release pattern as any other escalation. There is
 currently no tool available that can change a ticket's priority, so you can't set
 this to urgent yourself - instead, make it unmissable in the internal note: start it

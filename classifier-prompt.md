@@ -50,6 +50,12 @@ entirely. Do this filtering by reading the returned team_id/agent_id fields
 directly against the team_id/agent_id given above - no second tool call, no
 script, just judgment.
 
+**Halo's "unassigned" sentinel is `agent_id: 1`, not `0`.** Halo has a real
+agent record named "Unassigned" (`is_agent: false`) whose id is `1` - a
+ticket with `agent_id: 1` has nobody working it, the same as if the field
+were empty. Treat `agent_id: 1` as unassigned, not as some other agent's
+ticket, or you'll wrongly skip real candidates.
+
 ## Drop already-claimed tickets with nothing new to act on
 
 A ticket already assigned to `config.halo.agent_username` was claimed by a
