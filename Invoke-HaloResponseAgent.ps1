@@ -73,6 +73,29 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.4 - fixed a real first-scheduled-run failure: "'claude' is
+    not recognized as the name of a cmdlet, function, script file, or
+    operable program." A fourth instance of the same SYSTEM-account-scoping
+    shape as the credential/MCP-registration bugs already documented above -
+    `claude` (npm install -g @anthropic-ai/claude-code) installs into the
+    interactive user's own per-account npm prefix
+    (%APPDATA%\npm\claude.cmd), which is on that user's PATH but not
+    SYSTEM's, and every prior test only ever worked because it was run
+    interactively as an admin. Every prior test - including -WhatIf/
+    -RequireApproval runs used to validate every fix in this version
+    history - ran as that same interactive account, so this never surfaced
+    until the very first real scheduled firing.
+    Fixed by resolving the claude executable's full path once at startup
+    (PATH via Get-Command first, then a scan of every local user profile's
+    npm global-install location, since SYSTEM can read another account's
+    files even though it doesn't inherit that account's PATH) instead of
+    relying on bare `claude` resolving via PATH, and threading that resolved
+    path into Invoke-ClaudeCLI's three call sites (ID resolver, classifier,
+    each resolver call) as an explicit -ClaudeExe parameter rather than an
+    implicit outer-scope read, matching this script's existing
+    explicit-parameter convention (see Write-LogSection). Also added
+    config.json's claude.executable_path (blank by default = auto-detect)
+    as an escape hatch for the rare case the auto-detection guesses wrong.
     Version: 2.9.3 - added confidence-gated ticket re-linking, prompted by a
     real example: a voicemail comes in against a generic/shared account, but
     the transcript names the real caller (a spoken name + callback number,
@@ -444,6 +467,44 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 # hitting a data file read at runtime instead of a script being parsed.
 $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
+# --- Resolve the claude CLI executable path ---
+# `claude` (npm install -g @anthropic-ai/claude-code) installs into the
+# interactive user's own per-account npm prefix (typically
+# %APPDATA%\npm\claude.cmd) - fine on YOUR PATH when testing interactively,
+# but SYSTEM (which the scheduled task runs as - see
+# Register-HaloResponseAgentTask.ps1) has its own separate profile and PATH,
+# and never sees it - the same account-scoping shape as the credential/MCP-
+# registration issues in README's "Install and authenticate Claude Code"
+# section, just a third instance of it. Confirmed via a real scheduled run
+# failing with "'claude' is not recognized as the name of a cmdlet..." - bare
+# `& claude` only ever worked because every prior test was run interactively
+# as an admin, not because the scheduled task path was actually fine.
+# Resolution order: config.json's claude.executable_path (if set) > PATH
+# (works once this is fixed for real, or when running interactively) > a scan
+# of every local user profile's npm global-install location, since SYSTEM can
+# read another account's files even though it doesn't inherit that account's
+# PATH variable.
+$claudeExe = $null
+if ($config.claude.executable_path) {
+    if (-not (Test-Path $config.claude.executable_path)) {
+        throw "config.json's claude.executable_path ('$($config.claude.executable_path)') does not exist on disk - fix or clear it."
+    }
+    $claudeExe = $config.claude.executable_path
+}
+else {
+    $onPath = Get-Command claude -ErrorAction SilentlyContinue
+    if ($onPath) {
+        $claudeExe = $onPath.Source
+    }
+    else {
+        $found = Get-ChildItem -Path "C:\Users\*\AppData\Roaming\npm\claude.cmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $claudeExe = $found.FullName }
+    }
+}
+if (-not $claudeExe) {
+    throw "Could not find the claude CLI anywhere - not on PATH, and no C:\Users\*\AppData\Roaming\npm\claude.cmd found. Set claude.executable_path in config.json to its full path (find it by running 'Get-Command claude' as whichever account you installed/authenticated it with)."
+}
+
 # --- Determine business-hours context ---
 $now = Get-Date
 $isBusinessDay = $config.business_hours.days -contains $now.DayOfWeek.ToString()
@@ -800,7 +861,8 @@ function Invoke-ClaudeCLI {
         [string]$Prompt,
         [string[]]$Tools,
         [string]$Model,
-        [string]$Effort
+        [string]$Effort,
+        [string]$ClaudeExe
     )
     $toolsArg = ($Tools -join ",")
     $claudeArgs = @(
@@ -821,7 +883,7 @@ function Invoke-ClaudeCLI {
     # problem (already ruled out: BOM, hash, and length all verified intact
     # on disk). Stdin has no argument-parsing step, so this is no longer a
     # hazard no matter how many quotes a prompt contains.
-    $rawOutput = $Prompt | & claude @claudeArgs 2>&1
+    $rawOutput = $Prompt | & $ClaudeExe @claudeArgs 2>&1
     $rawText = $rawOutput | Out-String
 
     $parsed = $null
@@ -976,7 +1038,7 @@ try {
         # this cycle - or, just as bad, get written to the cache and silently
         # reused by every cycle after this one.
         $idResolverResult = Invoke-ClaudeCLI -Prompt $idResolverPrompt -Tools $idResolverTools `
-            -Model $config.claude.classifier_model -Effort $config.claude.effort
+            -Model $config.claude.classifier_model -Effort $config.claude.effort -ClaudeExe $claudeExe
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $idResolverResult.Raw
 
         if (-not $idResolverResult.Parsed) {
@@ -1253,7 +1315,7 @@ try {
 
     # --- Stage 1: classify ---
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
-        -Model $config.claude.classifier_model -Effort $config.claude.effort
+        -Model $config.claude.classifier_model -Effort $config.claude.effort -ClaudeExe $claudeExe
     Write-LogSection -LogFile $logFile -Header "CLASSIFIER" -Content $classifierResult.Raw
 
     if (-not $classifierResult.Parsed) {
@@ -1352,7 +1414,7 @@ try {
 
         try {
             $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
-                -Model $model -Effort $config.claude.effort
+                -Model $model -Effort $config.claude.effort -ClaudeExe $claudeExe
             Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model)" -Content $resolverResult.Raw
 
             $ticketCost = 0

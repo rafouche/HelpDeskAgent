@@ -387,12 +387,13 @@ config tweak. Not worth building preemptively.
   `mcp__<ServerName>__<tool>` form from the start and confirm the server name via
   `claude mcp list` on the actual machine — don't assume it matches the vendor's
   display name.
-- **Credential/MCP-registration account scoping — same silent-failure shape as
-  the naming bug above, different root cause (fixed, found before it shipped).**
+- **Credential/MCP-registration/PATH account scoping — same silent-failure
+  shape as the naming bug above, different root cause (fixed; the first two
+  were found before they shipped, the third wasn't).**
   Raised as a direct question ("will the SYSTEM-run scheduled task still have
   API access") and verified against Claude Code's own docs rather than
   assumed, since this project has already been burned once by an assumption in
-  this exact area. Two separate things, both scoped per-Windows-account by
+  this exact area. Three separate things, all scoped per-Windows-account by
   default:
   1. **Credentials.** `claude setup-token`/`/login` write to
      `%USERPROFILE%\.claude\.credentials.json`, restricted to whichever
@@ -416,11 +417,28 @@ config tweak. Not worth building preemptively.
      and the result is identical to the original naming bug: the task runs,
      reports no error, and silently has zero working tools. `.mcp.json` holds
      real credentials in plain text and is now in `.gitignore`.
-  Neither of these would show up in any interactive testing done as an admin
+  3. **The `claude` executable itself (found v2.9.4, via the actual first
+     scheduled run failing).** `npm install -g @anthropic-ai/claude-code`
+     installs into the interactive user's own per-account npm prefix
+     (`%APPDATA%\npm\claude.cmd`) - on that user's `PATH`, not `SYSTEM`'s.
+     Real error hit: `'claude' is not recognized as the name of a cmdlet,
+     function, script file, or operable program.` Fix:
+     `Invoke-HaloResponseAgent.ps1` now resolves `claude`'s full path once at
+     startup (`Get-Command claude` first, then a scan of every local user
+     profile's npm global-install folder, since `SYSTEM` can read another
+     account's files even though it doesn't inherit that account's `PATH`)
+     and threads it through explicitly rather than relying on bare `claude`
+     resolving via `PATH` at each of the three call sites. `config.json`'s
+     `claude.executable_path` (blank by default) is the escape hatch if
+     auto-detection ever guesses wrong.
+  Unlike the first two, this one wasn't caught before it shipped - it took the
+  real first scheduled firing to expose it, for the same reason described
+  next.
+  None of these three would show up in any interactive testing done as an admin
   user (`-WhatIf` runs by hand use that account's own credentials/MCP config
   regardless of what the scheduled task would see) - only an actual scheduled
-  firing, running as `SYSTEM`, exposes the gap. Confirm both are correct by
-  triggering the registered task manually once (Task Scheduler ->
+  firing, running as `SYSTEM`, exposes the gap. Confirm all three are correct
+  by triggering the registered task manually once (Task Scheduler ->
   right-click -> Run) rather than trusting an interactive `-WhatIf` run alone.
 - **Private-note handoff got dropped as "nothing new" (fixed, found via a live
   report - ticket #21568).** A human agent did real work on a ticket, wrote it
