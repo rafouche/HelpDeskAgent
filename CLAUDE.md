@@ -441,6 +441,38 @@ config tweak. Not worth building preemptively.
   a small clarifying addition so this exact state is treated as NEW (client
   still owed a first reply, private note used as prior art rather than
   re-diagnosed from scratch) instead of being mistaken for ONGOING.
+- **list_tickets silently only ever saw ~20 of the account's real 213 open
+  tickets (fixed, same ticket #21568 - the above fix alone wasn't enough).**
+  Even after the fix directly above, #21568 stayed invisible: it never
+  reached the classifier at all, because `mcp__Halo__list_tickets` had no
+  agent/team filter - only `count`/`open_only`/`client_id`/`search` - so
+  "call it once with `open_only: true`" silently returned just the ~20
+  most-recently-active open tickets account-wide out of a real 213
+  (confirmed live). A ticket that goes quiet ages out of that window with
+  no error. Raising `count` doesn't fix it either - each row carries full
+  ticket body text, and `count: 30` alone already exceeded Claude Code's own
+  response-size limit in a live test.
+  This required a fix in the underlying tool, not just this repo: added
+  `agent_id` and `pageinate`/`page_no`/`page_size` to `halopsa-mcp`'s
+  `list_tickets` (`rafouche/MCPs`, commits `b9a0c4e`/`3f7d8ab`), confirmed
+  against HaloPSA's own live REST API v2 swagger spec, then verified live
+  post-deploy: `agent_id: 1` correctly returned only unassigned tickets,
+  and `page_size: 10` pagination returned exactly one page plus an accurate
+  `record_count`. classifier-prompt.md's "Find candidate tickets" now makes
+  two agent_id-filtered calls instead of one unfiltered one: `agent_id: 1`
+  (Halo's real "Unassigned" agent) capped at page 1/15 (an old unassigned
+  ticket is a slower-moving gap, not worth a full sweep every 10 minutes),
+  and `agent_id` = this bot's own ID, paged through in full regardless of
+  `record_count` - that set should always be small, and must never
+  silently truncate, since that's exactly the #21568 failure shape.
+  Deliberately did not add HaloPSA's `team` filter - its swagger types it
+  as a bare string despite being documented as "array of int," meaning the
+  wire encoding isn't documented and wasn't safe to guess at; client-side
+  `team_id` filtering on the (now much smaller) combined results stays as
+  it was. A real gap remains: an unassigned Help Desk ticket could in
+  theory still age past the unassigned call's page-1/15 window if enough
+  *other teams'* unassigned tickets arrive first - lower-priority than the
+  fixed case, not yet mitigated.
 
 ## Known gaps and future work
 
@@ -449,19 +481,39 @@ Found by directly querying the live Halo instance (`list_ticket_types`,
 assuming from config.json alone:
 
 - **`compliance.excluded_client_names` (v2.9.0) cannot stop the classifier's
-  account-wide `list_tickets` scan from seeing an excluded client's ticket
-  subject/summary line every cycle** - confirmed directly:
-  `mcp__Halo__list_tickets` supports only an INCLUDE filter for a single
-  `client_id`, no exclude filter, no bulk/multi-client filter. Closing this
-  the rest of the way needs one of: (a) the Halo MCP server adding an exclude-
-  filter or "list tickets NOT in these clients" capability to `list_tickets`
-  (out of this repo's control, same as the priority/urgency/contact-creation
-  gaps above); or (b) a non-AI pre-filter sitting in front of the classifier
-  entirely - e.g. PowerShell itself calling Halo's REST API directly (bypassing
-  the MCP server) to fetch and filter the ticket list before any of it reaches
-  a `claude -p` call - a materially bigger architecture change than anything
-  else in this file, since PS1 currently has no independent Halo API client at
-  all. Worth real design discussion before attempting, not a quick patch.
+  unassigned/mine `list_tickets` calls from seeing an excluded client's ticket
+  subject/summary line every cycle** - confirmed directly against HaloPSA's
+  live REST API v2 swagger spec: `/Tickets` supports only an INCLUDE filter
+  for a single `client_id`, no exclude filter, no bulk/multi-client filter
+  (as of the same investigation that added `agent_id`/pagination to
+  `halopsa-mcp` - see "Known limitations" above - so this has now actually
+  been checked against the real spec, not just the MCP tool's exposed
+  surface). Closing this the rest of the way needs one of: (a) the Halo MCP
+  server adding an exclude-filter or "list tickets NOT in these clients"
+  capability (HaloPSA's API itself has no such filter either, so this would
+  need client-side filtering inside halopsa-mcp before it ever returns a
+  response - out of this repo's control, same as the priority/urgency/
+  contact-creation gaps above); or (b) a non-AI pre-filter sitting in front
+  of the classifier entirely - e.g. PowerShell itself calling Halo's REST API
+  directly (bypassing the MCP server) to fetch and filter the ticket list
+  before any of it reaches a `claude -p` call - a materially bigger
+  architecture change than anything else in this file, since PS1 currently
+  has no independent Halo API client at all. Worth real design discussion
+  before attempting, not a quick patch.
+
+- **An unassigned Help Desk ticket could still age past the classifier's
+  unassigned-call window (page 1/15 of `agent_id: 1`, any team) if enough
+  *other teams'* unassigned tickets arrive first** - a real but lower-
+  priority residual gap from the `list_tickets` fix above (see "Known
+  limitations"), not yet mitigated. HaloPSA's `team` filter would close this
+  properly (filter to Help Desk server-side before the page-size limit ever
+  applies), but its swagger types it as a bare string despite being
+  documented as "array of int" - the wire encoding (JSON-array text vs.
+  something else) isn't documented and needs a live test against a real
+  tenant before wiring it in. Until then, a periodic wider sweep (paging
+  through all of `agent_id: 1` account-wide, filtering to Help Desk
+  client-side, on some slower cadence than every 10-minute cycle) is the
+  fallback if this turns out to matter in practice.
 
 - **Ticket type and impact are now used for classification (v2.4.0).**
   `list_tickets`/`get_ticket` already return `tickettype_id`, `impact`, and

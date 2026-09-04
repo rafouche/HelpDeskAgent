@@ -9,11 +9,11 @@ where it's actually needed.
 **This whole task should take a handful of tool calls, not a dozen+.** You have
 no code-execution tool - no Bash, no PowerShell, nothing that runs a script. If
 you catch yourself reaching for one to filter or parse ticket data, stop: that
-tool doesn't exist for you, and you don't need it. `mcp__Halo__list_tickets` has
-no team/agent filter of its own, so it always returns every open ticket
-account-wide - your job is just to read down that one returned list with your
-own judgment and pick out the Help Desk candidates, the same way you'd skim a
-spreadsheet. Do not call `mcp__Halo__get_ticket` on individual tickets to look
+tool doesn't exist for you, and you don't need it. `mcp__Halo__list_tickets`
+returns full ticket bodies per row, so a large or unfiltered pull can exceed
+your own response-size limit before you ever see the whole account - use its
+`agent_id` filter (see "Find candidate tickets" below) rather than a big
+`count`. Do not call `mcp__Halo__get_ticket` on individual tickets to look
 deeper - the list response already has what you need (team, assigned agent,
 subject/summary) to judge both candidacy and tier.
 
@@ -42,14 +42,36 @@ Halo, so just use the numbers given above directly - no need to call
 
 ## Find candidate tickets
 
-Call `mcp__Halo__list_tickets` exactly once with `open_only: true`. From that
-single response, keep only tickets on the Help Desk team that are either
-unassigned or already assigned to `config.halo.agent_username`. Skip anything
-assigned to, or with a recent reply from, a different Altec agent - that's a
-human already on it, and it costs nothing to leave it out of this cycle
-entirely. Do this filtering by reading the returned team_id/agent_id fields
-directly against the team_id/agent_id given above - no second tool call, no
-script, just judgment.
+Make exactly two `mcp__Halo__list_tickets` calls, both filtered server-side
+by agent rather than pulling the whole account and sorting it out yourself
+(a real ticket has been silently missed for cycles at a time by relying on
+an unfiltered pull's default recency window - see .NOTES version history for
+the real case this was fixed from):
+
+1. **Unassigned:** `{ open_only: true, agent_id: 1, pageinate: true,
+   page_no: 1, page_size: 15 }`. Halo has a real agent record named
+   "Unassigned" (`is_agent: false`) whose id is `1` - a ticket with
+   `agent_id: 1` has nobody working it. This is page 1 only (most recent 15
+   unassigned tickets account-wide) - an unassigned ticket that's been
+   sitting untouched long enough to fall past page 1 is a real but slower-
+   moving gap than the one this fix targets; not worth a full paged sweep
+   every 10 minutes.
+2. **Already mine:** `{ open_only: true, agent_id: {{AGENT_ID}},
+   pageinate: true, page_no: 1, page_size: 15 }`. Unlike the unassigned
+   call, **do not stop at page 1 here.** Check the response's `record_count`
+   - if it's more than 15 (more than fit on one page), keep calling with
+   `page_no: 2`, `3`, ... until you've seen every ticket currently assigned
+   to you, regardless of how old or quiet any of them are. This is the one
+   that must never silently truncate: a ticket handed to you and then gone
+   quiet for a while is exactly the failure this two-call design exists to
+   catch, and in practice this set should be small (a handful of tickets at
+   most), so paging through all of it costs almost nothing.
+
+From the combined results of both calls, keep only tickets whose `team_id`
+matches the Help Desk team_id given above - `agent_id` filtering alone spans
+every team, not just Help Desk. Skip anything assigned to, or with a recent
+reply from, a different Altec agent - that's a human already on it, and it
+costs nothing to leave it out of this cycle entirely.
 
 **Compliance exclusion comes first, before any of the above, and is not a
 judgment call.** If the excluded client_id(s) list above is anything other
@@ -60,17 +82,11 @@ impact, or anything else about the ticket. This exists to keep specific
 clients' tickets out of this pipeline entirely for legal/compliance reasons
 that have nothing to do with how simple or urgent the ticket looks - there is
 no ticket content that overrides it. You will still see that ticket's
-subject/summary line while scanning the full account-wide list (there is no
-way to avoid that and still build a candidate list from the rest) - the
-exclusion is about what happens *after* that: it never becomes a candidate,
-is never tiered, and the resolver (with its much deeper investigation and
-every downstream tool) never sees it at all.
-
-**Halo's "unassigned" sentinel is `agent_id: 1`, not `0`.** Halo has a real
-agent record named "Unassigned" (`is_agent: false`) whose id is `1` - a
-ticket with `agent_id: 1` has nobody working it, the same as if the field
-were empty. Treat `agent_id: 1` as unassigned, not as some other agent's
-ticket, or you'll wrongly skip real candidates.
+subject/summary line while scanning the unassigned/mine results above (there
+is no way to avoid that and still build a candidate list from the rest) -
+the exclusion is about what happens *after* that: it never becomes a
+candidate, is never tiered, and the resolver (with its much deeper
+investigation and every downstream tool) never sees it at all.
 
 ## Drop already-claimed tickets with nothing new to act on
 

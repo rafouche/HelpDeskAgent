@@ -73,6 +73,36 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.2 - fixed the deeper cause behind ticket #21568 staying
+    missed even after v2.9.1's classifier-logic fix: it never reached the
+    classifier at all. mcp__Halo__list_tickets had no agent/team filter of
+    its own - only count/open_only/client_id/search - so the classifier's
+    "call it once with open_only: true" instruction silently returned just
+    the ~20 most-recently-active open tickets account-wide, out of a real
+    213 open (confirmed live). A ticket that goes quiet - exactly what
+    happened after #21568 was privately noted and reassigned - ages out of
+    that window with no error or signal that it happened. Raising count
+    doesn't work either: each row carries full ticket body text, and count:
+    30 alone already exceeded Claude Code's own response-size limit in a
+    live test, let alone 213.
+    Real fix required changing the underlying tool, not just this repo:
+    added agent_id and pageinate/page_no/page_size to halopsa-mcp's
+    list_tickets (rafouche/MCPs, commits b9a0c4e/3f7d8ab), confirmed against
+    HaloPSA's own live REST API v2 swagger spec, then verified live post-
+    deploy (agent_id: 1 correctly returned only unassigned tickets;
+    page_size: 10 pagination returned exactly one page plus an accurate
+    record_count). classifier-prompt.md's "Find candidate tickets" now
+    makes two agent_id-filtered calls instead of one unfiltered one:
+    agent_id: 1 (Halo's real "Unassigned" agent) capped at page 1/15 - an
+    old unassigned ticket is a slower-moving gap, not worth a full sweep
+    every 10 minutes - and agent_id: {{AGENT_ID}} (this bot's own tickets)
+    paged through in FULL regardless of record_count, since that set should
+    always be small and must never silently truncate - that's exactly the
+    #21568 failure shape. Did not add HaloPSA's `team` filter - its swagger
+    types it as a bare string despite being "array of int," meaning the
+    wire encoding isn't documented and wasn't safe to guess; client-side
+    team_id filtering on the (now much smaller) combined results stays as
+    it was.
     Version: 2.9.1 - fixed a real missed-ticket bug found via a live report
     (ticket #21568): a human agent did the work, documented it in a PRIVATE
     note (`hiddenfromuser: true`), reassigned the ticket to the bot, and set
@@ -445,6 +475,18 @@ $idResolverTools = @(
 # action log's hiddenfromuser flag can. classifier-prompt.md's own text still
 # tells the model not to reach for get_ticket, so there'd be nothing for it to
 # call even if it were left in.
+# NOTE: list_tickets itself required a fix in the underlying halopsa-mcp
+# server (rafouche/MCPs), not just here, before ticket #21568 could actually
+# be found: it had no agent/team filter at all, so it silently returned only
+# the most recent ~20 open tickets account-wide (each row carries full body
+# text, so even a larger count exceeds Claude Code's own response-size limit
+# well before reaching the true end of the backlog - confirmed live, count:30
+# already failed). halopsa-mcp now accepts agent_id (single agent, forwarded
+# straight to HaloPSA's own /Tickets filter) and pageinate/page_no/page_size
+# (HaloPSA's real pagination) - see classifier-prompt.md's "Find candidate
+# tickets" section for how the classifier uses these instead of one
+# unfiltered pull. This tool array doesn't change for that fix (list_tickets
+# was already here) - only the prompt's instructions for how to call it did.
 $classifierTools = @(
     "Read", "ToolSearch",
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket_time_entries"
