@@ -192,8 +192,18 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
 1. **Read full history.** Get the whole ticket + notes/time entries, not just the
    latest message - you need the full back-and-forth to judge difficulty and mood.
 2. **Classify the ticket's conversation state:**
-   - NEW - no Altec response yet.
-   - ONGOING - you (or a prior agent run) already replied, client replied back.
+   - NEW - no Altec response yet. This includes a ticket whose only history is
+     a **private** note (`hiddenfromuser: true`) - from you in an earlier cycle
+     or from a human colleague who did the work and handed it off - with no
+     public, client-facing reply sent since: a private note is internal-only,
+     it is not "an Altec response" from the client's point of view, so the
+     client is still owed a first reply. Treat that private note as prior art
+     (skip re-diagnosing what it already covers) but still classify the ticket
+     as NEW and send the client-facing reply this state requires - a human
+     colleague privately documenting finished work and handing the ticket off
+     is not the same as the client having been told anything.
+   - ONGOING - you (or a prior agent run) already sent a public, client-facing
+     reply, and the client replied back.
    - EMERGENCY CANDIDATE - language or symptoms suggesting a real outage (server
      down, "everyone is down," phones down, ransomware/security indicators, etc.),
      checked regardless of time of day or assigned tier. `get_ticket`'s response

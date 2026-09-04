@@ -83,15 +83,35 @@ changed and a full re-investigation is pure waste, repeated every cycle
 until they respond.
 
 So for each candidate already assigned to you (not the unassigned ones -
-those always need first-pass handling), call `mcp__Halo__get_ticket` to
-check whether the client's latest message postdates our own last note or
-reply. This is the one exception to the no-`get_ticket` rule above - it's
-bounded to just this already-mine subset, typically a handful of tickets at
-most, not the whole list, and it's the only reliable way to tell "still
-waiting" from "client just replied." If there's nothing newer than what we
-already sent, drop this ticket from the candidate list entirely - do not
-include it in your output. Include it only if the client has replied since,
-or if for some reason it was never actually worked despite being assigned.
+those always need first-pass handling), call `mcp__Halo__get_ticket_time_entries`
+to look at the actual action log. This is the one exception to the
+no-per-ticket-lookup rule above - it's bounded to just this already-mine
+subset, typically a handful of tickets at most, not the whole list. Use
+this tool rather than `mcp__Halo__get_ticket` for this check specifically:
+`get_ticket` has no field that distinguishes a client-facing reply from an
+internal-only note or tells you who is on which side of a given entry -
+only the action log's `hiddenfromuser` flag (`false` = public/client-facing,
+`true` = private/internal-only) actually answers "did the client see
+something new, or did we just talk to ourselves?"
+
+Read the log entries in time order and find the most recent substantive
+one (skip pure system noise like `SLA Hold`/`Rule Applied`). Drop the
+ticket from the candidate list entirely only if that most recent entry is
+already a public, client-facing note or reply from us with nothing after
+it - that means the client has been told where things stand and hasn't
+answered yet, so nothing has changed. Include it in three cases instead:
+
+- the client has posted something since our last note or reply (an entry
+  from them, not from an agent);
+- for some reason it was never actually worked despite being assigned
+  (no substantive entry at all since assignment); or
+- the most recent substantive entry is a **private** note (`hiddenfromuser:
+  true`) describing real work done on the ticket - whether that note was
+  written by the bot in an earlier cycle or by a human colleague who did
+  the work and handed the ticket off - with no public, client-facing
+  reply sent since. A private note is never a substitute for telling the
+  client something; if nobody has actually told them yet, this ticket
+  still needs the resolver to close that loop.
 
 ## Classify each candidate into exactly one tier
 

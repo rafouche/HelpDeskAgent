@@ -73,6 +73,30 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.1 - fixed a real missed-ticket bug found via a live report
+    (ticket #21568): a human agent did the work, documented it in a PRIVATE
+    note (`hiddenfromuser: true`), reassigned the ticket to the bot, and set
+    it to "waiting on client" expecting a client-facing follow-up - but no
+    client-facing reply had ever gone out, and the classifier dropped the
+    ticket anyway. Root cause, confirmed against ticket #21568's real
+    mcp__Halo__get_ticket/get_ticket_time_entries/list_statuses responses
+    (not assumed): classifier-prompt.md's "drop already-claimed tickets with
+    nothing new to act on" check used mcp__Halo__get_ticket, whose schema has
+    no field distinguishing a client-facing reply from an internal-only note
+    - only the action log's `hiddenfromuser` flag can - so the check had no
+    way to tell "we already told the client" from "someone just talked to
+    themselves." Fixed by swapping that check onto
+    mcp__Halo__get_ticket_time_entries (now in $classifierTools;
+    mcp__Halo__get_ticket removed from that list since nothing in
+    classifier-prompt.md calls it anymore) and adding a third "include as
+    candidate" case: the most recent substantive action-log entry is a
+    private note describing real work - written by the bot in an earlier
+    cycle OR by a human colleague handing the ticket off - with no public,
+    client-facing reply sent since. Also added a small clarifying addition
+    to resolver-prompt.md's NEW/ONGOING/EMERGENCY CANDIDATE classification so
+    a ticket in exactly this state is treated as NEW (client still owed a
+    first reply) rather than mistaken for ONGOING, while still using the
+    private note as prior art instead of re-diagnosing from zero.
     Version: 2.9.0 - added a compliance-driven client exclusion list
     (config.json's new `compliance.excluded_client_names`), prompted by a
     direct question about PCI/HIPAA/GLBA/SOX exposure from routing ticket
@@ -413,9 +437,17 @@ $idResolverTools = @(
 # there's nothing left for the classifier to look up; leaving these tools out
 # entirely (rather than just telling the prompt not to bother) guarantees the
 # savings instead of just hoping the model complies.
+# NOTE: get_ticket is deliberately NOT here either (removed after ticket #21568
+# revealed the classifier needs get_ticket_time_entries instead - see .NOTES
+# version history). get_ticket's schema has no field distinguishing a
+# client-facing reply from an internal-only note, so it can't actually answer
+# "has anything new happened since we last touched this ticket" - only the
+# action log's hiddenfromuser flag can. classifier-prompt.md's own text still
+# tells the model not to reach for get_ticket, so there'd be nothing for it to
+# call even if it were left in.
 $classifierTools = @(
     "Read", "ToolSearch",
-    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket"
+    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket_time_entries"
 )
 
 # Resolver: the full tool set - everything a ticket might need to be diagnosed

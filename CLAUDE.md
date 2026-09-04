@@ -418,6 +418,29 @@ config tweak. Not worth building preemptively.
   firing, running as `SYSTEM`, exposes the gap. Confirm both are correct by
   triggering the registered task manually once (Task Scheduler ->
   right-click -> Run) rather than trusting an interactive `-WhatIf` run alone.
+- **Private-note handoff got dropped as "nothing new" (fixed, found via a live
+  report - ticket #21568).** A human agent did real work on a ticket, wrote it
+  up in a PRIVATE note (`hiddenfromuser: true`), reassigned the ticket to the
+  bot, and set it to "waiting on client" expecting a client-facing follow-up.
+  Nothing followed up - the client never heard anything. Confirmed against
+  ticket #21568's real `get_ticket`/`get_ticket_time_entries`/`list_statuses`
+  responses (not assumed): classifier-prompt.md's "drop already-claimed
+  tickets with nothing new to act on" check used `mcp__Halo__get_ticket` to
+  decide whether anything had changed since our last touch - but `get_ticket`'s
+  schema has no field distinguishing a client-facing reply from an
+  internal-only note, so a private note and a real client-facing reply looked
+  identical to that check, and the ticket got silently dropped as "already
+  handled." Fixed by switching that check to
+  `mcp__Halo__get_ticket_time_entries` (the action log, which does carry
+  `hiddenfromuser`) and adding a third "include as candidate" case: most
+  recent substantive entry is a private note describing real work - whether
+  from the bot in an earlier cycle or from a human colleague handing off -
+  with no public reply sent since. `mcp__Halo__get_ticket` was removed from
+  `$classifierTools` since nothing in classifier-prompt.md calls it anymore.
+  resolver-prompt.md's NEW/ONGOING/EMERGENCY CANDIDATE classification also got
+  a small clarifying addition so this exact state is treated as NEW (client
+  still owed a first reply, private note used as prior art rather than
+  re-diagnosed from scratch) instead of being mistaken for ONGOING.
 
 ## Known gaps and future work
 
