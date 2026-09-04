@@ -174,22 +174,33 @@ to use automatically."** Reassigning a ticket to the wrong real client is a
 worse outcome than leaving it unlinked - it can put one client's information
 in front of the wrong company's ticket history. Split on confidence:
 
-**HIGH CONFIDENCE - act automatically:** the ticket body gives you a callback
-phone number (a voicemail transcript's caller ID, a signature's direct line,
-etc.). Call `mcp__Halo__list_contacts` with `search` set to that number and
-`search_phonenumbers: true`. If it returns exactly one contact whose
-phone/mobile genuinely matches, that's a real, already-vetted identity in
-Halo - not something you're inferring from a spoken name alone. Note that
+**HIGH CONFIDENCE - act automatically:** the ticket body gives you either of
+these two independently-verifiable identifiers:
+
+- a callback phone number (a voicemail transcript's caller ID, a signature's
+  direct line, etc.) - call `mcp__Halo__list_contacts` with `search` set to
+  that number and `search_phonenumbers: true`; or
+- a specific email address (a Huntress identity/security alert naming the
+  affected M365 account, a signature, a "from" address) - call
+  `mcp__Halo__list_contacts` with `search` set to that address (no
+  `search_phonenumbers` - plain `search` already matches name/email).
+
+If either returns exactly one contact whose phone/mobile or email genuinely
+matches, that's a real, already-vetted identity in Halo - not something
+you're inferring from a spoken name or a guessed spelling alone. Note that
 contact's `client_id` (or look it up via `mcp__Halo__get_contact` if not
 already in the list result), then call `mcp__Halo__update_ticket` with that
 `client_id` and the contact's `user_id`, re-fetch and confirm per the section
 above, and add a private note stating what changed and why (e.g. "Re-linked
 from generic voicemail account to Stone County Health Department / Dawn
-Davis based on phone number 417-907-9136 matching an existing Halo contact").
-Then continue this ticket's investigation/resolution normally, now correctly
-scoped to the real client. If the phone search returns zero matches, or more
-than one (a shared/main office line can belong to several contacts), that is
-NOT high confidence - fall through to the next case instead of guessing.
+Davis based on phone number 417-907-9136 matching an existing Halo contact",
+or "Re-linked from generic Huntress-alert account to the matching Halo
+contact for jsmith@clientdomain.com"). Then continue this ticket's
+investigation/resolution normally, now correctly scoped to the real
+client/contact. If the search returns zero matches, or more than one (a
+shared/main office line, or a distribution address, can match several
+contacts), that is NOT high confidence - fall through to the next case
+instead of guessing.
 
 **LOW CONFIDENCE - flag for a human, do not act:** everything else - a name
 and company mentioned in text with no phone match, a company name alone, a
@@ -271,6 +282,33 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    usually contains the same SMTP error code and is enough to explain most bounces
    (bad address, mailbox full, blocked by the recipient's spam filter, etc.) without
    a full trace.
+
+   **Huntress alerts flagging a personal/consumer VPN specifically:** first
+   make sure this ticket is actually linked to the real person Huntress named
+   (see "If the ticket's contact/company is unknown or wrong" above - a
+   Huntress-generated ticket is exactly as likely to land against a generic/
+   unlinked account as a voicemail one). Then check what the ticket/
+   escalation detail actually says before replying - don't assume either
+   direction:
+   - If there's a clear legitimate reason to think they're being geo-blocked
+     or otherwise unable to reach a company resource normally from where
+     they are (travel, a client site in another region, the ticket text
+     itself says so) - do NOT just tell them to turn the VPN off, that would
+     be telling them to break their own access. Instead, reply
+     acknowledging that, and add a private note flagging that this person
+     needs a real, correctly-configured remote-access path (a proper
+     business VPN, an allow-listed IP/region, etc. - not a remediation this
+     pipeline can perform itself) so IT can set them up on request instead
+     of relying on a personal VPN going forward.
+   - Otherwise, tell them plainly to stop using personal/consumer VPN
+     software when connecting to company resources, and to disconnect it
+     now if it's still active. A consumer VPN masks or reroutes traffic in
+     ways that make Huntress's own detections less reliable and can itself
+     look like a compromise indicator - this isn't just a policy preference.
+   - If it's genuinely unclear which case applies from the ticket alone, ask
+     the one clarifying question that would settle it (are they traveling or
+     otherwise unable to reach something normally, or was this VPN just a
+     personal habit/preference) rather than guessing either way.
 4. **Judge difficulty** from what you actually found, using the assigned tier only as
    a starting expectation:
    - EASY - matches a known simple pattern (password reset, account unlock, printer
