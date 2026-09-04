@@ -405,6 +405,16 @@ exposes the difference. If `claude mcp add` complains about a name already
 registered, remove the old `-s user` entry first (`claude mcp remove <name> -s user`)
 rather than leaving both in place.
 
+**Shortcut if you have more than a couple of connectors already registered
+with `-s user`:** `Copy-McpServersToProject.ps1` copies your existing
+`-s user` registrations (URLs, headers, tokens included) straight into a
+`.mcp.json` in this folder, instead of re-typing every `claude mcp add`
+command by hand. Only handles connectors that don't need further interactive
+auth (see "Needs authentication" below) - run it from this folder:
+```powershell
+.\Copy-McpServersToProject.ps1
+```
+
 **If a connector shows "Needs authentication"** in `claude mcp list` (this is
 normal for OAuth-based servers like Hudu/Huntress — token auth connectors just
 show "Connected" once added), it needs a one-time interactive login that can't

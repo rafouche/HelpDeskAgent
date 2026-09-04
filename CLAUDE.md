@@ -46,6 +46,10 @@ the full rationale.
   resolver call, then the classifier call, then loops the resolver call once
   per classified ticket, logs everything.
 - `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup.
+- `Copy-McpServersToProject.ps1` — copies already-registered `-s user` MCP
+  servers into this folder's `.mcp.json` (`-s project` scope), instead of
+  re-typing every `claude mcp add` command by hand. Only for connectors that
+  need no further interactive auth.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
