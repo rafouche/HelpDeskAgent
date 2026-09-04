@@ -305,16 +305,34 @@ npm -v
 (`winget install OpenJS.NodeJS.LTS` or `choco install nodejs-lts -y` work too, if either is already set up on the box.)
 
 ### 1. Install and authenticate Claude Code
+
+**Don't just run a plain `npm install -g @anthropic-ai/claude-code` as yourself.**
+npm's own documented default global-install location on Windows is `%AppData%\npm`
+— a per-user folder (confirmed against npm's own docs, not assumed) — so
+`claude` ends up on *your* `PATH` only. `SYSTEM` (the account
+`Register-HaloResponseAgentTask.ps1` runs the scheduled task as) has its own
+separate profile and `PATH`, and never sees it — confirmed by a real scheduled
+run failing with `'claude' is not recognized as the name of a cmdlet...`, even
+though `claude --version` worked fine interactively as an admin the whole time.
+
+Run `Install-ClaudeCodeMachineWide.ps1` instead — as Administrator, once —
+which points npm's global-install prefix at `C:\ProgramData\npm` (a folder
+genuinely shared by every account on the machine, not tied to whichever
+account happens to run the install) and installs `claude` there:
 ```powershell
-npm install -g @anthropic-ai/claude-code
+.\Install-ClaudeCodeMachineWide.ps1
 ```
 If npm nags about its own update (`npm error code EBADENGINE ... Not compatible
-with your version of node/npm`) right after, ignore it — that's npm's optional
+with your version of node/npm`) during this, ignore it — that's npm's optional
 self-update rejecting itself because it wants a newer Node than the LTS above
 ships; it doesn't affect the `claude-code` install, which already succeeded.
 
+Then, from a **new** PowerShell window (the one you just ran the install
+script in won't see the machine-wide `PATH`/`NPM_CONFIG_PREFIX` changes it
+just made — same reasoning as the `/M` note below):
 ```powershell
-claude --version   # confirm it's on PATH
+Get-Command claude   # Source should be under C:\ProgramData\npm, not your own AppData
+claude --version
 
 claude setup-token                      # subscription login
 # or

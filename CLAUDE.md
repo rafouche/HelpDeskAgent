@@ -46,6 +46,9 @@ the full rationale.
   resolver call, then the classifier call, then loops the resolver call once
   per classified ticket, logs everything.
 - `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup.
+- `Install-ClaudeCodeMachineWide.ps1` — one-time setup: installs the `claude`
+  CLI into a shared `C:\ProgramData\npm` prefix instead of npm's per-user
+  Windows default, so `SYSTEM` (and every other account) can find it.
 - `Copy-McpServersToProject.ps1` — copies already-registered `-s user` MCP
   servers into this folder's `.mcp.json` (`-s project` scope), instead of
   re-typing every `claude mcp add` command by hand. Only for connectors that
@@ -387,13 +390,13 @@ config tweak. Not worth building preemptively.
   `mcp__<ServerName>__<tool>` form from the start and confirm the server name via
   `claude mcp list` on the actual machine — don't assume it matches the vendor's
   display name.
-- **Credential/MCP-registration account scoping — same silent-failure shape as
-  the naming bug above, different root cause (fixed, found before it shipped).**
-  Raised as a direct question ("will the SYSTEM-run scheduled task still have
-  API access") and verified against Claude Code's own docs rather than
-  assumed, since this project has already been burned once by an assumption in
-  this exact area. Two separate things, both scoped per-Windows-account by
-  default:
+- **Credential/MCP-registration/PATH account scoping — same silent-failure
+  shape as the naming bug above, different root cause (fixed; the first two
+  were found before they shipped, the third wasn't).** Raised as a direct
+  question ("will the SYSTEM-run scheduled task still have API access") and
+  verified against Claude Code's own docs rather than assumed, since this
+  project has already been burned once by an assumption in this exact area.
+  Three separate things, all scoped per-Windows-account by default:
   1. **Credentials.** `claude setup-token`/`/login` write to
      `%USERPROFILE%\.claude\.credentials.json`, restricted to whichever
      account is logged in when you run them. `Register-HaloResponseAgentTask.ps1`
@@ -416,12 +419,32 @@ config tweak. Not worth building preemptively.
      and the result is identical to the original naming bug: the task runs,
      reports no error, and silently has zero working tools. `.mcp.json` holds
      real credentials in plain text and is now in `.gitignore`.
-  Neither of these would show up in any interactive testing done as an admin
-  user (`-WhatIf` runs by hand use that account's own credentials/MCP config
-  regardless of what the scheduled task would see) - only an actual scheduled
-  firing, running as `SYSTEM`, exposes the gap. Confirm both are correct by
-  triggering the registered task manually once (Task Scheduler ->
-  right-click -> Run) rather than trusting an interactive `-WhatIf` run alone.
+  3. **The `claude` executable itself (found v2.9.4, via the actual first
+     scheduled run failing).** `npm install -g @anthropic-ai/claude-code`
+     installs into the interactive user's own per-account npm prefix
+     (`%AppData%\npm\claude.cmd` - npm's own documented Windows default,
+     confirmed against npm's docs, not assumed) - on that user's `PATH`, not
+     `SYSTEM`'s. Real error hit: `'claude' is not recognized as the name of a
+     cmdlet, function, script file, or operable program.`
+     First attempt fixed this at runtime - `Invoke-HaloResponseAgent.ps1`
+     auto-detecting `claude`'s path at startup - but that treats the symptom,
+     not the cause, and was reverted the same day in favor of fixing the
+     install itself: `Install-ClaudeCodeMachineWide.ps1` points npm's global
+     prefix at `C:\ProgramData\npm` (genuinely shared by every account, unlike
+     `%AppData%`) via the machine-wide `NPM_CONFIG_PREFIX` environment
+     variable (documented npm behavior - env vars prefixed `NPM_CONFIG_` map
+     directly to npm config keys and take precedence over the per-user
+     default), adds that folder to the machine `PATH`, then reinstalls
+     `@anthropic-ai/claude-code` so it lands there once, for every account,
+     rather than needing this script to keep re-discovering it. See README's
+     "Install and authenticate Claude Code" section.
+  None of these three would show up in any interactive testing done as an
+  admin user (`-WhatIf` runs by hand use that account's own credentials/MCP
+  config regardless of what the scheduled task would see) - only an actual
+  scheduled firing, running as `SYSTEM`, exposes the gap. Confirm all three
+  are correct by triggering the registered task manually once (Task Scheduler
+  -> right-click -> Run) rather than trusting an interactive `-WhatIf` run
+  alone.
 - **Private-note handoff got dropped as "nothing new" (fixed, found via a live
   report - ticket #21568).** A human agent did real work on a ticket, wrote it
   up in a PRIVATE note (`hiddenfromuser: true`), reassigned the ticket to the

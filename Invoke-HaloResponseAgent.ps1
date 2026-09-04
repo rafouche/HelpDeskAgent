@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.4 - fixed a real first-scheduled-run failure: "'claude' is
+    not recognized as the name of a cmdlet, function, script file, or
+    operable program." A third instance of the same SYSTEM-account-scoping
+    shape already documented for credentials and MCP registration -
+    `npm install -g @anthropic-ai/claude-code` installs into the interactive
+    user's own per-account npm prefix (%AppData%\npm\claude.cmd - npm's own
+    documented Windows default, not assumed), on that user's PATH but not
+    SYSTEM's. Every prior -WhatIf/-RequireApproval test ran interactively as
+    an admin, so this never surfaced until the real scheduled firing.
+    First attempt fixed this at runtime, in this script - resolving claude's
+    path at startup and threading it through Invoke-ClaudeCLI's three call
+    sites as an explicit -ClaudeExe parameter. Reverted the same day: fixing
+    the install itself, once, is better than every future run re-discovering
+    where npm happened to put it. Real fix is
+    Install-ClaudeCodeMachineWide.ps1 (new script) - points npm's global
+    prefix at C:\ProgramData\npm (genuinely shared by every account, unlike
+    %AppData%) via the machine-wide NPM_CONFIG_PREFIX environment variable
+    (documented npm behavior, confirmed against npm's own docs), adds that
+    folder to the machine PATH, and reinstalls claude-code so it lands there
+    for every account at once. See README's "Install and authenticate Claude
+    Code" section and CLAUDE.md's "Known limitations" for the full account-
+    scoping picture (this is the third instance of it, not a new category).
     Version: 2.9.3 - added confidence-gated ticket re-linking, prompted by a
     real example: a voicemail comes in against a generic/shared account, but
     the transcript names the real caller (a spoken name + callback number,
