@@ -30,7 +30,20 @@ $taskName = "Altec Halo Response Agent"
 $taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
 if ($RequireApproval) { $taskArguments += " -RequireApproval" }
 
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments
+# WorkingDirectory matters here, not just cosmetics: Task Scheduler gives a
+# process no working directory of its own by default (it lands in
+# %SystemRoot%\System32), and claude's own project-scoped MCP config
+# (.mcp.json, per README's "Register each MCP server" section) is discovered
+# from the CURRENT DIRECTORY, not from -File's path or $PSScriptRoot - those
+# only tell PowerShell where the .ps1 file itself lives, not where the `claude`
+# child process launches from. Without this, every registered MCP tool would
+# silently be invisible under the SYSTEM account this task runs as, even
+# though the exact same command works fine when run interactively from this
+# folder - the same silent-failure shape as the original Server:tool naming
+# bug (see CLAUDE.md's "Known limitations"), just a different root cause.
+$taskWorkingDirectory = Split-Path -Path $ScriptPath -Parent
+
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments -WorkingDirectory $taskWorkingDirectory
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `

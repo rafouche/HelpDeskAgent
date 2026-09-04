@@ -318,8 +318,27 @@ claude --version   # confirm it's on PATH
 
 claude setup-token                      # subscription login
 # or
-setx ANTHROPIC_API_KEY "sk-ant-..."      # API billing — more predictable for an unattended service; restart the shell after setx
+setx ANTHROPIC_API_KEY "sk-ant-..." /M   # API billing — more predictable for an unattended service
 ```
+
+**The `/M` above is not optional.** `Register-HaloResponseAgentTask.ps1` registers the scheduled
+task to run as the `SYSTEM` account (`New-ScheduledTaskPrincipal -UserId "SYSTEM"`), which has its
+own separate Windows profile — completely different from whichever account you're logged in as
+right now. Claude Code's credential storage is scoped per-user (`%USERPROFILE%\.claude\.credentials.json`,
+restricted to your own account by default; verified against Claude Code's own docs, not assumed),
+and `setx` *without* `/M` only sets a **per-user** environment variable (`HKCU`), which the `SYSTEM`
+account would never see either. `/M` writes it to the machine-wide `HKLM` environment instead, which
+every account on the box — `SYSTEM` included — inherits. Requires an elevated (Administrator) shell,
+same as everything else in this setup. Reboot the server once after setting it (or at least confirm
+with a fresh `-WhatIf` run once the task is registered) so Task Scheduler's own process picks up the
+change rather than a stale cached environment.
+
+If you use `claude setup-token` (a one-year subscription token, not a file - it prints to the
+terminal and does *not* save anywhere on its own) instead of an API key, the same rule applies to
+wherever you put it: `setx CLAUDE_CODE_OAUTH_TOKEN "<token>" /M`, machine-wide, for the same reason.
+The API key is still the better default here specifically because it doesn't expire on a fixed
+one-year clock the way a subscription token does - one less thing to remember to rotate on an
+unattended service.
 
 ### 2. Register each MCP server
 
@@ -338,20 +357,53 @@ Get each connector's endpoint URL and credential from wherever you recorded the
 custom Cloudflare Worker URLs/tokens when you built Halo/Ninja/UniFi/Meraki/
 Huntress/Hudu/CIPP, or from CIPP-ng's own Settings for the new CIPP-ng MCP.
 Most of your own Workers use a plain static API key/Bearer token, which
-registers non-interactively:
+registers non-interactively. **Run these from inside this folder**
+(`C:\AltecAgents\HaloResponseAgent\`, or wherever you copied the files) —
+`-s project` writes the registration to a `.mcp.json` file in the *current*
+directory, which needs to be this one:
 
 ```powershell
+cd C:\AltecAgents\HaloResponseAgent\   # -s project below writes .mcp.json here - must run from this folder
+
 # Example: a Worker-hosted connector with a static Bearer token
 claude mcp add --transport http Halo https://<your-halo-worker>/mcp `
-    --header "Authorization: Bearer <token>" -s user
+    --header "Authorization: Bearer <token>" -s project
 
 # Repeat per connector, each with its own endpoint/token. Avoid spaces in the
 # name (e.g. use "Microsoft365", not "Microsoft 365") so the mcp__ prefix stays
 # unambiguous:
-claude mcp add --transport http <Name> <https-url> --header "Authorization: Bearer <token>" -s user
+claude mcp add --transport http <Name> <https-url> --header "Authorization: Bearer <token>" -s project
 
 claude mcp list   # verify — note the exact names and connection status
 ```
+
+**`-s project`, not `-s user` — this is not a style preference.** `claude mcp add`
+defaults to (and many examples elsewhere use) `-s user`, which registers the
+server only for the Windows account you're currently logged in as, in that
+account's own `~/.claude.json`. `Register-HaloResponseAgentTask.ps1` runs the
+scheduled task as `SYSTEM` (verified against Claude Code's own docs, not
+assumed) — a completely separate Windows account with its own profile, which
+would see *no* MCP servers registered under `-s user`, the same way it
+wouldn't see a `claude setup-token`/`/login` credential stored under your
+account either (see the API key note above). `-s project` writes to
+`.mcp.json` in this folder instead — a plain file on disk, not tied to any one
+account, readable by whichever account actually runs `Invoke-HaloResponseAgent.ps1`.
+`Register-HaloResponseAgentTask.ps1` also sets the scheduled task's working
+directory to this folder for exactly this reason - without both pieces, the
+task would silently see zero MCP tools and do nothing but call `Read`, the
+exact same failure shape as the naming bug two paragraphs up, just a different
+root cause. `.mcp.json` holds the same real Bearer tokens/credentials you just
+typed above in plain text — it's already in `.gitignore`, same reasoning as
+`config.json`'s real secrets never going into git.
+
+Since you've likely already been testing interactively as yourself with
+`-s user` registrations from earlier in this setup, re-run the two `claude mcp add`
+commands above with `-s project` before you ever rely on the scheduled task -
+a `-WhatIf` run you triggered by hand will look identical either way, since
+that's still your own account; only the actual scheduled firing (as `SYSTEM`)
+exposes the difference. If `claude mcp add` complains about a name already
+registered, remove the old `-s user` entry first (`claude mcp remove <name> -s user`)
+rather than leaving both in place.
 
 **If a connector shows "Needs authentication"** in `claude mcp list` (this is
 normal for OAuth-based servers like Hudu/Huntress — token auth connectors just

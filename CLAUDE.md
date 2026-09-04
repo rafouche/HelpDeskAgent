@@ -383,6 +383,41 @@ config tweak. Not worth building preemptively.
   `mcp__<ServerName>__<tool>` form from the start and confirm the server name via
   `claude mcp list` on the actual machine — don't assume it matches the vendor's
   display name.
+- **Credential/MCP-registration account scoping — same silent-failure shape as
+  the naming bug above, different root cause (fixed, found before it shipped).**
+  Raised as a direct question ("will the SYSTEM-run scheduled task still have
+  API access") and verified against Claude Code's own docs rather than
+  assumed, since this project has already been burned once by an assumption in
+  this exact area. Two separate things, both scoped per-Windows-account by
+  default:
+  1. **Credentials.** `claude setup-token`/`/login` write to
+     `%USERPROFILE%\.claude\.credentials.json`, restricted to whichever
+     account is logged in when you run them. `Register-HaloResponseAgentTask.ps1`
+     runs the task as `SYSTEM` — a different account with its own empty
+     profile, which would see none of that. Fix: `ANTHROPIC_API_KEY` (or
+     `CLAUDE_CODE_OAUTH_TOKEN` if using a subscription token) set with
+     `setx ... /M` - the `/M` is not optional, plain `setx` only sets a
+     per-user variable that `SYSTEM` never sees either.
+  2. **MCP server registration.** `claude mcp add ... -s user` (what this
+     README used to say) registers a server only for the account you're
+     logged in as, in that account's own `~/.claude.json` - same account-
+     scoping problem, one layer down. Fix: `-s project`, which writes
+     `.mcp.json` into this folder instead - a plain file, not tied to any
+     account. That alone isn't sufficient either: Task Scheduler gives a
+     process no working directory by default (lands in
+     `%SystemRoot%\System32`), and project-scoped MCP config is discovered
+     from the current directory, not from the script's own location -
+     `Register-HaloResponseAgentTask.ps1` now sets the scheduled task's
+     `-WorkingDirectory` explicitly for exactly this reason. Miss either half
+     and the result is identical to the original naming bug: the task runs,
+     reports no error, and silently has zero working tools. `.mcp.json` holds
+     real credentials in plain text and is now in `.gitignore`.
+  Neither of these would show up in any interactive testing done as an admin
+  user (`-WhatIf` runs by hand use that account's own credentials/MCP config
+  regardless of what the scheduled task would see) - only an actual scheduled
+  firing, running as `SYSTEM`, exposes the gap. Confirm both are correct by
+  triggering the registered task manually once (Task Scheduler ->
+  right-click -> Run) rather than trusting an interactive `-WhatIf` run alone.
 
 ## Known gaps and future work
 

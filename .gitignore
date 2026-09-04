@@ -1,3 +1,8 @@
 logs/
 resolved-ids-cache.json
 resolved-ids-cache.json.tmp
+
+# claude mcp add -s project writes real Bearer tokens/credentials here in
+# plain text (see README's "Register each MCP server" section) - never commit
+# this, same reasoning as config.json's real secrets staying out of git.
+.mcp.json
