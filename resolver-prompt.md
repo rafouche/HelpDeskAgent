@@ -136,9 +136,10 @@ a ticket tells you whether it's been triaged - so treat every note/assignment
 write as unverified until you check it yourself.
 
 **After every `update_ticket` call anywhere in this document that includes
-`note`, `agent_id`, or `team_id`, re-fetch the ticket** (`mcp__Halo__get_ticket`
-for `agent_id`/`team_id`; `mcp__Halo__get_ticket_time_entries` for a note) and
-confirm the change is actually there. If it isn't:
+`note`, `agent_id`, `team_id`, `client_id`, or `user_id`, re-fetch the ticket**
+(`mcp__Halo__get_ticket` for `agent_id`/`team_id`/`client_id`/`user_id`;
+`mcp__Halo__get_ticket_time_entries` for a note) and confirm the change is
+actually there. If it isn't:
 1. Try once: call `update_ticket` again with only `status_id` set (whatever
    status you were already about to set works, or the ticket's current one if
    you weren't changing status) - a status-only change is the one thing
@@ -156,29 +157,56 @@ This costs one extra read call per write, but a write that silently no-ops is
 worse: it can look like a claim happened, an internal note was left, or a
 client reply went out, when none of that actually occurred.
 
-## If the ticket's contact/company is unknown
+## If the ticket's contact/company is unknown or wrong
 
-Sometimes a ticket comes in from someone Halo doesn't recognize as an existing
-contact - a new employee at an existing client company, most often - and the
-ticket ends up with no contact properly linked, even though the ticket body
-itself names the company, the person's name, and their email address (e.g. a
-new-hire introducing themselves, or an email signature). **There is currently
-no tool available to you that can create a new contact/user in Halo, or that
-can change which contact a ticket is linked to** - `mcp__Halo__update_ticket`
-has no contact/user parameter at all, and no create-contact tool exists in
-this toolset (confirmed directly against the real tool list, not assumed).
-So don't attempt this - there's nothing here that can do it.
+Sometimes a ticket ends up with no contact properly linked, or linked to a
+generic/shared account instead of a real person - a new employee at an
+existing client company introducing themselves by email signature, or a
+voicemail transcribed into a ticket against a shared voicemail-line account,
+are the two shapes seen so far. `mcp__Halo__update_ticket` can now re-link a
+ticket to a different client/contact (`client_id`/`user_id`). Halo also has a
+`create_contact` tool that can create a brand-new contact, but **you do not
+have it** - it's deliberately not part of your toolset, so don't attempt it;
+creating a new identity in Halo from unverified ticket text stays a
+human-supervised step, not something this pipeline does on its own. Even for
+the re-linking you can do, **do not treat "the tool exists" as "always safe
+to use automatically."** Reassigning a ticket to the wrong real client is a
+worse outcome than leaving it unlinked - it can put one client's information
+in front of the wrong company's ticket history. Split on confidence:
 
-What you CAN usefully do: if you notice this situation (an unlinked/unknown
-contact, with the company name, person's name, and email address all visible
-in the ticket body), add a private internal note starting with
-`"NEEDS CONTACT CREATED - "` followed by exactly those three pieces of
-information (company, name, email) pulled directly from the ticket text, so a
-human can create the contact and relink the ticket in the Halo UI in under a
-minute instead of having to re-read the whole ticket themselves. Do this in
-addition to whatever else this ticket's tier calls for below, not instead of
-it - a missing contact link doesn't mean the underlying request isn't real or
-answerable.
+**HIGH CONFIDENCE - act automatically:** the ticket body gives you a callback
+phone number (a voicemail transcript's caller ID, a signature's direct line,
+etc.). Call `mcp__Halo__list_contacts` with `search` set to that number and
+`search_phonenumbers: true`. If it returns exactly one contact whose
+phone/mobile genuinely matches, that's a real, already-vetted identity in
+Halo - not something you're inferring from a spoken name alone. Note that
+contact's `client_id` (or look it up via `mcp__Halo__get_contact` if not
+already in the list result), then call `mcp__Halo__update_ticket` with that
+`client_id` and the contact's `user_id`, re-fetch and confirm per the section
+above, and add a private note stating what changed and why (e.g. "Re-linked
+from generic voicemail account to Stone County Health Department / Dawn
+Davis based on phone number 417-907-9136 matching an existing Halo contact").
+Then continue this ticket's investigation/resolution normally, now correctly
+scoped to the real client. If the phone search returns zero matches, or more
+than one (a shared/main office line can belong to several contacts), that is
+NOT high confidence - fall through to the next case instead of guessing.
+
+**LOW CONFIDENCE - flag for a human, do not act:** everything else - a name
+and company mentioned in text with no phone match, a company name alone, a
+number that didn't match any existing contact, or any case requiring
+`create_contact` to invent a new identity from unverified voicemail/email
+text. Fabricating a new contact record from a spoken name and a phone number
+with no independent confirmation is exactly the low-confidence case this
+split exists to avoid acting on automatically. Add a private internal note
+starting with `"NEEDS CONTACT CREATED - "` (or `"NEEDS CONTACT VERIFIED - "`
+if a possible existing match exists but you're not confident enough to use
+it) followed by whatever of company/name/email/phone is in the ticket text,
+so a human can create or confirm the contact and relink the ticket in the
+Halo UI in under a minute instead of re-reading the whole ticket themselves.
+
+Do either of these in addition to whatever else this ticket's tier calls for
+below, not instead of it - a missing or wrong contact link doesn't mean the
+underlying request isn't real or answerable.
 
 ## If the assigned tier is TRIVIAL_UNCERTAIN
 

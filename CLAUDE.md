@@ -570,24 +570,32 @@ assuming from config.json alone:
   for the classifier (or a sanity check against its own judgment) - deferred
   since it's a distinct design question from "does impact/type inform tier at
   all," which v2.4.0 already answers.
-- **No tool exists to create a Halo contact/user, or to relink a ticket to a
-  different one** (found v2.8.1) - confirmed directly by checking the real
-  tool list, not assumed: no `create_contact`/`create_user`-style tool exists
-  anywhere in this toolset, and `mcp__Halo__update_ticket`'s real schema
-  (`agent_id`/`note`/`note_is_private`/`status_id`/`team_id`/`ticket_id`) has
-  no user/contact parameter at all. Real scenario this blocks: a new employee
-  at an existing client company emails in before their contact record exists
-  in Halo, so the ticket has no contact properly linked even though the
-  company name, the person's name, and their email are all sitting in the
-  ticket body. `resolver-prompt.md` now has the agent flag this with a
-  `"NEEDS CONTACT CREATED - "` internal note carrying those three pieces of
-  info, so a human can create the contact and relink the ticket in under a
-  minute, rather than attempt something no available tool can do. Closing
-  this for real needs the Halo MCP server (`halopsa-mcp`, a separate project -
-  see the CIPP/Huntress tool-gap entries elsewhere in this file for how
-  responsive that project's maintainer has been) to add a contact-creation
-  tool and either a user/contact parameter on `update_ticket` or a dedicated
-  "relink ticket to contact" tool.
+- **Ticket re-linking is now possible, but deliberately confidence-gated, not
+  fully automated (v2.9.3 - supersedes the v2.8.1 entry that used to be
+  here).** The v2.8.1 gap ("no tool to create a Halo contact/user, or to
+  relink a ticket to a different one") is now half-closed at the tool level:
+  `halopsa-mcp` (`rafouche/MCPs`, commit `a0264be`) added `client_id`/`user_id`
+  to `update_ticket` and `search_phonenumbers` to `list_contacts`, and
+  `mcp__Halo__create_contact` turned out to already exist (the original
+  "confirmed directly against the real tool list" check was correct at the
+  time - `create_contact` was added to `halopsa-mcp` sometime after). Real
+  scenario that prompted this: a voicemail comes in against a generic/shared
+  account, but the transcript names the real caller with a spoken name and
+  callback number, no email (e.g. "Dawn Davis, Director of Stone County
+  Health Department, 417-907-9136").
+  Having the tools didn't mean using them unconditionally was safe -
+  reassigning a ticket to the wrong real client is worse than leaving it
+  unlinked. `resolver-prompt.md`'s "If the ticket's contact/company is
+  unknown or wrong" section now splits on confidence: a callback phone
+  number matching **exactly one** existing Halo contact
+  (`list_contacts` + `search_phonenumbers: true`) is treated as a real,
+  already-vetted identity and re-linked automatically (write verified per
+  the pre-triage-swallow section, private note logged explaining why); zero
+  or multiple phone matches, or only a name/company in text with no phone to
+  check, falls back to the same flagged-note pattern as before. `create_contact`
+  is deliberately NOT in `$resolverTools` - fabricating a brand-new identity
+  from unverified voicemail/email text stays a human-supervised step in the
+  Halo UI, never something this pipeline does on its own.
 - **Halo has its own ticket-triage workflow step that can silently swallow a
   note/assignment write** (found v2.8.1, via real `-WhatIf`/`-RequireApproval`
   testing) - distinct from this pipeline's own classifier/tier terminology,

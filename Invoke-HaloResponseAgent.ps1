@@ -73,6 +73,33 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.3 - added confidence-gated ticket re-linking, prompted by a
+    real example: a voicemail comes in against a generic/shared account, but
+    the transcript names the real caller (a spoken name + callback number,
+    no email) - e.g. "Dawn Davis, Director of Stone County Health Department,
+    417-907-9136." Required a matching halopsa-mcp fix (rafouche/MCPs,
+    commit a0264be, not yet deployed as of this writing): update_ticket now
+    accepts client_id/user_id to re-link a ticket (confirmed against the
+    live HaloPSA swagger's Faults schema - the same POST /Tickets body
+    already used for create/update), and list_contacts now accepts
+    search_phonenumbers (confirmed against /Users' own documented param) to
+    match a caller's number against existing contacts.
+    Deliberately did NOT wire this up as "reassign whenever the tools allow
+    it" - resolver-prompt.md's "If the ticket's contact/company is unknown
+    or wrong" section now splits on confidence: a phone number matching
+    exactly one existing Halo contact is treated as a real, already-vetted
+    identity and acted on automatically (re-link, verify the write landed
+    per the pre-triage-swallow section above, log a private note explaining
+    why); a name/company mentioned in text with no phone match - or a phone
+    search with zero or multiple hits - falls back to the same flagged-note
+    pattern as before (now split into NEEDS CONTACT CREATED / NEEDS CONTACT
+    VERIFIED depending on whether a possible match exists). mcp__Halo__
+    create_contact exists in halopsa-mcp and could create a new contact
+    outright, but is deliberately NOT in $resolverTools - fabricating a new
+    identity from unverified voicemail/email text stays a human-supervised
+    step, never something this pipeline does on its own. $resolverTools
+    itself needed no changes - list_contacts/get_contact/update_ticket were
+    already granted, just not previously usable for this purpose.
     Version: 2.9.2 - fixed the deeper cause behind ticket #21568 staying
     missed even after v2.9.1's classifier-logic fix: it never reached the
     classifier at all. mcp__Halo__list_tickets had no agent/team filter of
