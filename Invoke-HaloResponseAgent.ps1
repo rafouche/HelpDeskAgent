@@ -74,22 +74,25 @@
     against live data with nothing actually written anywhere.
 .NOTES
     Version: 2.9.5 - policy request from a real -RequireApproval-mode ticket:
-    a Huntress alert about a personal/consumer VPN. Two additions to
-    resolver-prompt.md, no PS1/tool-list changes needed (list_contacts/
-    update_ticket/get_contact were already granted). First, extended the
-    v2.9.3 confidence-gated re-linking's HIGH CONFIDENCE tier to also accept
-    a matched email address (not just a phone number) - a Huntress identity
-    alert names an M365 account by email, not a callback number, so a
-    Huntress-generated ticket needed the same "is this actually linked to
-    the real person" check as a voicemail one, just matched a different way.
-    Second, added a dedicated "Huntress alerts flagging a personal/consumer
-    VPN specifically" block: don't just tell the person to turn the VPN off
-    - check whether the ticket suggests a legitimate reason first (they're
-    traveling/geo-blocked and using it to reach something normally
-    reachable), and if so, flag it privately for IT to set up real
-    remote-access instead of assuming they should stop. Otherwise, tell them
-    plainly to stop using it. Ask rather than guess if the ticket doesn't
-    make it clear which case applies.
+    a personal/consumer VPN flagged (most often via Huntress, but the policy
+    itself is general - it applies regardless of which system surfaces it).
+    Two additions to resolver-prompt.md, no PS1/tool-list changes needed
+    (list_contacts/update_ticket/get_contact were already granted). First,
+    extended the v2.9.3 confidence-gated re-linking's HIGH CONFIDENCE tier to
+    also accept a matched email address (not just a phone number) - a
+    security-alert-generated ticket names a person by email (an M365
+    account), not a callback number, so it needed the same "is this actually
+    linked to the real person" check as a voicemail one, just matched a
+    different way. Second, added a "personal/consumer VPN use flagged"
+    block: always tell them to disconnect it and stop using it for company
+    resources - no exceptions, this is a hard policy, not a judgment call
+    (an earlier draft made this conditional on the ticket suggesting a
+    legitimate reason first - corrected on direct instruction: that's a
+    separate question, asked in addition to the disconnect instruction, not
+    instead of it). If they were using it because they couldn't otherwise
+    reach something (geo-blocked, traveling), ask if the ticket doesn't
+    already make that clear, and separately flag it privately for IT to set
+    up real remote access.
     Version: 2.9.4 - fixed a real first-scheduled-run failure: "'claude' is
     not recognized as the name of a cmdlet, function, script file, or
     operable program." A third instance of the same SYSTEM-account-scoping

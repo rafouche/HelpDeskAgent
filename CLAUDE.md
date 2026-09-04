@@ -282,20 +282,22 @@ own API gaining an exclude filter, or a non-AI pre-filter layer sitting in
 front of the classifier - see "Known gaps" for what would actually close this
 the rest of the way.
 
-**Huntress personal/consumer VPN alerts get judgment, not a blanket "turn it
-off" (v2.9.5).** Prompted by a real ticket worked in `-RequireApproval` mode.
-The naive response - always tell the person to stop using a personal VPN -
-would be actively harmful for someone using it for a legitimate reason (geo-
-blocked from a company resource, traveling). `resolver-prompt.md` now checks
-the ticket for a legitimate-reason signal first: if there's one, it flags the
-person privately for IT to set up real remote access instead of telling them
-to disconnect; otherwise it tells them plainly to stop. If the ticket doesn't
-make it clear which case applies, it asks rather than guesses. This also
-surfaced that a Huntress-generated ticket needs the same "is this actually
-linked to the real person" check as a voicemail-generated one (see "Known
-limitations" below for the original ticket-re-linking entry), just matched
-by email instead of phone number - the confidence-gated re-linking logic now
-accepts either.
+**Personal/consumer VPN use is a hard "disconnect it, no exceptions" policy,
+not a judgment call (v2.9.5).** Prompted by a real ticket worked in
+`-RequireApproval` mode (most often surfaced via Huntress, but the policy
+itself isn't tied to that one system - the same rule applies no matter what
+surfaces it). First draft made this conditional (skip the disconnect
+instruction if the ticket suggested a legitimate reason like geo-blocking) -
+corrected on direct instruction: always tell them to disconnect it, full
+stop. Geo-blocking/travel is a separate, additional question the resolver
+asks (or reads off the ticket if already clear) so it can flag IT to set up
+real remote access - that's in addition to the disconnect instruction, never
+a substitute for it. This also surfaced that a ticket naming someone by
+security-alert (most often Huntress, e.g. a flagged M365 sign-in) needs the
+same "is this actually linked to the real person" check as a
+voicemail-generated one (see "Known limitations" below for the original
+ticket-re-linking entry), just matched by email instead of phone number -
+the confidence-gated re-linking logic now accepts either.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

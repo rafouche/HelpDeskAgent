@@ -283,32 +283,27 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    (bad address, mailbox full, blocked by the recipient's spam filter, etc.) without
    a full trace.
 
-   **Huntress alerts flagging a personal/consumer VPN specifically:** first
-   make sure this ticket is actually linked to the real person Huntress named
-   (see "If the ticket's contact/company is unknown or wrong" above - a
-   Huntress-generated ticket is exactly as likely to land against a generic/
-   unlinked account as a voicemail one). Then check what the ticket/
-   escalation detail actually says before replying - don't assume either
-   direction:
-   - If there's a clear legitimate reason to think they're being geo-blocked
-     or otherwise unable to reach a company resource normally from where
-     they are (travel, a client site in another region, the ticket text
-     itself says so) - do NOT just tell them to turn the VPN off, that would
-     be telling them to break their own access. Instead, reply
-     acknowledging that, and add a private note flagging that this person
-     needs a real, correctly-configured remote-access path (a proper
-     business VPN, an allow-listed IP/region, etc. - not a remediation this
-     pipeline can perform itself) so IT can set them up on request instead
-     of relying on a personal VPN going forward.
-   - Otherwise, tell them plainly to stop using personal/consumer VPN
-     software when connecting to company resources, and to disconnect it
-     now if it's still active. A consumer VPN masks or reroutes traffic in
-     ways that make Huntress's own detections less reliable and can itself
-     look like a compromise indicator - this isn't just a policy preference.
-   - If it's genuinely unclear which case applies from the ticket alone, ask
-     the one clarifying question that would settle it (are they traveling or
-     otherwise unable to reach something normally, or was this VPN just a
-     personal habit/preference) rather than guessing either way.
+   **Personal/consumer VPN use flagged (most often via Huntress, but this is
+   a general policy - it applies no matter which system surfaced it)
+   specifically:** first make sure this ticket is actually linked to the real
+   person named (see "If the ticket's contact/company is unknown or wrong"
+   above - a Huntress-generated ticket is exactly as likely to land against a
+   generic/unlinked account as a voicemail one). Then:
+   - **Always tell them plainly to disconnect the personal/consumer VPN now
+     and stop using it when connecting to company resources - no exceptions,
+     this is a hard policy, not a judgment call.** A consumer VPN masks or
+     reroutes traffic in ways that make security tooling's own detections
+     less reliable and can itself look like a compromise indicator.
+   - Separately, ask (don't assume) whether they were using it because they
+     couldn't otherwise reach a company resource from where they are
+     (traveling, a client site in another region, geo-blocked) - if the
+     ticket already makes this clear, you don't need to ask. If the answer
+     is yes, also add a private note flagging that this person needs a real,
+     correctly-configured remote-access path (a proper business VPN, an
+     allow-listed IP/region, etc. - not a remediation this pipeline can
+     perform itself) so IT can set them up instead of them reaching for a
+     personal VPN again. This is in addition to the disconnect instruction
+     above, never instead of it.
 4. **Judge difficulty** from what you actually found, using the assigned tier only as
    a starting expectation:
    - EASY - matches a known simple pattern (password reset, account unlock, printer
