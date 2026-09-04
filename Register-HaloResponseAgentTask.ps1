@@ -45,9 +45,15 @@ $taskWorkingDirectory = Split-Path -Path $ScriptPath -Parent
 
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments -WorkingDirectory $taskWorkingDirectory
 
+# No -RepetitionDuration: on Windows 10/Server 2016+, omitting it is how you
+# get an indefinitely-repeating trigger. Passing [TimeSpan]::MaxValue there
+# (an earlier version of this script did) instead serializes to the task XML
+# duration "P99999999DT23H59M59S", which Register-ScheduledTask rejects
+# outright with "task XML contains a value which is incorrectly formatted or
+# out of range" - confirmed via a real run hitting that exact error, and via
+# Microsoft's own Q&A on this exact symptom (not assumed).
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
 
 # Run as a service account so it works whether or not anyone is logged in.
 # Swap to a dedicated gMSA/service account if you have one instead of SYSTEM.
