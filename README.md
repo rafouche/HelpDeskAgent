@@ -93,9 +93,18 @@ bigger one and a full tool loop).
    .\Register-HaloResponseAgentTask.ps1
    ```
    Default is every 10 minutes, 24/7. Adjust with `-IntervalMinutes`. If you're
-   still in the `-RequireApproval` rollout stage, edit the scheduled task's action
-   afterward to add `-RequireApproval` to its arguments — `Register-HaloResponseAgentTask.ps1`
-   itself doesn't have a switch for this yet.
+   still in the `-RequireApproval` rollout stage, register it with that switch
+   instead so every scheduled run starts in human-approval mode from the first
+   firing:
+   ```powershell
+   .\Register-HaloResponseAgentTask.ps1 -RequireApproval
+   ```
+   `config.json`'s `ai_waiting_approval_status_name`/`ai_approved_status_name`
+   must already be set to real Halo statuses before the task runs this way (see
+   "Human approval mode" below) — the task will fail every firing otherwise, the
+   same as running the switch by hand. Once comfortable with what's coming out
+   of that mode, re-run this script *without* `-RequireApproval` to switch the
+   existing task back to running fully live — no need to delete and recreate it.
 
 ## Human approval mode
 
@@ -163,9 +172,10 @@ actually written to Halo at all — useful for validating this mode itself befor
 trusting it with real client tickets.
 
 Once you're comfortable with what's coming out of this mode, stop passing
-`-RequireApproval` (edit the scheduled task's arguments back) and the agent
-goes back to running exactly as it did before this mode existed — no config
-changes needed, since a run without the switch never looks at either new status
+`-RequireApproval` (re-run `.\Register-HaloResponseAgentTask.ps1` without it if
+the schedule was registered with the switch) and the agent goes back to running
+exactly as it did before this mode existed — no config changes needed, since a
+run without the switch never looks at either new status
 name at all.
 
 ## Excluding clients for compliance reasons
