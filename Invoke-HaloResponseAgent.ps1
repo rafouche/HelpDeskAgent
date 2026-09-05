@@ -73,6 +73,49 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.15 - supersedes v2.10.14's agent-identity fix with the
+    actual root cause, plus a second, separate bug found while chasing it
+    down. v2.10.14's ticket-history-scanning fallback (list_tickets +
+    get_ticket_time_entries, matching actionby_application_id: "Claude")
+    was itself built on a wrong assumption - every action it would have
+    found showed who_agentid: 17 / who: "halointegrator", a different
+    generic integration identity, never this pipeline's own account. It
+    would have "worked" only in the sense of not crashing, silently caching
+    the wrong ID forever.
+    Root cause #1: mcp__Halo__list_agents excludes inactive/disabled agents
+    by default (confirmed via HaloPSA's own documented
+    IncludeActive/IncludeInactive flags on GET /Agent) - the same behavior
+    list_clients already has for inactive clients. An account whose Halo
+    licence was removed is disabled, not deleted, so it's excluded from a
+    plain list_agents call for that ordinary reason, not because API-only
+    accounts are structurally unreturnable. Fixed in halopsa-mcp (separate
+    repo, rafouche/MCPs): added include_inactive to list_agents, mirroring
+    list_clients' existing param exactly. id-resolver-prompt.md now retries
+    list_agents with include_inactive: true when the plain call doesn't
+    match halo.agent_username, before giving up - restoring the original
+    design in full: a plain name in config.json, resolved and cached
+    automatically, no config field of any kind for this case. The
+    ticket-history-scanning fallback and its list_tickets/
+    get_ticket_time_entries tool grants are removed from
+    id-resolver-prompt.md/$idResolverTools entirely.
+    Root cause #2, separate and more consequential: every note/reply this
+    pipeline has ever written was attributed to the wrong identity in
+    Halo's own ticket history. HaloPSA attributes every API-created action
+    to whichever agent the OAuth client_credentials application is bound to
+    in Halo's own admin config ("Login Type: Agent"), unless the /Actions
+    payload explicitly overrides it with who_agentid - which
+    halopsa-mcp's update_ticket never sent. Fixed in halopsa-mcp:
+    update_ticket gained a new note_agent_id parameter (deliberately not a
+    reuse of agent_id, which is ticket assignment and is routinely 1/
+    Unassigned in the exact same call that logs a ticket's final note - see
+    resolver-prompt.md's "Claim the ticket" section) that sets who_agentid
+    on the /Actions POST when a note is included. resolver-prompt.md gained
+    a new blanket section, "Every note must say who wrote it," requiring
+    note_agent_id: {{AGENT_ID}} on every update_ticket call that includes a
+    note. This is a Cloudflare Worker deploy, not something this repo's own
+    files can fix alone - notes/replies written before that deploy keep
+    showing the old generic identity in Halo's permanent history; only new
+    ones after deploy are corrected.
     Version: 2.10.14 - two real incidents, both from the same overnight run.
 
     First: the tracked-tickets cache (v2.10.9) silently failed to write on
@@ -953,15 +996,7 @@ $idResolverTools = @(
     # instruction, not enforced here) - granted unconditionally since it's cheap
     # to have available and the alternative (conditionally building this array)
     # isn't worth the complexity for one more tool name.
-    "mcp__Halo__list_clients",
-    # list_tickets/get_ticket_time_entries: only actually called when
-    # halo.agent_username doesn't match anything in list_agents (an API-only
-    # integration account, which list_agents can never return - confirmed live)
-    # - id-resolver-prompt.md's fallback then finds this account's ID from its
-    # own past ticket actions instead of requiring a human to look up and paste
-    # in a raw Halo ID. Granted unconditionally for the same reason as
-    # list_clients above.
-    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket_time_entries"
+    "mcp__Halo__list_clients"
 )
 
 # Classifier: read-only, just enough to find and skim candidate tickets. Never

@@ -778,6 +778,65 @@ cycles it actually runs - up to 10 extra tool calls, usually far fewer since
 this pipeline touches tickets every 15 minutes - a deliberate tradeoff of
 some cost for never requiring a human to know a raw Halo ID.
 
+**v2.10.14's ticket-history fallback replaced with the actual root-cause
+fix, in the MCP layer - v2.10.15, and a second, separate bug found along
+the way.** v2.10.14's scanning approach was itself built on a wrong
+assumption: it read `who_agentid` off actions tagged
+`actionby_application_id: "Claude"`, expecting that to reveal this
+account's real ID - but every single one of those actions showed
+`who_agentid: 17`, `who: "halointegrator"`, a *different* generic
+integration identity, never this account's own ID. That's because
+`halopsa-mcp`'s `update_ticket` never told HaloPSA who to credit a note to
+at all: confirmed via HaloPSA's own API documentation, an OAuth
+client_credentials application is configured in Halo's admin with a
+"Login Type: Agent" binding, and every API-created action defaults to
+*that* bound agent unless the request's `/Actions` payload explicitly sets
+`who_agentid` to something else - which this tool never did. So
+v2.10.14's fallback would have found and cached "halointegrator" forever,
+never this account's real ID - it "worked" only in the sense of not
+crashing.
+
+The actual, complete fix has two independent parts, both root-caused
+against HaloPSA's real behavior rather than assumed:
+
+1. **`mcp__Halo__list_agents` excludes inactive/disabled agents by
+   default** - the same behavior `list_clients` already has for inactive
+   clients (`includeinactive`), confirmed by HaloPSA's own documented
+   `IncludeActive`/`IncludeInactive` flags on `GET /Agent`. An account
+   whose Halo licence was removed is typically disabled, not deleted, so
+   it's excluded from a plain `list_agents` call for that reason - not
+   because "API-only accounts are structurally unreturnable," which
+   v2.10.13/v2.10.14 both assumed without this being the actual mechanism.
+   Added `include_inactive` to `halopsa-mcp`'s `list_agents` tool
+   (mirroring `list_clients`'s existing param exactly), and
+   `id-resolver-prompt.md` now retries with it when the plain call doesn't
+   match `agent_username`, before ever giving up. This restores the
+   original design fully: plain name in config.json, resolved and cached
+   automatically, no config field of any kind for this case. The
+   ticket-history-scanning fallback and its `list_tickets`/
+   `get_ticket_time_entries` tool grants are removed from
+   `id-resolver-prompt.md`/`$idResolverTools` entirely - superseded, not
+   layered on top of.
+2. **Every note/reply this pipeline has ever written was attributed to
+   the wrong identity in Halo** - a real, separate incident, and the one
+   that actually matters for what shows up in Halo's ticket history. Fixed
+   in `halopsa-mcp` (separate repo, `rafouche/MCPs`): `update_ticket`'s
+   `/Actions` POST now includes `who_agentid` when the caller passes a new
+   `note_agent_id` parameter - deliberately a distinct parameter from
+   `agent_id` (ticket assignment), not a reuse of it, because `agent_id` is
+   routinely `1` (Halo's "Unassigned") in the exact same call that logs a
+   ticket's final note (see "Claim the ticket" above) - reusing it would
+   have attributed most notes to "Unassigned" instead of fixing anything.
+   `resolver-prompt.md` gained a new blanket section, "Every note must say
+   who wrote it," requiring `note_agent_id: {{AGENT_ID}}` on every
+   `update_ticket` call that includes a `note`, independent of whatever
+   `agent_id` that same call is doing for ticket assignment. This is a
+   Cloudflare Worker deploy (`halopsa-mcp`), not something a config.json or
+   `.ps1` change alone can fix - the identity mismatch was baked into
+   every note this integration has ever written, and notes/replies created
+   before that deploy will keep showing the old generic identity in Halo's
+   permanent history; only new ones after deploy are corrected.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

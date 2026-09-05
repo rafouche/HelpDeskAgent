@@ -334,18 +334,30 @@ account on a later run means something went wrong last time (a crash, or Halo's
 own triage-swallow quirk eating part of a write) and needs a look, not that it's
 still being worked normally.
 
-**If this account is an API-only integration user rather than a licensed
-one** (confirmed for real: `mcp__Halo__list_agents` does not return API-only
-users at all, so name-based resolution can never succeed for one), nothing
-extra needs to be set in `config.json` - the ID resolver automatically falls
-back to finding this account's ID from its own past ticket actions (any
-action it's taken shows its `who_agentid` in
-`mcp__Halo__get_ticket_time_entries`'s response, tagged
-`actionby_application_id: "Claude"`) instead of a plain name match. This
-only works once the pipeline has actually touched at least one ticket under
-this account; a brand-new API-only account with zero history yet won't
-resolve until it has a first real action to find (see id-resolver-prompt.md
-for exactly how this fallback searches).
+**If this account's Halo licence has been removed and it's kept only as an
+API-only integration identity**, nothing extra needs to be set in
+`config.json` either - `mcp__Halo__list_agents` excludes inactive/disabled
+agents by default (confirmed directly against a live tenant, the same
+behavior `list_clients` already has for inactive clients), so the ID
+resolver automatically retries with `include_inactive: true` when the
+plain lookup doesn't match, and still resolves this account by its real
+name, no config change needed.
+
+**Separately, and easy to miss:** HaloPSA attributes every note/reply an
+API application creates to whichever agent that application is bound to in
+Halo's own admin config (Configuration → Integrations → the HaloPSA API
+application's "Agent to log in as") - not to any `agent_id` the caller
+sends - unless the request explicitly says otherwise. A real incident found
+every note and reply this pipeline had ever written showed up in Halo
+under a different, generic integration identity, never as this
+`agent_username` account's own work, because nothing ever told Halo who to
+credit. This is fixed in `halopsa-mcp` (`note_agent_id`, sent alongside
+`agent_id` on every note-writing `update_ticket` call - see
+resolver-prompt.md's "Every note must say who wrote it" section) - once
+that fix is deployed, new notes/replies correctly show as this account's
+work. Anything written before that deploy will still show the old generic
+identity in Halo's history; that's cosmetic and not worth correcting
+retroactively.
 
 ## Adding a new system (e.g. 3CX later)
 The whole point of the split between `config.json` (day-to-day) and the static

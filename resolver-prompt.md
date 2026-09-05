@@ -31,7 +31,10 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - Currently within business hours (per config): {{IS_BUSINESS_HOURS}}
 - Config file: {{CONFIG_PATH}}
 - Help Desk team_id: {{TEAM_ID}}
-- `halo.agent_username` agent_id: {{AGENT_ID}}
+- `halo.agent_username` agent_id: {{AGENT_ID}} - used both for ticket
+  assignment (`update_ticket`'s `agent_id`) and, on every call that includes
+  a `note`, as `note_agent_id` too (see "Every note must say who wrote it"
+  below) - these are the same number, just two different parameters.
 - `resolved_status_name` status_id: {{RESOLVED_STATUS_ID}}
 - `waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
@@ -107,6 +110,25 @@ Print a one-line summary noting the mismatch (this ticket's actual
 "When you finish" below) - whatever got this ticket into this cycle's
 candidate list, it isn't this pipeline's to touch, and no further step in
 this document applies to it.
+
+## Every note must say who wrote it, separately from ticket assignment
+
+**Any `mcp__Halo__update_ticket` call that includes a `note` must also
+include `note_agent_id: {{AGENT_ID}}`, in addition to whatever `agent_id`
+that same call uses for ticket assignment.** These are two different
+things: `agent_id` controls who the ticket is assigned to (very often `1`
+- Halo's "Unassigned" - in the exact same call that logs your final note;
+see "Claim the ticket" below), while `note_agent_id` controls who Halo
+credits as the author of the note/action itself. A real incident found
+every note and reply this pipeline had ever written was attributed to a
+generic integration identity in Halo, never to `{{AGENT_ID}}` above -
+`update_ticket` never sent anything that told Halo who to credit, so Halo
+silently defaulted every action to whichever identity this pipeline's own
+API connection is bound to on Halo's side, regardless of any other field
+in the same call. Pass `note_agent_id` on every `note`-including call even
+when `agent_id` in that same call is `1` (unassigning yourself) - don't
+skip it just because you're not changing ticket assignment in the same
+breath.
 
 ## Claim the ticket
 
