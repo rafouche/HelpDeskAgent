@@ -674,6 +674,39 @@ Haiku-backed tier is simply never sent, not an error; `-DryRun`'s preview
 shows exactly what would and wouldn't be sent, including a note when a
 configured value is being silently skipped for this reason.
 
+**The resolver now independently verifies a ticket is actually on the Help
+Desk team before touching it - a real, serious incident (v2.10.11).** A
+ticket sitting unassigned on a completely different Halo team (Alerts /
+System Admin, not Help Desk) got picked up by a cycle, investigated, and
+escalated - and the escalation path's own routine "set the team back to
+`help_desk_team_name`" bookkeeping then moved that foreign ticket *onto*
+the Help Desk team as a side effect. It had never belonged there; nothing
+in this pipeline was supposed to touch it at all.
+Root cause: the classifier's "only pass along Help Desk team_id tickets"
+filter is a prompt instruction the classifier judges for itself - nothing
+in code enforces it, and nothing downstream re-checks it. Contrast this
+with agent_id: a ticket assigned to a different human agent is caught
+independently by the resolver's own "Claim the ticket" section, regardless
+of whether the classifier's filtering already should have excluded it.
+team_id had no equivalent - once a ticket slipped past the classifier's
+judgment call, there was nothing left standing between it and a real Halo
+write.
+Fixed at both layers, same reasoning as the compliance-exclusion check
+(a prompt-level filter that also gets an independent resolver-level
+recheck): the classifier's own team filter is hardened with more explicit,
+harder-to-miss wording and the real incident as a worked example, and
+resolver-prompt.md gained a new section, "Verify this is actually a Help
+Desk ticket," run immediately after the compliance check and before
+claiming - it compares the ticket's own `team_id` against `{{TEAM_ID}}`
+(already resolved and injected into the prompt, just never checked against
+anything) and stops immediately, completely untouched, on any mismatch.
+The escalation sections' "set team back to `help_desk_team_name`" lines are
+now explicitly documented as restating a team already confirmed correct by
+that check - never a mechanism for moving a ticket onto Help Desk. The bug
+was always in that bookkeeping running on a ticket that should never have
+reached it in the first place, not in the bookkeeping itself - removing it
+would have only hidden the symptom.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

@@ -109,12 +109,23 @@ version history for the real case this was fixed from):
    before-hours draft nobody's reviewed or replied to yet - it's a real
    candidate: tier it normally like anything else.
 
-From the combined results of calls 1 and 2, keep only tickets whose
-`team_id` matches the Help Desk team_id given above - `agent_id` filtering
-alone spans every team, not just Help Desk. Skip anything assigned to, or
-with a recent reply from, a different Altec agent - that's a human already
-on it, and it costs nothing to leave it out of this cycle entirely. (Call
-3's tickets are already known Help Desk tickets from when they were first
+**From the combined results of calls 1 and 2, keep only tickets whose
+`team_id` matches the Help Desk team_id given above - this is not
+optional, and it is not the resolver's job to catch a mistake made here.**
+`agent_id` filtering alone spans every team, not just Help Desk - an
+unassigned ticket sitting on a completely different team (e.g. "Alerts /
+System Admin") shows up in the same `agent_id: 1` results as a genuine
+Help Desk ticket, with nothing about it looking unusual at a glance. A real
+ticket on a different team was missed here once and reached the resolver,
+which investigated and escalated it - and the escalation path's own
+routine "hand it back to the Help Desk queue" bookkeeping then moved that
+ticket *onto* the Help Desk team as a side effect, when it had never
+belonged there. Check every candidate's actual `team_id` field against the
+Help Desk team_id given above before including it - don't assume "it was
+unassigned, so it must be ours." Skip anything assigned to, or with a
+recent reply from, a different Altec agent - that's a human already on it,
+and it costs nothing to leave it out of this cycle entirely. (Call 3's
+tickets are already known Help Desk tickets from when they were first
 tracked, so this team filter doesn't apply to them.)
 
 **Compliance exclusion comes first, before any of the above, and is not a

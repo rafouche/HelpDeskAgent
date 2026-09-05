@@ -73,6 +73,33 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.11 - real incident, serious: a ticket sitting unassigned on
+    a different Halo team entirely (Alerts / System Admin, not Help Desk)
+    was picked up by a cycle, investigated, and escalated - and the
+    escalation path's own routine "set the team back to
+    help_desk_team_name" bookkeeping then moved that foreign ticket ONTO
+    the Help Desk team as a side effect, when it had never belonged there.
+    Root cause: the classifier's own "keep only Help Desk team_id" filter is
+    a prompt instruction, not something enforced anywhere in code or by the
+    resolver - a ticket that slipped past that judgment call had nothing
+    else standing between it and a real Halo write. Unlike a wrong-agent
+    ticket (which the resolver's "Claim the ticket" section already
+    verifies independently) there was no equivalent check for team_id at
+    all.
+    resolver-prompt.md gained a new section, "Verify this is actually a
+    Help Desk ticket," run right after the compliance-exclusion check and
+    before claiming - it compares the ticket's own team_id against
+    {{TEAM_ID}} (already resolved and injected, just never checked against)
+    and stops immediately, untouched, on any mismatch. This is defense in
+    depth at the same trust level as the compliance check: the classifier's
+    own filter (also hardened with stronger, more explicit wording and the
+    real incident as a concrete example) is still the first line, but the
+    resolver no longer blindly trusts it. The escalation sections' "set
+    team back to help_desk_team_name" bookkeeping is now explicitly
+    documented as restating an already-confirmed team, never a mechanism
+    for moving a ticket onto Help Desk - the bug was always in that
+    bookkeeping running on a ticket that should never have reached it, not
+    in the bookkeeping itself.
     Version: 2.10.10 - feature request, with a real gap caught along the way:
     Roger asked whether "effort" could be set per model tier (low for the
     cheap classifier model, medium for Sonnet, maybe high for Opus someday)

@@ -79,6 +79,35 @@ a legal/compliance boundary, not a judgment call - it overrides tier,
 urgency, business hours, and everything else regardless of how the ticket
 reads.
 
+## Verify this is actually a Help Desk ticket - do this second, before claiming
+
+Using the same `get_ticket` response from the compliance check above, check
+this ticket's own `team_id` against the Help Desk team_id given above
+({{TEAM_ID}}). **If they don't match, stop immediately - do not claim it,
+reply to it, take any remediation action, change its status or team, or
+call any other mutating tool.** The classifier is instructed to only pass
+along tickets already on the Help Desk team, but that instruction is a
+judgment call the classifier makes itself, not something enforced in code -
+treat it as advice, not a guarantee, and confirm it here independently, the
+same trust level as the compliance check above.
+
+This isn't a hypothetical: a real run picked up a ticket sitting unassigned
+on a different team (Alerts / System Admin, not Help Desk), investigated
+and triaged it, then escalated it - and the escalation path's own "set the
+team back to `help_desk_team_name`" bookkeeping (see the business-hours
+escalation sections below) moved it *onto* the Help Desk team as a side
+effect, when it had never belonged there in the first place. That
+bookkeeping assumes the ticket started on Help Desk and is just confirming
+it stays there through a claim/release cycle - it is never a signal that a
+ticket *should* move to Help Desk, and this check is what has to catch the
+mismatch before that bookkeeping ever runs.
+
+Print a one-line summary noting the mismatch (this ticket's actual
+`team_id`, not just "wrong team") and end with `[CACHE: UNTRACK]` (see
+"When you finish" below) - whatever got this ticket into this cycle's
+candidate list, it isn't this pipeline's to touch, and no further step in
+this document applies to it.
+
 ## Claim the ticket
 
 Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket`. Halo's "unassigned"
@@ -485,7 +514,10 @@ its result, your best-guess next step. In that same `update_ticket` call: set st
 to `follow_up_status_name` (Follow Up Needed), unassign yourself (`agent_id: 1` -
 Halo's real "Unassigned" placeholder, not `0`), and set the team back to
 `help_desk_team_name` - that combination is what flags it as free for a human to
-pick up off the queue; nothing else changes.
+pick up off the queue; nothing else changes. This assumes the ticket was
+already confirmed on the Help Desk team by the "Verify this is actually a
+Help Desk ticket" check above - it's restating the team this ticket
+already had, never a way to move a different team's ticket onto Help Desk.
 
 If you still have a genuinely different fix worth trying and the client isn't
 frustrated, try it instead of escalating rather than jumping straight to a human:
@@ -524,7 +556,10 @@ that's expected and not an error. Include client name, ticket link, what's down,
 what you've found so far; keep the text version short. Set status to
 `follow_up_status_name`, unassign yourself (`agent_id: 1` - Halo's real
 "Unassigned" placeholder, not `0`), and set the team back to
-`help_desk_team_name` - same claim-release pattern as any other escalation. There is
+`help_desk_team_name` - same claim-release pattern as any other escalation, and
+same assumption as that other escalation: this restates a team already
+confirmed as Help Desk's by the check near the top of this document, never
+a way to move a foreign ticket onto Help Desk. There is
 currently no tool available that can change a ticket's priority, so you can't set
 this to urgent yourself - instead, make it unmissable in the internal note: start it
 with "NEEDS URGENT PRIORITY - " followed by the detailed findings, so a human
