@@ -514,6 +514,11 @@ that explicitly as a recovery case - verify what was actually completed
 before finishing the job and unassigning properly - rather than assuming
 it's a normal multi-reply conversation still in progress, which is what it
 would have meant under the old design.
+**UPDATE (v2.10.9) - the "check every Unassigned candidate every cycle"
+part of this was a real cost regression; see the entry below.** The
+"Distinguish a fresh ticket from a re-check" step named here is gone,
+replaced by a small local cache that avoids needing to check the whole
+Unassigned page at all.
 
 **A real client-facing reply now requires `send_email: true`, not just
 `note_is_private: false` (v2.10.6, real incident).** Ticket #21702's
@@ -588,6 +593,56 @@ that's a real, potentially disruptive action best left to a human's
 judgment given what's at stake, not something to trigger off a single
 "they said no" signal, even though `mcp__CIPP__reset_user_password` is
 already whitelisted and could technically do it.
+
+**Cross-cycle tracking moved from a full per-cycle Halo scan to a small
+local cache (v2.10.9, cost regression, Roger's own suggestion).** A real
+overnight run under v2.10.5's design burned noticeably more than a typical
+cycle should have. Root cause: once the resolver started always unassigning
+itself (v2.10.5), the classifier could no longer tell "genuinely new" from
+"already handled, just checking for a reply" by agent_id alone, so it
+started running `get_ticket_time_entries` against every candidate in the
+Unassigned page - up to 15 tickets - every single cycle, not just the
+small handful actually worth re-checking. Roger's fix, put plainly: cache
+what's already been worked on locally, and drop a ticket from that cache
+once it's resolved or no longer relevant - so the classifier only has to
+re-check a small, known set instead of re-deriving it from scratch every 15
+minutes.
+`tracked-tickets.json` (gitignored, next to `resolved-ids-cache.json`)
+holds that list now. PowerShell loads it once per cycle, hands it to the
+classifier as `{{TRACKED_TICKET_IDS}}`, and the classifier's "Unassigned"
+call goes back to treating everything in it as genuinely fresh - zero extra
+calls, exactly the pre-v2.10.5 cost profile. Only the small tracked set
+gets checked (`get_ticket` for status/assignment, then
+`get_ticket_time_entries` if still relevant) - `mcp__Halo__get_ticket` had
+to be added to `$classifierTools` for this, since the classifier never
+needed single-ticket lookups before. A tracked ticket that's closed or been
+claimed by a human gets a new pseudo-tier, `UNTRACK`, from the classifier -
+it costs nothing (never reaches the resolver) and just tells PowerShell to
+drop that ID.
+The resolver side needed a symmetric contract: resolver-prompt.md's "When
+you finish" section now requires the very last line of every response,
+including every early-stop case, to be exactly `[CACHE: TRACK]` or
+`[CACHE: UNTRACK]` - PowerShell regexes this out of the resolver's own
+output and updates the cache accordingly. This tripped one real design bug
+caught before it shipped: TRACK was first defined as "status is
+`waiting_on_client_status_name`," but the before-hours quiet-investigation
+path never sets that status (nothing was actually sent, so "waiting on
+client" would be inaccurate) - a strictly status-based check would have
+untracked those drafts on the very next cycle, silently losing them until
+morning. Fixed by making the tracked-list check activity-based (does the
+action log show anything new since our last note) rather than status-based,
+the same logic the original pre-v2.10.5 "already mine" check already used -
+just re-scoped to a small cached ID list instead of a Halo-side agent_id
+bucket.
+FLOW A's own step 8 got the same `[CACHE: ...]` requirement spelled out
+explicitly, since FLOW A deliberately skips the rest of the document
+(including "When you finish") once it's approved-and-sending. The cache
+write itself happens once per cycle in PowerShell's own `finally` block, so
+every exit path persists it, and never under `-WhatIf` - a simulation run
+must leave nothing real behind, same as every other write in this script.
+A missing or corrupt cache file is treated as empty, not an error - this
+is a cost optimization, not a correctness mechanism, so losing it costs one
+pricier cycle, never a broken one.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

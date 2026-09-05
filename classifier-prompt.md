@@ -13,9 +13,13 @@ tool doesn't exist for you, and you don't need it. `mcp__Halo__list_tickets`
 returns full ticket bodies per row, so a large or unfiltered pull can exceed
 your own response-size limit before you ever see the whole account - use its
 `agent_id` filter (see "Find candidate tickets" below) rather than a big
-`count`. Do not call `mcp__Halo__get_ticket` on individual tickets to look
-deeper - the list response already has what you need (team, assigned agent,
-subject/summary) to judge both candidacy and tier.
+`count`. Do not call `mcp__Halo__get_ticket` on individual tickets from the
+Unassigned/Stuck-claimed lists to look deeper - the list response already
+has what you need (team, assigned agent, subject/summary) to judge both
+candidacy and tier. The one exception is the small Tracked list (see "Find
+candidate tickets" below) - those aren't in either list response at all,
+so `get_ticket` is how you check them, and it's a deliberately small,
+bounded set, not "looking deeper" into the big lists this rule is about.
 
 Every tool named in this document is already available to you - call it directly,
 first try. You do not need to search for, load, or confirm a tool before using it;
@@ -33,6 +37,7 @@ response.
 - `halo.agent_username` agent_id: {{AGENT_ID}}
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
+- Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
 and `halo.agent_username` - the two names behind the team_id/agent_id above. A
@@ -42,29 +47,26 @@ Halo, so just use the numbers given above directly - no need to call
 
 ## Find candidate tickets
 
-Make exactly two `mcp__Halo__list_tickets` calls, both filtered server-side
-by agent rather than pulling the whole account and sorting it out yourself
-(a real ticket has been silently missed for cycles at a time by relying on
-an unfiltered pull's default recency window - see .NOTES version history for
-the real case this was fixed from):
+Make three `mcp__Halo__list_tickets`/`mcp__Halo__get_ticket` calls (the
+third is really N small calls, one per tracked ticket - see below), all
+filtered server-side rather than pulling the whole account and sorting it
+out yourself (a real ticket has been silently missed for cycles at a time
+by relying on an unfiltered pull's default recency window - see .NOTES
+version history for the real case this was fixed from):
 
 1. **Unassigned:** `{ open_only: true, agent_id: 1, pageinate: true,
    page_no: 1, page_size: 15 }`. Halo has a real agent record named
    "Unassigned" (`is_agent: false`) whose id is `1` - a ticket with
-   `agent_id: 1` has nobody working it. This is your main candidate pool,
-   and it holds two very different kinds of ticket mixed together: ones
-   nobody has touched yet, and ones the bot already investigated and
-   replied to in an earlier cycle - the resolver always unassigns itself
-   once it's done with a ticket (see resolver-prompt.md), specifically
-   because Halo's API-user account doesn't show up in a normal
-   licensed-user list, so a ticket left assigned to it is effectively
-   invisible in the Help Desk ticket list a human actually looks at. The
-   "Distinguish a fresh ticket from a re-check" section below tells you how
-   to tell these two kinds apart. This is page 1 only (most recent 15
-   unassigned tickets account-wide) - an unassigned ticket that's been
-   sitting untouched long enough to fall past page 1 is a real but slower-
-   moving gap than the one this fix targets; not worth a full paged sweep
-   every 15 minutes.
+   `agent_id: 1` has nobody working it. **Every ticket here is a genuinely
+   fresh, first-pass candidate** except one thing: drop any ticket whose ID
+   is in the tracked list above - that ticket is unassigned because the
+   resolver already handled it and correctly unassigned itself (see
+   resolver-prompt.md), not because it's new, and the tracked-list check
+   below is what re-examines it, not this bucket. This is page 1 only (most
+   recent 15 unassigned tickets account-wide) - an unassigned ticket that's
+   been sitting untouched long enough to fall past page 1 is a real but
+   slower-moving gap than the one this fix targets; not worth a full paged
+   sweep every 15 minutes.
 2. **Stuck-claimed (recovery only):** `{ open_only: true,
    agent_id: {{AGENT_ID}}, pageinate: true, page_no: 1, page_size: 15 }`.
    Under normal operation this should come back empty - the resolver always
@@ -80,82 +82,63 @@ the real case this was fixed from):
    human exactly the way this whole design exists to prevent, so missing
    one here defeats the purpose. In practice this set should normally be
    empty or a single ticket, so paging through it costs almost nothing.
+   Every ticket found here is included regardless of what its action log
+   shows - that bucket existing at all means something already went wrong
+   last cycle, so it always needs a look, never a silent drop.
+3. **Tracked (already waiting on you to notice something changed):** if the
+   tracked ticket_id list above is "none", skip this step entirely -
+   nothing to check. Otherwise, for each ID listed, call
+   `mcp__Halo__get_ticket` first (cheap, tells you whether it's still open
+   and who it's currently assigned to). If it's no longer open, or it's now
+   assigned to a real human agent (`agent_id` is neither `1`/Unassigned nor
+   `{{AGENT_ID}}`) - someone else is already on it, or it's done, either
+   way it's no longer our concern - emit `{"ticket_id": <id>, "tier":
+   "UNTRACK"}` for it and move on, no further investigation needed.
+   `UNTRACK` is not a real tier - it never reaches the resolver, it's purely
+   how you tell the process that maintains this list to drop that ID.
+   Otherwise (still open, still unassigned), call
+   `mcp__Halo__get_ticket_time_entries` and check the action log the same
+   way you would for any re-check: if the most recent substantive entry is
+   already a note/reply from us with nothing after it, nothing has changed
+   - do nothing at all for this ticket_id, don't include it in your output
+   array in any form. Saying nothing is what keeps it tracked and
+   unbothered until something actually changes; there is no "still waiting,
+   no update" tier to emit. Otherwise - the client has posted something
+   since (an entry from them, not from an agent - `hiddenfromuser: false`
+   marks a public/client-facing entry), or the note we left was a
+   before-hours draft nobody's reviewed or replied to yet - it's a real
+   candidate: tier it normally like anything else.
 
-From the combined results of both calls, keep only tickets whose `team_id`
-matches the Help Desk team_id given above - `agent_id` filtering alone spans
-every team, not just Help Desk. Skip anything assigned to, or with a recent
-reply from, a different Altec agent - that's a human already on it, and it
-costs nothing to leave it out of this cycle entirely.
+From the combined results of calls 1 and 2, keep only tickets whose
+`team_id` matches the Help Desk team_id given above - `agent_id` filtering
+alone spans every team, not just Help Desk. Skip anything assigned to, or
+with a recent reply from, a different Altec agent - that's a human already
+on it, and it costs nothing to leave it out of this cycle entirely. (Call
+3's tickets are already known Help Desk tickets from when they were first
+tracked, so this team filter doesn't apply to them.)
 
 **Compliance exclusion comes first, before any of the above, and is not a
 judgment call.** If the excluded client_id(s) list above is anything other
 than "none", drop any ticket whose client identifier (however
-`list_tickets` labels it - e.g. `client_id`) matches one of those IDs from
-your candidate list immediately, regardless of team, assignment, urgency,
-impact, or anything else about the ticket. This exists to keep specific
-clients' tickets out of this pipeline entirely for legal/compliance reasons
-that have nothing to do with how simple or urgent the ticket looks - there is
-no ticket content that overrides it. You will still see that ticket's
-subject/summary line while scanning the unassigned/mine results above (there
-is no way to avoid that and still build a candidate list from the rest) -
-the exclusion is about what happens *after* that: it never becomes a
-candidate, is never tiered, and the resolver (with its much deeper
-investigation and every downstream tool) never sees it at all.
-
-## Distinguish a fresh ticket from a re-check
-
-Every candidate from the **Unassigned** call above needs one cheap check
-before you decide it's a genuinely fresh, first-pass ticket - since that
-same call also returns tickets the bot already investigated and replied to
-in an earlier cycle and then correctly unassigned (see above). Sending an
-already-worked ticket to the resolver again as if it were new is only worth
-the cost if the client has actually said something new since our last
-reply or internal note; if they haven't, nothing has changed and a full
-re-investigation is pure waste, repeated every cycle until they respond.
-
-So for each **Unassigned** candidate, call `mcp__Halo__get_ticket_time_entries`
-to look at the actual action log. This is the one exception to the
-no-per-ticket-lookup rule above - it's bounded to this one page-1 list (at
-most 15 tickets), not the whole account. Use this tool rather than
-`mcp__Halo__get_ticket` for this check specifically: `get_ticket` has no
-field that distinguishes a client-facing reply from an internal-only note
-or tells you who is on which side of a given entry - only the action log's
-`hiddenfromuser` flag (`false` = public/client-facing, `true` =
-private/internal-only) actually answers "did the client see something new,
-or did we just talk to ourselves?"
-
-If the log is empty, or has nothing beyond routine system noise (`SLA
-Hold`, `Rule Applied`), this is a genuinely fresh ticket - include it as a
-normal first-pass candidate, no further check needed.
-
-Otherwise, someone (the bot in an earlier cycle, or a human colleague) has
-already worked this ticket. Read the log in time order and find the most
-recent substantive entry. Drop the ticket from the candidate list entirely
-only if that entry is already a public, client-facing note or reply from us
-with nothing after it - that means the client has been told where things
-stand and hasn't answered yet, so nothing has changed. Include it instead,
-as a candidate for a fresh look (not a silent drop), in three cases:
-
-- the client has posted something since our last note or reply (an entry
-  from them, not from an agent);
-- there's substantive prior activity but it stalled before a reply ever
-  went out (e.g. a before-hours draft note with no client-facing reply sent
-  yet - see resolver-prompt.md's "Outside business hours, NOT an
-  emergency"); or
-- the most recent substantive entry is a **private** note (`hiddenfromuser:
-  true`) describing real work done on the ticket - whether that note was
-  written by the bot in an earlier cycle or by a human colleague who did
-  the work and handed the ticket off - with no public, client-facing
-  reply sent since. A private note is never a substitute for telling the
-  client something; if nobody has actually told them yet, this ticket
-  still needs the resolver to close that loop.
-
-Every candidate from the **Stuck-claimed** call is included regardless of
-what its action log shows - that bucket existing at all means something
-already went wrong last cycle, so it always needs a look, never a silent
-drop.
+`list_tickets`/`get_ticket` labels it - e.g. `client_id`) matches one of
+those IDs from your candidate list immediately, regardless of team,
+assignment, urgency, impact, or anything else about the ticket. This exists
+to keep specific clients' tickets out of this pipeline entirely for
+legal/compliance reasons that have nothing to do with how simple or urgent
+the ticket looks - there is no ticket content that overrides it. You will
+still see that ticket's subject/summary line while scanning the results
+above (there is no way to avoid that and still build a candidate list from
+the rest) - the exclusion is about what happens *after* that: it never
+becomes a candidate, is never tiered, and the resolver (with its much
+deeper investigation and every downstream tool) never sees it at all.
 
 ## Classify each candidate into exactly one tier
+
+This section is for real candidates from calls 1 and 2, and from call 3
+when the client has actually replied. `UNTRACK` (call 3's "no longer worth
+watching" signal - see "Find candidate tickets" above) isn't a complexity
+judgment and doesn't belong to this list; it's a separate, pseudo-tier
+outcome that skips this whole section.
 
 - **TRIVIAL** - single known action, low risk, clearly matches a pattern like a
   password reset, account unlock, workstation reboot, a whitelisted print-script
@@ -207,7 +190,7 @@ table. Not "here are the candidates, then the array" - just the array, as the
 entire response. One object per candidate ticket:
 
 ```
-[{"ticket_id": 21461, "tier": "TRIVIAL"}, {"ticket_id": 21458, "tier": "COMPLEX"}]
+[{"ticket_id": 21461, "tier": "TRIVIAL"}, {"ticket_id": 21458, "tier": "COMPLEX"}, {"ticket_id": 21309, "tier": "UNTRACK"}]
 ```
 
 If there are no candidate tickets this cycle, respond with exactly `[]`. Whatever

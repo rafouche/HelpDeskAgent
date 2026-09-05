@@ -621,15 +621,18 @@ Two more levers, both structural rather than config-driven:
   fresh), the whole cycle aborts with a clear error rather than silently using
   a wrong ID on every ticket - a cache read problem of any kind (missing,
   corrupted) is always treated as a harmless cache miss, never a failure.
-- **Skipping unchanged tickets.** A ticket already claimed by the agent and
-  sitting on "waiting on client" gets a full re-investigation and a full-price
-  resolver call on every cycle unless something's actually changed. The
-  classifier now checks (via `get_ticket`, for just this already-claimed
-  subset) whether the client has replied since the agent's last note, and drops
-  the ticket from this cycle's candidates entirely if not. This only shows its
-  effect on real (non-`-WhatIf`) runs, since `-WhatIf` never actually claims a
-  ticket in Halo - a `-WhatIf` test will keep re-showing the same backlog every
-  time regardless of this fix, because nothing ever really got marked handled.
+- **Skipping unchanged tickets.** A ticket already waiting on a client reply
+  would get a full re-investigation and a full-price resolver call every
+  cycle if nothing changed. `tracked-tickets.json` (gitignored, next to
+  `resolved-ids-cache.json`) is a small local cache of ticket IDs still
+  worth watching - the resolver adds one whenever it ends a ticket still
+  expecting a reply, and the classifier checks only that small list each
+  cycle (not the whole open-ticket backlog) for a new client reply, dropping
+  a ticket from the cache once it's resolved or a human has taken it over.
+  This only shows its effect on real (non-`-WhatIf`) runs, since `-WhatIf`
+  never writes to this cache - a `-WhatIf` test will keep re-showing the
+  same backlog every time regardless of this fix, because nothing ever
+  really got marked handled.
 
 `Show-AgentLog.ps1`'s CYCLE SUMMARY section shows ID resolution cost,
 classifier cost, resolver cost, and a per-ticket cost/tier/model breakdown

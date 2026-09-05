@@ -73,6 +73,38 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.9 - cost regression fix, Roger's own suggestion: v2.10.5's
+    "check every unassigned ticket's time entries every cycle" design (built
+    to replace agent_id-based cross-cycle tracking once the resolver started
+    always unassigning itself) was a real, unnecessary cost increase - a
+    real overnight run burned noticeably more than expected. Roger's fix:
+    cache which ticket IDs are still worth watching in a local file instead
+    of re-deriving that set from a full time-entries scan every cycle.
+    tracked-tickets.json (gitignored, next to resolved-ids-cache.json) now
+    holds that list. Loaded once per cycle, passed to the classifier as
+    {{TRACKED_TICKET_IDS}}, and only THAT small set (not the whole
+    Unassigned page) gets a get_ticket/get_ticket_time_entries check -
+    genuinely new Unassigned tickets go back to needing zero extra calls,
+    exactly like the pre-v2.10.5 design.
+    The classifier can now emit a pseudo-tier, "UNTRACK", for a tracked
+    ticket that's no longer open or has been claimed by a human - it never
+    reaches the resolver, PowerShell just drops that ID from the cache.
+    mcp__Halo__get_ticket added to $classifierTools for this (it didn't
+    need single-ticket lookups before). The resolver, in turn, must end
+    every response with either [CACHE: TRACK] or [CACHE: UNTRACK]
+    (resolver-prompt.md's new "When you finish" requirement) - PowerShell
+    regexes this out of $resolverResult.Parsed.result and updates the cache
+    accordingly; FLOW A's own step 8 was given the same requirement
+    explicitly, since FLOW A skips the rest of the document (including "When
+    you finish") on purpose. The cache is written once per cycle in a
+    `finally` block so every exit path (normal completion, the early
+    "no candidates" return, even a thrown error) persists it, and never
+    under -WhatIf, matching how every other real-effect write in this
+    script is skipped there.
+    A missing/corrupt cache file is treated as an empty list, not an error -
+    this is a cost optimization, not a correctness mechanism, so losing it
+    just means one pricier cycle re-discovering what's still open, never a
+    broken one.
     Version: 2.10.8 - policy fix, no incident but a real design flaw:
     resolver-prompt.md's personal/consumer-VPN section told the resolver to
     unconditionally tell "them" to disconnect the VPN, without ever
@@ -715,6 +747,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $configPath           = Join-Path $RootPath "config.json"
 $idCachePath          = Join-Path $RootPath "resolved-ids-cache.json"
+$trackedTicketsPath   = Join-Path $RootPath "tracked-tickets.json"
 $idResolverPromptPath = Join-Path $RootPath "id-resolver-prompt.md"
 $classifierPromptPath = Join-Path $RootPath "classifier-prompt.md"
 $resolverPromptPath   = Join-Path $RootPath "resolver-prompt.md"
@@ -736,6 +769,30 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 # templates - this is the same root cause as the earlier .ps1 parsing bug, just
 # hitting a data file read at runtime instead of a script being parsed.
 $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+# --- Load the tracked-tickets cache: ticket IDs the resolver is already
+#     waiting on a client reply for, from a prior cycle. This is what lets
+#     the classifier skip a full get_ticket_time_entries check against every
+#     unassigned ticket every cycle (v2.10.5's approach) and instead only
+#     re-check this small, known set - the resolver always unassigns itself
+#     now (v2.10.5), so Halo's own agent_id can no longer double as that
+#     memory the way it used to pre-v2.10.5. A missing or corrupt file just
+#     means an empty list - this cache is a cost optimization, not a
+#     correctness requirement, so losing it costs a slightly pricier cycle,
+#     never a broken one. -WhatIf still reads it for an accurate simulation;
+#     only the write-back later is skipped so nothing real persists.
+$trackedTicketIds = @()
+if (Test-Path $trackedTicketsPath) {
+    try {
+        $loadedIds = Get-Content $trackedTicketsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $trackedTicketIds = @($loadedIds | ForEach-Object { [int]$_ })
+    }
+    catch {
+        $earlyTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Add-Content -Path $logFile -Value "[$earlyTimestamp] WARNING: could not read $trackedTicketsPath ($($_.Exception.Message)) - starting this cycle with an empty tracked-tickets list." -Encoding UTF8
+        $trackedTicketIds = @()
+    }
+}
 
 # --- Determine business-hours context ---
 $now = Get-Date
@@ -807,9 +864,13 @@ $idResolverTools = @(
 # tickets" section for how the classifier uses these instead of one
 # unfiltered pull. This tool array doesn't change for that fix (list_tickets
 # was already here) - only the prompt's instructions for how to call it did.
+# mcp__Halo__get_ticket added for the tracked-tickets check (v2.10.9,
+# classifier-prompt.md's "Find candidate tickets" call 3) - the classifier
+# needs it to cheaply check each tracked ticket's current status/open-state
+# before deciding whether to keep watching it or emit UNTRACK for it.
 $classifierTools = @(
     "Read", "ToolSearch",
-    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket_time_entries"
+    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket_time_entries", "mcp__Halo__get_ticket"
 )
 
 # Resolver: the full tool set - everything a ticket might need to be diagnosed
@@ -1386,6 +1447,15 @@ try {
         $excludedClientIdsText = (@($ids.excluded_client_ids) -join ", ")
     }
 
+    # Same "none" rendering as excluded_client_ids above, same reason - an
+    # empty tracked-tickets cache (the common case right after this feature
+    # ships, or once every waiting ticket has been answered) should read as
+    # plain text, not literal empty-array syntax.
+    $trackedTicketIdsText = "none"
+    if ($trackedTicketIds -and @($trackedTicketIds).Count -gt 0) {
+        $trackedTicketIdsText = (@($trackedTicketIds) -join ", ")
+    }
+
     if ($usedCachedIds) {
         # Log a lightweight confirmation, not the full claude-call section (there
         # was no claude call this cycle) - shaped like a no-cost claude response so
@@ -1423,7 +1493,8 @@ try {
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
         -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
-        -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText
+        -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
+        -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
@@ -1519,9 +1590,13 @@ try {
             "   actually landed per resolver-prompt.md's untriaged-ticket section before",
             "   your summary below - don't report `"sent`" if the reply never actually",
             "   posted.",
-            "8. Print your one-line summary and stop - nothing else in this document",
-            "   applies to an APPROVED-tier ticket (Hudu documentation, if warranted,",
-            "   already happened when the draft was written).",
+            "8. Print your one-line summary, then as the very last line of your response",
+            "   print exactly `"[CACHE: TRACK]`" if [INTENDED STATUS] was",
+            "   waiting_on_client_status_name, or `"[CACHE: UNTRACK]`" for any other",
+            "   status - same rule as resolver-prompt.md's own `"When you finish`"",
+            "   section, which this step is standing in for. Then stop - nothing else",
+            "   in this document applies to an APPROVED-tier ticket (Hudu documentation,",
+            "   if warranted, already happened when the draft was written).",
             "",
             "FLOW B - every other tier: work the rest of this document completely",
             "normally (investigate, judge difficulty, decide on a reply and/or a",
@@ -1614,6 +1689,20 @@ try {
         throw "Could not parse the classifier's ticket/tier list as JSON. Raw classifier result text: $ticketsJsonText"
     }
 
+    # UNTRACK is a pseudo-tier, not a real one - the classifier uses it to
+    # tell us a previously-tracked ticket (see the tracked-tickets cache
+    # loaded above) is no longer open, or has moved off waiting_on_client
+    # with nothing new to act on, so it can come out of the cache. It never
+    # goes to the resolver - there's nothing to resolve, just bookkeeping,
+    # and spending a real claude -p call on a no-op would defeat the whole
+    # point of this cache existing.
+    $untrackedIds = @($tickets | Where-Object { $_.tier -eq 'UNTRACK' } | ForEach-Object { $_.ticket_id })
+    if ($untrackedIds.Count -gt 0) {
+        $trackedTicketIds = @($trackedTicketIds | Where-Object { $untrackedIds -notcontains $_ })
+        Write-Host "Untracking $($untrackedIds.Count) ticket(s) no longer worth watching: $($untrackedIds -join ', ')"
+    }
+    $tickets = @($tickets | Where-Object { $_.tier -ne 'UNTRACK' })
+
     # $idResolutionCost was already set in Stage 0 above (0 on a cache hit, the
     # real cost on a fresh resolution) - not recomputed here.
     $classifierCost = 0
@@ -1687,6 +1776,27 @@ try {
                 $ticketCost = $resolverResult.Parsed.total_cost_usd
             }
             $resolverCost += $ticketCost
+
+            # resolver-prompt.md's "When you finish" section requires every
+            # path to end with exactly one of these two markers, so the cache
+            # doesn't depend on Halo's own agent_id anymore (see the
+            # tracked-tickets cache loaded above). A real run under -WhatIf
+            # never writes this cache back (see the finally block below), so
+            # a missing marker there is expected, not a warning-worthy gap.
+            $cacheMarker = $null
+            if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK)\s*\]') {
+                $cacheMarker = $Matches[1].ToUpperInvariant()
+            }
+            switch ($cacheMarker) {
+                'TRACK'   { if ($trackedTicketIds -notcontains $ticketId) { $trackedTicketIds += $ticketId } }
+                'UNTRACK' { $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId }) }
+                default {
+                    if (-not $WhatIf) {
+                        Add-Content -Path $logFile -Value "TICKET $ticketId: WARNING - no [CACHE: TRACK|UNTRACK] marker found in resolver output; tracked-tickets cache left unchanged for this ticket." -Encoding UTF8
+                    }
+                }
+            }
+
             $ticketOutcomes += [PSCustomObject]@{
                 ticket_id = $ticketId
                 tier      = $tier
@@ -1723,4 +1833,25 @@ catch {
     Add-Content -Path $logFile -Value "[$timestamp] ERROR: $($_.Exception.Message)" -Encoding UTF8
     Add-Content -Path $logFile -Value "----" -Encoding UTF8
     throw
+}
+finally {
+    # Persist whatever $trackedTicketIds ended up as - covers every exit path
+    # above (normal completion, the early "no candidates" return, and even
+    # the catch block's throw) with one write, instead of needing a write at
+    # each individual exit point. Never under -WhatIf: a simulation run must
+    # leave nothing real behind, and this cache directly changes a future
+    # real cycle's behavior the same way any other persisted state would.
+    if (-not $WhatIf) {
+        try {
+            $tempTrackedPath = "$trackedTicketsPath.tmp"
+            @($trackedTicketIds | Select-Object -Unique) | ConvertTo-Json | Set-Content -Path $tempTrackedPath -Encoding UTF8
+            Move-Item -Path $tempTrackedPath -Destination $trackedTicketsPath -Force
+        }
+        catch {
+            # Same reasoning as the ID-resolution cache write above: failing to
+            # WRITE this cache should never fail the cycle - worst case, the
+            # next cycle just falls back to treating this file as empty.
+            Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] WARNING: could not write tracked-tickets cache to $trackedTicketsPath - $($_.Exception.Message)" -Encoding UTF8
+        }
+    }
 }

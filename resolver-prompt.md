@@ -470,10 +470,11 @@ language explaining what you found and did. Set status to Resolved (config's
 internal note with the technical detail for the record. In that same
 `update_ticket` call, unassign yourself (`agent_id: 1` - Halo's real
 "Unassigned" placeholder, not `0`) - per "Claim the ticket" above, don't stay
-assigned once this pass is done. If the client replies again later, the
-classifier's "Unassigned" pass and its "Distinguish a fresh ticket from a
-re-check" step (see classifier-prompt.md) will find it and bring it back as
-a candidate - you don't need to stay assigned to track that yourself.
+assigned once this pass is done. End your response with `[CACHE: TRACK]` if
+you set `waiting_on_client_status_name` (see "When you finish" below) so the
+classifier's tracked-ticket check picks it back up if the client replies
+again later, or `[CACHE: UNTRACK]` if you set `resolved_status_name` -
+you don't need to stay assigned to track that yourself.
 
 **Business hours, NOT EASY (or frustrated):** If frustration is present, or you're
 genuinely out of distinct ideas (see "Trying more than one fix before escalating"
@@ -504,12 +505,14 @@ the morning tech can review and send quickly. Don't change status in a way that
 implies the client was already contacted, and unassign yourself (`agent_id: 1`)
 in that same call - this ticket needs to be visible and pickable in the normal
 Help Desk queue by morning, not sitting invisible under the bot's own account.
-Leaving it unassigned doesn't mean it gets re-investigated from scratch every
-cycle between now and morning: the classifier's "Distinguish a fresh ticket
-from a re-check" step (see classifier-prompt.md) finds the draft note you just
-left with no client-facing reply after it and brings it back as a candidate
-each cycle without wasting a fresh investigation on it, until either the
-client says something new or a human acts on it.
+End with `[CACHE: TRACK]` (see "When you finish" below) - leaving it
+unassigned doesn't mean it gets re-investigated from scratch every cycle
+between now and morning: the classifier's tracked-ticket check (see
+classifier-prompt.md's "Find candidate tickets") finds the draft note you
+just left with no client-facing reply after it and brings it back as a
+candidate each cycle without wasting a fresh investigation on it, until
+either the client says something new or a human acts on it (at which point
+the classifier's own check untracks it for you).
 
 **Outside business hours, EMERGENCY:** Err toward treating a plausible outage as an
 emergency rather than making the client wait to find out. Send one brief
@@ -539,3 +542,33 @@ waiting on client, escalated, or asked for missing info), whether an emergency
 notification was sent, and whether a Hudu fix article was created or updated. A
 separate process aggregates this across every ticket worked this cycle - keep it
 short and structured rather than a full narrative.
+
+**Then, as the very last line of your entire response, print exactly one of
+these two lines - no exceptions, this applies to every path in this
+document, including every early-stop case above (compliance exclusion,
+belongs to a different agent, `agent_id: 1` not actually free, an
+untriaged-ticket write that never landed):**
+
+- `[CACHE: TRACK]` - you still expect to look at this ticket again without a
+  human needing to act on it first: it's on `waiting_on_client_status_name`
+  genuinely expecting a reply (the EASY/Waiting-on-client path, the
+  "different fix worth trying" path, the identity-confirmation question in
+  the "unknown or wrong contact"/VPN sections), or it's a before-hours
+  draft nobody's reviewed or replied to yet (status unchanged, but still
+  something to notice a change on). A separate process keeps a small local
+  list of ticket IDs still worth checking for a client reply or human
+  review next cycle (since the ticket itself is unassigned in Halo, not
+  sitting under this pipeline's own agent the way it used to) - this line
+  is what tells it to add or keep this ticket_id on that list.
+- `[CACHE: UNTRACK]` - anything else: Resolved, Follow Up Needed/escalated,
+  the emergency/compromise paths, FLOW A completing a send, a draft held
+  for `-RequireApproval` sign-off (that status is tracked separately by the
+  classifier's own approval-mode logic, not this list), or any of the
+  early-stop cases (compliance exclusion, someone else's ticket, a stuck
+  claim you couldn't resolve). This tells that same process to take this
+  ticket_id off its list, if it was on it - there's nothing left to check
+  it for.
+
+If you're genuinely unsure which applies, use `[CACHE: TRACK]` - the cost of
+checking a ticket one extra cycle that turned out not to need it is far
+smaller than the cost of silently losing track of one that did.
