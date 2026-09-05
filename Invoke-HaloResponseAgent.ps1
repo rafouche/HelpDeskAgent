@@ -73,6 +73,27 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.12 - real incident: v2.10.9's new warning line, "TICKET
+    $ticketId: WARNING - ...", crashed the script outright on every run
+    ("Variable reference is not valid. ':' was not followed by a valid
+    variable name character") - PowerShell parses "$name:" inside a
+    double-quoted string as an attempted scope/drive reference (the same
+    syntax as $env:PATH or $script:var), not as the variable followed by a
+    literal colon, whenever nothing that looks like a valid scope name
+    follows. Fixed by wrapping it as "${ticketId}:", which disambiguates the
+    variable name from the colon.
+    This should have been caught before it ever reached a real run - the
+    verification this project has relied on (BOM/ASCII byte checks,
+    paren/brace/bracket balance counts) cannot catch this class of error at
+    all, since brackets stayed balanced and encoding was never the issue.
+    From this version on, every .ps1 change gets checked with a real
+    PowerShell parser (`[System.Management.Automation.Language.Parser]::ParseFile`)
+    before shipping - confirmed available even without a Windows/pwsh
+    install on hand by downloading the official PowerShell-for-Linux
+    release tarball. This is now the actual verification step; the
+    byte-level checks remain useful for the BOM/encoding class of bug they
+    were built for, but were never a substitute for real parsing and should
+    not be treated as one going forward.
     Version: 2.10.11 - real incident, serious: a ticket sitting unassigned on
     a different Halo team entirely (Alerts / System Admin, not Help Desk)
     was picked up by a cycle, investigated, and escalated - and the
@@ -1906,7 +1927,7 @@ try {
                 'UNTRACK' { $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId }) }
                 default {
                     if (-not $WhatIf) {
-                        Add-Content -Path $logFile -Value "TICKET $ticketId: WARNING - no [CACHE: TRACK|UNTRACK] marker found in resolver output; tracked-tickets cache left unchanged for this ticket." -Encoding UTF8
+                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK] marker found in resolver output; tracked-tickets cache left unchanged for this ticket." -Encoding UTF8
                     }
                 }
             }
