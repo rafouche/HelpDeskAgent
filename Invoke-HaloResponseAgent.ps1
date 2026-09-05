@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.2 - real incident: a Huntress ITDR escalation for
+    mpon@battlefieldfire.gov came back from the resolver as "NEEDS CONTACT
+    VERIFIED" instead of getting fixed automatically, even though the
+    resolver had already done every bit of verification work needed - it
+    confirmed via M365 that the account was real, active, enabled, and
+    non-admin, and confirmed no matching Halo contact existed under the
+    right client. It could not act because create_contact was deliberately
+    withheld from $resolverTools entirely, on the assumption that any
+    automatic contact creation meant fabricating an identity from unverified
+    ticket text - contradicting an earlier, explicit request to create the
+    user automatically when the ticket body already contains enough
+    information to do so safely. The real gap was that "unverified ticket
+    text" and "independently confirmed via a live M365/CIPP lookup" were
+    being treated as the same risk tier when they aren't.
+    resolver-prompt.md's "unknown or wrong contact" section now has three
+    tiers instead of two: existing-contact re-linking (unchanged), a new
+    verified-identity create-and-link tier (client already known, identity
+    confirmed via a real system lookup - not just ticket text, and site
+    unambiguous), and the original flag-for-a-human tier for everything
+    else. mcp__Halo__create_contact and mcp__Halo__list_sites (needed since
+    create_contact requires a site_id) are added to $resolverTools;
+    create_contact is added to $mutatingTools (stripped under -WhatIf, same
+    as update_ticket) and $remediationMutatingTools (gated behind
+    -RequireApproval for non-APPROVED tickets, same tier as a password reset
+    or reboot - FLOW B drafts the intended contact creation into the private
+    note instead of creating it for real).
     Version: 2.10.1 - real incident: v2.10.0's Update-HaloResponseAgent.ps1
     included config.json in its synced file list, and the very first real
     update cycle silently overwrote a live on_call.primary.email with the
@@ -677,6 +703,17 @@ $resolverTools = @(
     # belonged to - never added despite being the same kind of read-only
     # name-to-ID lookup already granted for teams/statuses/agents.
     "mcp__Halo__get_client", "mcp__Halo__list_clients", "mcp__Halo__get_contact", "mcp__Halo__list_contacts",
+    # list_sites/create_contact: a real ticket (a Huntress alert for a real,
+    # M365-verified user with zero matching Halo contacts) showed the
+    # resolver correctly doing all the verification work, then having no way
+    # to act on it - create_contact was deliberately withheld at first (see
+    # resolver-prompt.md's "unknown or wrong" section) on the assumption
+    # that creating a contact always meant fabricating an identity from
+    # unverified ticket text, but an M365-confirmed real/active/enabled
+    # account is independent verification, not a guess. list_sites is
+    # needed alongside it since create_contact requires a site_id, not just
+    # a client_id.
+    "mcp__Halo__list_sites", "mcp__Halo__create_contact",
     # list_assets: multiple real runs hit "no printer/copier asset tracked in
     # NinjaOne" (printers/copiers usually aren't RMM-managed) and wanted to
     # check Halo's own asset registry instead - denied because it was never
@@ -808,7 +845,7 @@ $resolverTools = @(
 # the model how to label a simulation-sourced article so it's never mistaken for
 # a confirmed fix.
 $mutatingTools = @(
-    "mcp__Halo__update_ticket",
+    "mcp__Halo__update_ticket", "mcp__Halo__create_contact",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
@@ -826,9 +863,15 @@ $mutatingTools = @(
 # client correspondence, so it's never gated. What CAN be enforced at the
 # allowlist level - and is - is that a non-APPROVED-tier ticket physically cannot
 # call a remediation action, regardless of what the prompt says.
+# mcp__Halo__create_contact is included here too - creating a new identity
+# record in a client's Halo instance is a real, standalone action (not just
+# ticket bookkeeping like update_ticket), so it waits for approval the same
+# way a password reset or reboot does; the resolver drafts its intent into
+# the private note under FLOW B instead of creating the contact for real.
 $remediationMutatingTools = @(
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
-    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
+    "mcp__Halo__create_contact"
 )
 
 # Base allowlist plus one pre-filtered variant for -RequireApproval, computed
@@ -1338,7 +1381,7 @@ try {
             "normally (investigate, judge difficulty, decide on a reply and/or a",
             "remediation action) with one change at the very end. Wherever this document",
             "would have you send a real, public, client-facing reply OR take a",
-            "remediation action (password reset/unlock/reboot/script run), do this",
+            "remediation action (password reset/unlock/reboot/script run/create_contact), do this",
             "instead, in one update_ticket call:",
             "1. note: a single private note, in this exact structure - `"[DRAFT PENDING",
             "   APPROVAL]`" on its own line, then the full client-facing reply text you",

@@ -161,21 +161,19 @@ client reply went out, when none of that actually occurred.
 
 Sometimes a ticket ends up with no contact properly linked, or linked to a
 generic/shared account instead of a real person - a new employee at an
-existing client company introducing themselves by email signature, or a
+existing client company introducing themselves by email signature, a
 voicemail transcribed into a ticket against a shared voicemail-line account,
-are the two shapes seen so far. `mcp__Halo__update_ticket` can now re-link a
-ticket to a different client/contact (`client_id`/`user_id`). Halo also has a
-`create_contact` tool that can create a brand-new contact, but **you do not
-have it** - it's deliberately not part of your toolset, so don't attempt it;
-creating a new identity in Halo from unverified ticket text stays a
-human-supervised step, not something this pipeline does on its own. Even for
-the re-linking you can do, **do not treat "the tool exists" as "always safe
-to use automatically."** Reassigning a ticket to the wrong real client is a
-worse outcome than leaving it unlinked - it can put one client's information
-in front of the wrong company's ticket history. Split on confidence:
+or a Huntress/security alert naming an M365 account that has no matching
+Halo contact yet, are the shapes seen so far. `mcp__Halo__update_ticket` can
+re-link a ticket to a different client/contact (`client_id`/`user_id`), and
+`mcp__Halo__create_contact` can create a brand-new one when it's genuinely
+warranted. **Neither is "always safe to use automatically."** Reassigning a
+ticket to the wrong real client, or inventing a Halo identity for someone
+who isn't who the ticket claims, is a worse outcome than leaving it
+unlinked. Split on confidence:
 
-**HIGH CONFIDENCE - act automatically:** the ticket body gives you either of
-these two independently-verifiable identifiers:
+**HIGH CONFIDENCE, EXISTING CONTACT - re-link automatically:** the ticket
+body gives you either of these two independently-verifiable identifiers:
 
 - a callback phone number (a voicemail transcript's caller ID, a signature's
   direct line, etc.) - call `mcp__Halo__list_contacts` with `search` set to
@@ -193,29 +191,58 @@ already in the list result), then call `mcp__Halo__update_ticket` with that
 `client_id` and the contact's `user_id`, re-fetch and confirm per the section
 above, and add a private note stating what changed and why (e.g. "Re-linked
 from generic voicemail account to Stone County Health Department / Dawn
-Davis based on phone number 417-907-9136 matching an existing Halo contact",
-or "Re-linked from generic Huntress-alert account to the matching Halo
-contact for jsmith@clientdomain.com"). Then continue this ticket's
-investigation/resolution normally, now correctly scoped to the real
-client/contact. If the search returns zero matches, or more than one (a
-shared/main office line, or a distribution address, can match several
-contacts), that is NOT high confidence - fall through to the next case
-instead of guessing.
+Davis based on phone number 417-907-9136 matching an existing Halo contact").
+Then continue this ticket's investigation/resolution normally, now correctly
+scoped to the real client/contact. If the search returns zero matches, or
+more than one (a shared/main office line, or a distribution address, can
+match several contacts), that is NOT high confidence for this case - check
+the next one before falling back to flagging it.
+
+**HIGH CONFIDENCE, NO EXISTING CONTACT - create and link automatically:**
+the phone/email search above came back empty (nobody in Halo matches), but
+all of the following are true:
+1. The client/company is already correctly known - the ticket is already
+   linked to the right client (just the wrong, generic, or missing
+   contact), not a client you're guessing at from ticket text.
+2. The claimed identity is independently verified against a real system you
+   already have access to, not just typed ticket text - e.g.
+   `mcp__CIPP__get_user` (or the equivalent M365 lookup) shows a real,
+   active, enabled mailbox whose name and email match what the ticket
+   claims. A name and email typed into a ticket body is not verification by
+   itself; a live account lookup that confirms it is.
+3. Exactly one site exists for that client (`mcp__Halo__list_sites` filtered
+   by `client_id`), or more than one exists but the correct one is already
+   unambiguous from the ticket/client context.
+
+If all three hold, call `mcp__Halo__create_contact` with that `client_id`,
+the resolved `site_id`, and the verified name/email (phone too if you have
+it) - this is creating a Halo record for someone whose real-world identity
+you've already confirmed, not fabricating one from an unverified claim, so
+`send_welcome_email` should stay unset/false (this pipeline handling the
+ticket doesn't mean the client wants an unsolicited portal invite sent to a
+new contact right now). Then call `mcp__Halo__update_ticket` with the new
+contact's `client_id`/`user_id`, re-fetch and confirm per the section above,
+and add a private note stating what you created and how it was verified
+(e.g. "Created Halo contact for Mark Pon (mpon@battlefieldfire.gov) under
+Station 3 - confirmed via M365 as a real, active, non-admin account matching
+the ticket's claim; re-linked from the generic 'General User' contact").
+Then continue this ticket's investigation/resolution normally. If step 3 is
+ambiguous (multiple sites, genuinely unclear which), create nothing and fall
+through to the next case instead of guessing a site.
 
 **LOW CONFIDENCE - flag for a human, do not act:** everything else - a name
-and company mentioned in text with no phone match, a company name alone, a
-number that didn't match any existing contact, or any case requiring
-`create_contact` to invent a new identity from unverified voicemail/email
-text. Fabricating a new contact record from a spoken name and a phone number
-with no independent confirmation is exactly the low-confidence case this
-split exists to avoid acting on automatically. Add a private internal note
-starting with `"NEEDS CONTACT CREATED - "` (or `"NEEDS CONTACT VERIFIED - "`
-if a possible existing match exists but you're not confident enough to use
-it) followed by whatever of company/name/email/phone is in the ticket text,
-so a human can create or confirm the contact and relink the ticket in the
-Halo UI in under a minute instead of re-reading the whole ticket themselves.
+and company mentioned in text with no phone/email match and no independent
+verification available, a company name alone, an identity you can't confirm
+against M365/CIPP or any other system, or an ambiguous site. Add a private
+internal note starting with `"NEEDS CONTACT CREATED - "` (nothing in Halo to
+link to, someone will need to create it) or `"NEEDS CONTACT VERIFIED - "`
+(something to link to might exist, or the identity needs confirming before
+anyone creates or links it) followed by whatever of company/name/email/phone
+is in the ticket text, so a human can create or confirm the contact and
+relink the ticket in the Halo UI in under a minute instead of re-reading the
+whole ticket themselves.
 
-Do either of these in addition to whatever else this ticket's tier calls for
+Do one of these in addition to whatever else this ticket's tier calls for
 below, not instead of it - a missing or wrong contact link doesn't mean the
 underlying request isn't real or answerable.
 

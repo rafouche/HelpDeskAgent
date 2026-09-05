@@ -367,6 +367,35 @@ of what the repo's own copy currently contains. Every file this script does
 sync now gets backed up before being overwritten for exactly this reason -
 even a file that's supposed to stay in sync shouldn't be unrecoverable if
 something ever goes wrong with a specific update.
+
+**`create_contact` is granted when identity is independently verified, not
+just claimed in ticket text (v2.10.2, real incident).** A Huntress ITDR
+escalation for `mpon@battlefieldfire.gov` came back "NEEDS CONTACT VERIFIED"
+instead of getting fixed, even though the resolver had already confirmed via
+M365 that the account was real, active, enabled, and non-admin, and that no
+matching Halo contact existed under the right client - it had done all the
+verification work and then had no tool to act on it. `create_contact` had
+been withheld from `$resolverTools` entirely (see the superseded "Known
+gaps" entry above) on the assumption that any automatic contact creation
+meant fabricating an identity from unverified text - but that blanket rule
+contradicted an earlier, explicit request to create the user automatically
+when the ticket already contains enough information to do so safely, and it
+conflated two different risk levels: text typed into a ticket claiming an
+identity, versus that same identity independently confirmed against a live
+M365/CIPP account lookup.
+`resolver-prompt.md`'s "unknown or wrong contact" section now has three
+tiers: existing-contact re-linking (unchanged from v2.9.5), a new tier that
+creates and links a contact automatically when the client is already known,
+the identity is confirmed via a real system lookup (not just ticket text),
+and the site is unambiguous, and the original flag-for-a-human tier for
+everything else (ambiguous site, no independent verification available,
+text-only claims). `mcp__Halo__create_contact` and `mcp__Halo__list_sites`
+(`create_contact` requires a `site_id`, not just a `client_id`) are now in
+`$resolverTools`; `create_contact` is in `$mutatingTools` (stripped under
+`-WhatIf`) and `$remediationMutatingTools` (gated behind `-RequireApproval`
+for non-APPROVED tickets, same tier as a password reset or reboot - FLOW B
+drafts the intended creation into the private note instead of creating it
+for real).
 Still its own script and its own scheduled task
 (`Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`), not folded into
 `Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
@@ -659,10 +688,14 @@ assuming from config.json alone:
   already-vetted identity and re-linked automatically (write verified per
   the pre-triage-swallow section, private note logged explaining why); zero
   or multiple phone matches, or only a name/company in text with no phone to
-  check, falls back to the same flagged-note pattern as before. `create_contact`
-  is deliberately NOT in `$resolverTools` - fabricating a brand-new identity
-  from unverified voicemail/email text stays a human-supervised step in the
-  Halo UI, never something this pipeline does on its own.
+  check, falls back to the same flagged-note pattern as before.
+  **UPDATE (v2.10.2) - `create_contact` is no longer withheld outright; see
+  the entry below.** The blanket "never in `$resolverTools`" stance taken
+  here turned out to be too broad - it couldn't distinguish "fabricating an
+  identity from unverified ticket text" (still correctly refused) from
+  "creating a Halo record for someone already confirmed real via a live
+  M365/CIPP lookup" (safe to do automatically, and something the project had
+  explicitly asked for earlier).
 - **Halo has its own ticket-triage workflow step that can silently swallow a
   note/assignment write** (found v2.8.1, via real `-WhatIf`/`-RequireApproval`
   testing) - distinct from this pipeline's own classifier/tier terminology,
