@@ -538,6 +538,22 @@ real, client-facing reply" section, FLOW A step 5) now pairs
 private (FLOW B's draft note, internal findings notes) explicitly leaves
 `send_email` unset.
 
+**Backups now live in their own `backups\` subfolder, not loose in the
+deployment directory (v2.10.7, real incident).** Roger reported "a ton of
+.bak files" showing up on the production server - expected, given how many
+real fixes shipped to `Invoke-HaloResponseAgent.ps1`/the prompts across a
+single day this session, each one triggering `Update-HaloResponseAgent.ps1`
+to back up the previous version before replacing it - but it defeated the
+whole point of this deployment being a minimal, clean folder holding only
+the files the project actually needs (see README's "Keeping this up to
+date automatically"). `Update-HaloResponseAgent.ps1` and
+`Copy-McpServersToProject.ps1` (the only two places that ever write a
+`.bak` file) now create `backups\<file>.bak-<timestamp>` instead of
+`<file>.bak-<timestamp>` next to the real file - same backup behavior and
+retention (still not auto-cleaned up automatically; delete by hand, or
+delete the whole `backups\` folder), just relocated. `backups/` added to
+`.gitignore` alongside `logs/`.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

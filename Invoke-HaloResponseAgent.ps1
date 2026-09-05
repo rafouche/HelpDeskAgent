@@ -73,6 +73,18 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.7 - real incident: a real deployment accumulated a pile of
+    loose <file>.bak-<timestamp> files in the main deployment directory,
+    one per file per real update cycle that changed something - expected
+    given how many real fixes shipped across a single day this session,
+    but it defeated the whole point of this being a minimal-files
+    deployment (only the files the project actually needs, nothing else -
+    see README). Update-HaloResponseAgent.ps1 and
+    Copy-McpServersToProject.ps1 (the only two places that ever create a
+    .bak file) now write backups into their own backups\ subfolder instead
+    of loose next to the real file - same backup behavior, same retention
+    (still not auto-cleaned; delete by hand), just out of the way. backups/
+    added to .gitignore alongside logs/.
     Version: 2.10.6 - real incident: ticket #21702's approved reply landed
     successfully via mcp__Halo__update_ticket with note_is_private: false,
     but Halo recorded it as a "Private Note"-type action and the client

@@ -44,11 +44,17 @@
     just adding it back to this list.
 
     Every file this script DOES touch is still backed up before being
-    overwritten (to <file>.bak-<timestamp>, next to the original) precisely
-    because of that incident - even for files that are supposed to be kept
-    in sync, a silent, unrecoverable overwrite is worse than a little disk
-    clutter. Old backups are not cleaned up automatically; delete them by
-    hand once you're confident you don't need them.
+    overwritten (to backups\<file>.bak-<timestamp>, in its own subfolder,
+    not loose next to the real files) precisely because of that incident -
+    even for files that are supposed to be kept in sync, a silent,
+    unrecoverable overwrite is worse than a little disk clutter. The
+    backups subfolder keeps that clutter out of the main deployment
+    directory, which is meant to hold only the files this project actually
+    needs (see README) - a real deployment accumulated a pile of loose
+    .bak files there after enough real update cycles before this changed.
+    Old backups are not cleaned up automatically; delete them by hand (or
+    delete the whole backups folder) once you're confident you don't need
+    them.
 
     Invoke-HaloResponseAgent.ps1 re-reads every file fresh on each scheduled
     firing - it's not a long-running process with anything cached in memory
@@ -123,6 +129,10 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 $logFile = Join-Path $logDir ("update-{0:yyyy-MM-dd}.log" -f (Get-Date))
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
+# Backups of replaced files live here, not loose in $RepoPath - see the
+# comment where this is used below for why.
+$backupDir = Join-Path $RepoPath "backups"
+
 function Write-UpdateLog {
     param([string]$Message)
     Add-Content -Path $logFile -Value "[$timestamp] $Message" -Encoding UTF8
@@ -158,8 +168,14 @@ foreach ($file in $filesToSync) {
             # Back up whatever was there before overwriting it. Cheap
             # insurance - the config.json incident that prompted this exists
             # precisely because a prior version of this script overwrote a
-            # live file with no way to get the old content back.
-            $backupPath = "$localPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            # live file with no way to get the old content back. Backups go
+            # in their own subfolder, not next to the real files - a real
+            # deployment accumulated a pile of <file>.bak-<timestamp> files
+            # cluttering the main directory after enough real update cycles,
+            # and the whole point of this being a minimal-files deployment
+            # (see README) is defeated if backups pile up alongside it.
+            if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+            $backupPath = Join-Path $backupDir "$file.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             Copy-Item -Path $localPath -Destination $backupPath -Force
         }
         Move-Item -Path $tempPath -Destination $localPath -Force

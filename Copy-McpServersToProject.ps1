@@ -73,7 +73,12 @@ if (-not $Force) {
 
 $mcpJsonPath = Join-Path $ProjectPath ".mcp.json"
 if (Test-Path $mcpJsonPath) {
-    $backupPath = "$mcpJsonPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    # Backups go in their own subfolder, not loose in $ProjectPath - same
+    # reasoning as Update-HaloResponseAgent.ps1's backups: this directory is
+    # meant to hold only the files the project actually needs (see README).
+    $backupDir = Join-Path $ProjectPath "backups"
+    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+    $backupPath = Join-Path $backupDir ".mcp.json.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     Write-Host "`nExisting .mcp.json found - backing it up to $backupPath before overwriting." -ForegroundColor Yellow
     Copy-Item -Path $mcpJsonPath -Destination $backupPath
 }

@@ -1,4 +1,5 @@
 logs/
+backups/
 resolved-ids-cache.json
 resolved-ids-cache.json.tmp
 

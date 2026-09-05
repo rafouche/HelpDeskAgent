@@ -150,8 +150,10 @@ it downloads a specific, minimal list of files - the three prompts,
 `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>` over
 plain HTTPS (no authentication needed, this is a public repo), compares
 each one's hash against the local copy, and replaces only the ones that
-changed, backing up whatever was there before to `<file>.bak-<timestamp>`
-first. Only when something actually changed does it log which files
+changed, backing up whatever was there before to
+`backups\<file>.bak-<timestamp>` first - its own subfolder, not loose in
+this directory, which is meant to hold only the files this project
+actually needs. Only when something actually changed does it log which files
 updated to `logs\update-<date>.log`. It also runs
 `Invoke-HaloResponseAgent.ps1 -DryRun` once after a real update as a smoke
 test (no Halo calls, no API cost) so a broken push is visible in that log
