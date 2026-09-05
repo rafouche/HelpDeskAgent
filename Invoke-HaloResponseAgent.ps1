@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.9 - fixed a real gap in Install-Prerequisites.ps1's git
+    handling, found via a real run: it assumed git was already installed
+    somewhere on the box and only fixed machine PATH visibility, the same
+    assumption already corrected for npm/claude in v2.9.4 but missed here.
+    A real run showed git genuinely wasn't installed at all for that
+    account, not just missing from the machine PATH. Now installs git via
+    winget first if Get-Command finds nothing, refreshes this process's own
+    PATH from the registry afterward (winget's install doesn't update an
+    already-running process), then proceeds with the existing machine-PATH
+    fix. Given this, it's worth directly verifying whether any earlier
+    `git pull` instruction actually landed on a given server rather than
+    assuming it did, if git's real install status there was never confirmed
+    first.
     Version: 2.9.8 - consolidated setup scripts: Install-ClaudeCodeMachineWide.ps1
     and Add-GitToMachinePath.ps1 (v2.9.4/v2.9.7) merged into one
     Install-Prerequisites.ps1, and Register-UpdateCheckTask.ps1 (v2.9.6)

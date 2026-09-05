@@ -17,11 +17,13 @@
        (C:\ProgramData\npm, not npm's per-user default of %AppData%\npm) via
        the machine-wide NPM_CONFIG_PREFIX environment variable, and adds
        that folder to the machine PATH.
-    2. Makes sure git's own install folder is on the machine PATH too -
-       Git for Windows already installs into a machine-wide folder
-       (C:\Program Files\Git\...), so this doesn't reinstall it, it just
-       adds that folder to the machine PATH if the installer only added it
-       to your own account's.
+    2. Installs git (via winget, if it isn't already installed at all - not
+       assumed present) and makes sure its install folder is on the machine
+       PATH too. Git for Windows installs into a machine-wide folder
+       (C:\Program Files\Git\...) by default, so the most common gap is that
+       only the installing account's own PATH got updated, not the
+       machine-wide one - but this checks for and installs git itself
+       first, rather than assuming it's already there and only fixing PATH.
 
     Safe to re-run - each step detects whether it's already correct and
     skips redundant work unless told otherwise.
@@ -109,18 +111,36 @@ else {
     }
 }
 
-Write-Host "`n=== 2. git (machine-wide PATH visibility) ===" -ForegroundColor Cyan
+Write-Host "`n=== 2. git (install if missing, then machine-wide PATH visibility) ===" -ForegroundColor Cyan
 
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+
 if (-not $gitCmd) {
-    Write-Warning "git isn't installed (or isn't on PATH) for this account either. Install Git for Windows first (https://git-scm.com/download/win, or `winget install --id Git.Git -e`), then re-run this script."
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        Write-Host "git not found - installing via winget (Git.Git, machine-wide by default) ..." -ForegroundColor Cyan
+        winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
+    }
+    else {
+        Write-Warning "git isn't installed and winget isn't available to install it automatically. Install Git for Windows manually (https://git-scm.com/download/win - use the default 'Git from the command line and also from 3rd-party software' PATH option), then re-run this script."
+    }
+
+    # winget's own install can finish without this process's PATH knowing
+    # about it yet - refresh from the registry (same trick as README's
+    # Node.js install step) before checking again, rather than immediately
+    # reporting a false "still missing".
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+}
+
+if (-not $gitCmd) {
+    Write-Warning "git still isn't found after attempting to install it. Install it manually, then re-run this script to fix its machine-wide PATH visibility."
 }
 else {
     # Git for Windows already installs git.exe into a machine-wide folder
-    # (C:\Program Files\Git\... by default) - no reinstall needed here,
-    # unlike claude/npm above. The only thing usually missing is that the
-    # installer only added it to the installing account's own PATH (HKCU),
-    # not the machine-wide one (HKLM).
+    # (C:\Program Files\Git\... by default) - the only thing usually missing
+    # after that is that only the installing account's own PATH (HKCU) got
+    # updated, not the machine-wide one (HKLM).
     $gitDir = Split-Path -Path $gitCmd.Source -Parent
     Write-Host "Found git at $($gitCmd.Source)" -ForegroundColor Green
     Add-ToMachinePath -Directory $gitDir
