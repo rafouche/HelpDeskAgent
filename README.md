@@ -588,10 +588,28 @@ the (cheap) classifier actually flagged as needing one.
   $5/$25); Opus remains an option here for `_complex` if you want extra
   headroom on genuinely hard tickets specifically, without paying for it on
   every ticket.
-- **`effort`** — one of `low`, `medium`, `high` (default), `xhigh`, `max`,
-  applied to both the classifier and every resolver call. Lower effort means
-  less thinking, fewer/more-consolidated tool calls, and less token spend, at
-  some cost to thoroughness.
+- **`effort`** — one of `low`, `medium`, `high` (default), `xhigh`, `max`. The
+  fallback default for the classifier and every resolver call. Lower effort
+  means less thinking, fewer/more-consolidated tool calls, and less token
+  spend, at some cost to thoroughness.
+- **`classifier_effort`/`resolver_effort_trivial`/`_medium`/`_complex`**
+  (optional, all omitted by default) — per-call overrides if you want finer
+  control than one global `effort` value, e.g. `low` for the cheap
+  Haiku-backed tiers and `medium` for Sonnet-backed ones as they get more
+  capable. Each falls back to plain `effort` above when absent, so adding
+  none of these behaves exactly like today. There's no separate
+  `resolver_effort_approved` — the `APPROVED` tier (`-RequireApproval` only)
+  reuses `resolver_model_trivial`'s model, so it reuses
+  `resolver_effort_trivial` too.
+  **Not every model accepts `--effort` at all** — Claude Haiku 4.5
+  (`classifier_model`/`resolver_model_trivial`'s default) does NOT support it
+  and the CLI rejects it if sent, so this script only ever sends `--effort`
+  when the model actually being called that cycle is on its own
+  confirmed-supported list (current Sonnet/Opus tiers) — setting
+  `classifier_effort` or `resolver_effort_trivial` has no effect unless you
+  also change the matching model to one that supports it. `-DryRun` shows
+  exactly what would and wouldn't be sent, including a note when a configured
+  effort value is being silently skipped for this reason.
 
 **Compare a few `-WhatIf` runs' WOULD DO quality against a known-good baseline
 before trusting a cheaper setting live** — judgment calls on escalation,

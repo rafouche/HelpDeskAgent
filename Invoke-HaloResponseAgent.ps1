@@ -73,6 +73,35 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.10 - feature request, with a real gap caught along the way:
+    Roger asked whether "effort" could be set per model tier (low for the
+    cheap classifier model, medium for Sonnet, maybe high for Opus someday)
+    instead of one global value applying to every call. Checking that
+    surfaced a real, pre-existing problem: config.json's single "effort"
+    value was already being passed to every classifier and
+    ID-resolution call, both of which always run on classifier_model
+    (claude-haiku-4-5 by default) - and Claude Haiku 4.5 does not support
+    the effort parameter at all; sending it is rejected. This had been true
+    since "effort" was first added, independent of anything requested here.
+    Added optional per-call config overrides - classifier_effort (also
+    covers the ID-resolution call, same model), resolver_effort_trivial,
+    resolver_effort_medium, resolver_effort_complex - each falling back to
+    the original plain "effort" value when absent, so a config with none of
+    these new keys behaves byte-for-byte like before. No resolver_effort_
+    approved: the APPROVED tier already reuses resolver_model_trivial's
+    model, so it reuses resolver_effort_trivial too.
+    Fixed the underlying gap properly rather than just adding the feature on
+    top of it: $effortCapableModels is an explicit allowlist of models
+    confirmed to accept --effort (current Sonnet/Opus tiers only, not
+    Haiku), and Invoke-ClaudeCLI itself now checks the model being called
+    against that list before ever adding --effort to the arguments -
+    enforced once, centrally, for the ID-resolution, classifier, and every
+    resolver call, rather than trusting each call site to remember. A
+    configured effort value for a Haiku-backed tier is simply never sent,
+    not an error - -DryRun's preview shows exactly what would and wouldn't
+    be sent, including a note when a configured value is being silently
+    skipped for this reason, so this is visible rather than a silent no-op
+    discovered only by reading source.
     Version: 2.10.9 - cost regression fix, Roger's own suggestion: v2.10.5's
     "check every unassigned ticket's time entries every cycle" design (built
     to replace agent_id-based cross-cycle tracking once the resolver started
@@ -1126,6 +1155,52 @@ $modelForTier = @{
     "APPROVED"          = $config.claude.resolver_model_trivial
 }
 
+# --- Effort selection per tier - optional per-tier overrides, each falling back
+#     to config.claude.effort (the original single global setting) if blank or
+#     absent. A config with none of these new keys behaves exactly as before -
+#     every tier just gets $config.claude.effort, same as every call did prior
+#     to this. classifier_effort covers both the classifier and Stage 0's ID
+#     resolution call, since both always run on classifier_model.
+function Get-EffortForConfig {
+    param([string]$PerTierValue)
+    if ($PerTierValue) { return $PerTierValue }
+    return $config.claude.effort
+}
+
+# -DryRun display helper: shows what will actually be sent, not just what's
+# configured - a configured effort value the model doesn't support (see
+# $effortCapableModels below) is silently never sent by Invoke-ClaudeCLI, so
+# this makes that visible in the preview instead of only discoverable by
+# comparing config.json against the model-support list by hand.
+function Format-EffortDisplay {
+    param([string]$Effort, [string]$Model)
+    if (-not $Effort) { return "(account default)" }
+    if ($effortCapableModels -contains $Model) { return $Effort }
+    return "$Effort (NOT sent - $Model doesn't support --effort)"
+}
+$classifierEffort = Get-EffortForConfig -PerTierValue $config.claude.classifier_effort
+$effortForTier = @{
+    "TRIVIAL"           = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
+    "TRIVIAL_UNCERTAIN" = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
+    "MEDIUM"            = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_medium
+    "COMPLEX"           = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_complex
+    "APPROVED"          = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
+}
+
+# Models confirmed to accept an effort parameter at all - Claude Haiku 4.5
+# (classifier_model/resolver_model_trivial's default) does NOT support it and
+# errors if sent one; only current Sonnet/Opus-tier models do. This list is
+# deliberately an allowlist, not a denylist: an unrecognized/future model
+# never gets --effort until it's confirmed and added here, rather than risking
+# the same error a denylist could miss. Invoke-ClaudeCLI enforces this - every
+# call site above just passes whatever effort it wants and the model it's
+# using; it's Invoke-ClaudeCLI's job to decide whether that combination is
+# actually safe to send.
+$effortCapableModels = @(
+    "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    "claude-sonnet-5", "claude-sonnet-4-6"
+)
+
 function Get-CleanJsonText {
     param([string]$Text)
     $trimmed = $Text.Trim()
@@ -1187,7 +1262,17 @@ function Invoke-ClaudeCLI {
         "--permission-mode", "dontAsk"
     )
     if ($Model)  { $claudeArgs += @("--model", $Model) }
-    if ($Effort) { $claudeArgs += @("--effort", $Effort) }
+    # --effort is only sent when the model being called is confirmed to accept
+    # it - Claude Haiku 4.5 (the classifier's and TRIVIAL/APPROVED tiers'
+    # default model) does NOT support it and errors if sent one. A real config
+    # applied a single global effort value to every call regardless of model
+    # before this check existed, silently sending --effort to every
+    # classifier and TRIVIAL/APPROVED resolver call. $effortCapableModels
+    # (defined above, near $modelForTier) is the allowlist this checks
+    # against.
+    if ($Effort -and $effortCapableModels -contains $Model) {
+        $claudeArgs += @("--effort", $Effort)
+    }
 
     # The prompt goes in over stdin, not as a "-p <text>" argument. Both prompt
     # files are full of literal embedded double quotes (example client replies,
@@ -1260,7 +1345,7 @@ if ($DryRun) {
     Write-Host ""
     Write-Host "--- ID Resolution (runs once per cycle, before the classifier - skipped entirely on a cache hit) ---"
     Write-Host "Model: $($config.claude.classifier_model)"
-    Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
+    Write-Host "Effort: $(Format-EffortDisplay -Effort $classifierEffort -Model $config.claude.classifier_model)"
     Write-Host "Allowed tools: $($idResolverTools -join ',')"
     Write-Host "Cache file: $idCachePath"
     Write-Host "Cache max age (hours): $(if ($config.claude.id_cache_max_age_hours) { $config.claude.id_cache_max_age_hours } else { '24 (default)' })"
@@ -1269,14 +1354,14 @@ if ($DryRun) {
     Write-Host ""
     Write-Host "--- Classifier ---"
     Write-Host "Model: $($config.claude.classifier_model)"
-    Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
+    Write-Host "Effort: $(Format-EffortDisplay -Effort $classifierEffort -Model $config.claude.classifier_model)"
     Write-Host "Allowed tools: $($classifierTools -join ',')"
     Write-Host "--- Classifier prompt (TEAM_ID/AGENT_ID shown as placeholders - only resolved on an actual run) ---"
     Write-Host $classifierPrompt
     Write-Host ""
     Write-Host "--- Resolver (per classified ticket) ---"
     Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX']), APPROVED=$($modelForTier['APPROVED'])"
-    Write-Host "Effort: $(if ($config.claude.effort) { $config.claude.effort } else { '(account default)' })"
+    Write-Host "Effort by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$(Format-EffortDisplay -Effort $effortForTier['TRIVIAL'] -Model $modelForTier['TRIVIAL']), MEDIUM=$(Format-EffortDisplay -Effort $effortForTier['MEDIUM'] -Model $modelForTier['MEDIUM']), COMPLEX=$(Format-EffortDisplay -Effort $effortForTier['COMPLEX'] -Model $modelForTier['COMPLEX']), APPROVED=$(Format-EffortDisplay -Effort $effortForTier['APPROVED'] -Model $modelForTier['APPROVED'])"
     Write-Host "Allowed tools: $($resolverTools -join ',')"
     Write-Host "--- Resolver prompt template (ticket ID/tier and resolved Halo IDs shown as placeholders - only resolved on an actual run) ---"
     Write-Host $resolverPromptTemplate
@@ -1353,7 +1438,7 @@ try {
         # this cycle - or, just as bad, get written to the cache and silently
         # reused by every cycle after this one.
         $idResolverResult = Invoke-ClaudeCLI -Prompt $idResolverPrompt -Tools $idResolverTools `
-            -Model $config.claude.classifier_model -Effort $config.claude.effort
+            -Model $config.claude.classifier_model -Effort $classifierEffort
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $idResolverResult.Raw
 
         if (-not $idResolverResult.Parsed) {
@@ -1655,7 +1740,7 @@ try {
 
     # --- Stage 1: classify ---
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
-        -Model $config.claude.classifier_model -Effort $config.claude.effort
+        -Model $config.claude.classifier_model -Effort $classifierEffort
     Write-LogSection -LogFile $logFile -Header "CLASSIFIER" -Content $classifierResult.Raw
 
     if (-not $classifierResult.Parsed) {
@@ -1736,9 +1821,11 @@ try {
         $tier = $ticket.tier
 
         $model = $modelForTier[$tier]
+        $effort = $effortForTier[$tier]
         if (-not $model) {
             Write-Host "Unrecognized tier '$tier' for ticket $ticketId - falling back to the COMPLEX model."
             $model = $config.claude.resolver_model_complex
+            $effort = $effortForTier['COMPLEX']
         }
 
         $resolverPrompt = $resolverPromptTemplate `
@@ -1768,7 +1855,7 @@ try {
 
         try {
             $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
-                -Model $model -Effort $config.claude.effort
+                -Model $model -Effort $effort
             Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model)" -Content $resolverResult.Raw
 
             $ticketCost = 0

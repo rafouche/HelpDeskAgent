@@ -644,6 +644,36 @@ A missing or corrupt cache file is treated as empty, not an error - this
 is a cost optimization, not a correctness mechanism, so losing it costs one
 pricier cycle, never a broken one.
 
+**Effort is now settable per model tier, not just one global value - and
+that surfaced a real pre-existing gap (v2.10.10).** Roger asked whether
+`effort` could be set per tier (low for the cheap classifier model, medium
+for Sonnet, maybe high for Opus someday) instead of one value applying to
+every call. Checking whether that was even possible surfaced something
+that had been true since `effort` was first added, independent of this
+request: `config.json`'s single `effort` value was already being sent to
+every classifier and ID-resolution call, both of which always run on
+`classifier_model` (`claude-haiku-4-5` by default) - and Claude Haiku 4.5
+does not accept `--effort` at all; the CLI rejects it.
+Added optional per-call overrides - `classifier_effort` (also covers
+ID-resolution, same model), `resolver_effort_trivial`, `_medium`,
+`_complex` - each falling back to the original `effort` when absent, so a
+config with none of these new keys behaves identically to before. No
+`resolver_effort_approved`: the `APPROVED` tier already reuses
+`resolver_model_trivial`'s model, so it reuses `resolver_effort_trivial`
+too.
+Fixed the underlying gap at the enforcement point rather than papering
+over it with documentation: `$effortCapableModels` is an explicit allowlist
+(current Sonnet/Opus tiers only - deliberately an allowlist, not a
+denylist, so an unrecognized future model never gets `--effort` until it's
+confirmed and added, rather than risking the same error a denylist could
+miss), and `Invoke-ClaudeCLI` itself checks the model being called against
+that list before ever adding `--effort` to the arguments - enforced once,
+centrally, for all three call sites (ID resolution, classifier, resolver),
+rather than trusting each to remember. A configured effort value for a
+Haiku-backed tier is simply never sent, not an error; `-DryRun`'s preview
+shows exactly what would and wouldn't be sent, including a note when a
+configured value is being silently skipped for this reason.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
