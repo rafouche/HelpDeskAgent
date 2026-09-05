@@ -73,6 +73,29 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.8 - policy fix, no incident but a real design flaw:
+    resolver-prompt.md's personal/consumer-VPN section told the resolver to
+    unconditionally tell "them" to disconnect the VPN, without ever
+    confirming the named account owner was actually the one who connected
+    it. A Huntress VPN alert only proves an account was used with a
+    consumer VPN - not that the account's owner is the one who did it - so
+    lecturing the named contact about VPN policy doesn't address the real
+    question, and misses the case that actually matters: someone else
+    signed in as them.
+    The section now confirms identity first: ask the named contact plainly
+    whether the sign-in was them, before saying anything about VPN policy
+    at all. If they confirm it was them, THEN explain why to stop using a
+    personal VPN and offer proper remote access if they need one (unchanged
+    from before, just moved after confirmation instead of assumed). If they
+    deny it or can't confirm, treat it as a real compromise indicator
+    regardless of business hours or tier - notify on-call immediately (same
+    mechanism as the emergency section, but not gated on being after hours,
+    since a live compromise doesn't wait for a shift change), send a brief
+    client acknowledgment, and flag a private note for a human to review
+    and decide on password reset/session revocation. Deliberately does NOT
+    auto-reset the password or revoke sessions itself - that's a human
+    judgment call given what's at stake, not something to automate on a
+    "they said no" signal alone.
     Version: 2.10.7 - real incident: a real deployment accumulated a pile of
     loose <file>.bak-<timestamp> files in the main deployment directory,
     one per file per real update cycle that changed something - expected

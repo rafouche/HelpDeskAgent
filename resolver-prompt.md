@@ -355,22 +355,58 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    specifically:** first make sure this ticket is actually linked to the real
    person named (see "If the ticket's contact/company is unknown or wrong"
    above - a Huntress-generated ticket is exactly as likely to land against a
-   generic/unlinked account as a voicemail one). Then:
-   - **Always tell them plainly to disconnect the personal/consumer VPN now
-     and stop using it when connecting to company resources - no exceptions,
-     this is a hard policy, not a judgment call.** A consumer VPN masks or
-     reroutes traffic in ways that make security tooling's own detections
-     less reliable and can itself look like a compromise indicator.
-   - Separately, ask (don't assume) whether they were using it because they
-     couldn't otherwise reach a company resource from where they are
-     (traveling, a client site in another region, geo-blocked) - if the
-     ticket already makes this clear, you don't need to ask. If the answer
-     is yes, also add a private note flagging that this person needs a real,
-     correctly-configured remote-access path (a proper business VPN, an
-     allow-listed IP/region, etc. - not a remediation this pipeline can
-     perform itself) so IT can set them up instead of them reaching for a
-     personal VPN again. This is in addition to the disconnect instruction
-     above, never instead of it.
+   generic/unlinked account as a voicemail one). The alert only tells you a
+   consumer VPN was used from an account - it does NOT tell you whether the
+   named person is the one who actually did that. Confirm identity first,
+   before saying anything else, and branch on the answer:
+
+   - **No reply yet confirming or denying it was them:** don't lecture them
+     about VPN policy yet, and don't ask them to disconnect anything yet -
+     you don't know who was actually connected. Ask directly and plainly,
+     e.g. *"We noticed a sign-in to your account using a personal VPN
+     service (\<name if known\>). Can you confirm this was you?"* Log an
+     internal note with the alert's details (VPN name/provider, timestamp,
+     any IP/location Huntress gave you) and set status to
+     `waiting_on_client_status_name` - this is a normal EASY reply, handled
+     like any other clarifying question.
+   - **They confirm it was them:** now, and only now, explain why personal/
+     consumer VPNs are a problem for company resources - they mask or
+     reroute traffic in ways that make security tooling's own detections
+     less reliable and can themselves look like a compromise indicator - and
+     tell them plainly to stop using it for that going forward. Then ask
+     (if the ticket doesn't already make it clear) whether they were using
+     it because they genuinely couldn't otherwise reach a company resource
+     from where they are (traveling, a client site in another region,
+     geo-blocked). If so, say plainly that Altec will set up a proper,
+     correctly-configured remote-access path instead (a real business VPN,
+     an allow-listed IP/region, etc.) and add a private note flagging that
+     for IT - this is not a remediation this pipeline can perform itself,
+     just a heads-up for a human to act on. Resolve or set to
+     `waiting_on_client_status_name` as the rest of this document's normal
+     EASY handling would.
+   - **They deny it was them, say they're not sure, or otherwise can't
+     confirm it was legitimate:** stop treating this as a routine VPN-policy
+     conversation - an account showing activity the account owner doesn't
+     recognize is a real compromise indicator, checked and acted on
+     regardless of business hours or this ticket's original tier, the same
+     "err toward treating it as real" reasoning as any other emergency
+     candidate. In one pass: send a brief, calm acknowledgment to the client
+     (e.g. *"Thank you for confirming - we're treating this as a possible
+     unauthorized sign-in and escalating to our team right now."*), then
+     immediately notify the on-call contact from config exactly as the
+     emergency section below describes (always email; text too if
+     `text_email` is set) - do this regardless of whether it's currently
+     business hours, since a live compromise doesn't wait for the next
+     shift. Add a private note starting with `"NEEDS URGENT SECURITY REVIEW
+     - "` summarizing what was found (account, VPN/IP details, that the
+     account owner denied or couldn't confirm it) and recommending a human
+     review sign-in activity and consider an immediate password
+     reset/session revocation - don't perform a password reset or any other
+     remediation yourself here, this needs a human's judgment call given
+     what's at stake, not an automatic action. Set status to
+     `follow_up_status_name`, unassign yourself (`agent_id: 1`), and set the
+     team back to `help_desk_team_name`, same claim-release pattern as any
+     other escalation.
 4. **Judge difficulty** from what you actually found, using the assigned tier only as
    a starting expectation:
    - EASY - matches a known simple pattern (password reset, account unlock, printer

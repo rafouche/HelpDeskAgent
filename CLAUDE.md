@@ -338,6 +338,13 @@ same "is this actually linked to the real person" check as a
 voicemail-generated one (see "Known limitations" below for the original
 ticket-re-linking entry), just matched by email instead of phone number -
 the confidence-gated re-linking logic now accepts either.
+**UPDATE (v2.10.8) - the disconnect instruction now waits for identity
+confirmation first; see the entry below.** This entry's "always tell them
+to disconnect it" was still correct advice, but it fired at the wrong
+point - before ever confirming the named account owner was the one who
+actually connected the VPN. A real compromise (someone else signing in as
+that person) would have gotten the same "please disconnect your VPN"
+reply, missing the actual security question entirely.
 
 **Auto-update fetches specific files over plain HTTPS - no git (v2.10.0,
 correcting v2.9.6-2.9.9).** This deployment is downloaded files, not a git
@@ -553,6 +560,34 @@ date automatically"). `Update-HaloResponseAgent.ps1` and
 retention (still not auto-cleaned up automatically; delete by hand, or
 delete the whole `backups\` folder), just relocated. `backups/` added to
 `.gitignore` alongside `logs/`.
+
+**Consumer-VPN alerts now confirm identity before saying anything about
+VPN policy (v2.10.8, corrects v2.9.5's design flaw).** Roger's feedback,
+verbatim: the resolver should ask if the sign-in was the account owner
+themselves first; if yes, explain the policy and offer proper remote
+access if needed; if no, that's a possible breach and needs to be treated
+as one. The v2.9.5 policy jumped straight to "tell them to disconnect it,"
+which assumed the named contact was the one who connected the VPN -
+exactly the thing a security alert on an account can't tell you by itself.
+Lecturing the account owner about VPN policy doesn't address a real
+compromise, and worse, if someone else really is signing in as them, that
+person likely never even sees the reply (it goes to the real owner's
+inbox).
+The section now has two branches instead of one: **confirmed by the
+account owner** gets the v2.9.5 policy essentially unchanged (explain why,
+tell them to stop, offer real remote access if they have a legitimate
+need) - just moved to fire only after confirmation instead of assumed.
+**Denied, or the owner can't confirm it** is treated as a real compromise
+indicator regardless of business hours or the ticket's tier - immediate
+on-call notification (the same mechanism the emergency section already
+uses, but not gated on being after hours, since a live compromise doesn't
+wait for a shift change), a brief calm client acknowledgment, and a
+`"NEEDS URGENT SECURITY REVIEW - "` internal note for a human to act on.
+Deliberately does not auto-reset the password or revoke sessions itself -
+that's a real, potentially disruptive action best left to a human's
+judgment given what's at stake, not something to trigger off a single
+"they said no" signal, even though `mcp__CIPP__reset_user_password` is
+already whitelisted and could technically do it.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
