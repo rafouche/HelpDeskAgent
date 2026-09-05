@@ -1,10 +1,14 @@
 ﻿<#
 .SYNOPSIS
-    Registers the Scheduled Task that runs the Halo Response Agent every 10 minutes, 24/7.
+    Registers the Scheduled Task that runs the Halo Response Agent every 10
+    minutes, 24/7 - and, optionally, the separate task that checks for and
+    pulls a new commit on its own schedule.
 .DESCRIPTION
-    Run this once, as Administrator, after Invoke-HaloResponseAgent.ps1, config.json,
-    classifier-prompt.md, and resolver-prompt.md are in place. Re-run it to update
-    the task if you change the interval, script path, or -RequireApproval.
+    Run this once, as Administrator, after Install-Prerequisites.ps1 has
+    been run and Invoke-HaloResponseAgent.ps1, config.json,
+    classifier-prompt.md, and resolver-prompt.md are in place. Re-run it to
+    update either task if you change an interval, a script path,
+    -RequireApproval, or -EnableAutoUpdate.
 .PARAMETER RequireApproval
     Bake -RequireApproval into the scheduled task's own arguments, so every
     scheduled run starts in human-approval mode (see Invoke-HaloResponseAgent.ps1's
@@ -15,6 +19,22 @@
     switch by hand. Once comfortable with what's coming out of approval mode,
     re-run this script without -RequireApproval to switch the existing task back to
     running fully live - no need to delete and recreate it.
+.PARAMETER EnableAutoUpdate
+    Also register a second scheduled task that runs Update-HaloResponseAgent.ps1
+    on its own schedule (see -UpdateCheckIntervalMinutes), checking for and
+    pulling a new commit so this deployment stays current without someone
+    running `git pull` by hand. Kept as its own task, not folded into the
+    main one, so a git/network problem can never abort a real
+    ticket-processing cycle. Off by default. Omitting this switch on a
+    later re-run never touches the update task either way - it doesn't add
+    it if missing, and doesn't remove it if already registered; use
+    `Unregister-ScheduledTask -TaskName "Altec Halo Response Agent - Auto Update"`
+    directly if you want it gone.
+.PARAMETER UpdateCheckIntervalMinutes
+    How often the auto-update task checks for a new commit, if
+    -EnableAutoUpdate is passed. Defaults to 30 - there's no need for this
+    to run as often as the ticket-processing task, since a new commit
+    typically only ships a handful of times a day at most.
 #>
 
 param(
@@ -22,7 +42,9 @@ param(
     # as you keep the deployed files together, this needs no editing either.
     [string]$ScriptPath = (Join-Path $PSScriptRoot "Invoke-HaloResponseAgent.ps1"),
     [int]$IntervalMinutes = 10,
-    [switch]$RequireApproval
+    [switch]$RequireApproval,
+    [switch]$EnableAutoUpdate,
+    [int]$UpdateCheckIntervalMinutes = 30
 )
 
 $taskName = "Altec Halo Response Agent"
@@ -87,4 +109,41 @@ if ($RequireApproval) {
 else {
     Write-Host "Running fully live (no -RequireApproval) - re-run this script with -RequireApproval" -ForegroundColor DarkGray
     Write-Host "to switch the task to human-approval mode instead." -ForegroundColor DarkGray
+}
+
+if ($EnableAutoUpdate) {
+    $updateTaskName = "Altec Halo Response Agent - Auto Update"
+    $updateScriptPath = Join-Path $taskWorkingDirectory "Update-HaloResponseAgent.ps1"
+    $updateTaskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$updateScriptPath`""
+
+    $updateAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $updateTaskArguments -WorkingDirectory $taskWorkingDirectory
+
+    # Same reasoning as the main trigger above: no -RepetitionDuration is
+    # how you get an indefinitely-repeating trigger on Windows 10/Server
+    # 2016+.
+    $updateTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Minutes $UpdateCheckIntervalMinutes)
+
+    $updateSettings = New-ScheduledTaskSettingsSet `
+        -MultipleInstances IgnoreNew `
+        -DontStopOnIdleEnd `
+        -RestartCount 3 `
+        -RestartInterval (New-TimeSpan -Minutes 1) `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+
+    Register-ScheduledTask -TaskName $updateTaskName -Action $updateAction -Trigger $updateTrigger `
+        -Principal $principal -Settings $updateSettings `
+        -Description "Checks for and pulls a new commit to this folder every $UpdateCheckIntervalMinutes minutes." `
+        -Force
+
+    Write-Host "`nScheduled task '$updateTaskName' registered - checks every $UpdateCheckIntervalMinutes minutes." -ForegroundColor Green
+    Write-Host "Trigger it manually once (Task Scheduler -> right-click -> Run) and check" -ForegroundColor Yellow
+    Write-Host "logs\update-<today>.log for an ERROR line before trusting it on its own" -ForegroundColor Yellow
+    Write-Host "schedule - confirms git actually works for SYSTEM, not just interactively as" -ForegroundColor Yellow
+    Write-Host "you (Install-Prerequisites.ps1 should already have made sure of this). No log" -ForegroundColor Yellow
+    Write-Host "file at all is the expected quiet outcome when there's nothing new to pull -" -ForegroundColor Yellow
+    Write-Host "this script only logs when something actually happened." -ForegroundColor Yellow
+}
+else {
+    Write-Host "`nAuto-update task not registered - re-run with -EnableAutoUpdate to add it." -ForegroundColor DarkGray
 }

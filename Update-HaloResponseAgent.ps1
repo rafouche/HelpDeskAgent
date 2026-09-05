@@ -2,8 +2,8 @@
 .SYNOPSIS
     Checks this folder's git repo for a new commit on origin/main and pulls
     it if one exists - a self-update check, meant to run on its own schedule
-    (see Register-UpdateCheckTask.ps1), separate from the every-10-minute
-    ticket-processing task.
+    (see Register-HaloResponseAgentTask.ps1's -EnableAutoUpdate switch),
+    separate from the every-10-minute ticket-processing task.
 .DESCRIPTION
     Invoke-HaloResponseAgent.ps1 re-reads every .ps1/.md/config.json file
     from disk fresh on each scheduled firing - it's not a long-running

@@ -73,6 +73,18 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.8 - consolidated setup scripts: Install-ClaudeCodeMachineWide.ps1
+    and Add-GitToMachinePath.ps1 (v2.9.4/v2.9.7) merged into one
+    Install-Prerequisites.ps1, and Register-UpdateCheckTask.ps1 (v2.9.6)
+    folded into Register-HaloResponseAgentTask.ps1 as its -EnableAutoUpdate
+    switch. These should have been one script each from the start rather
+    than accumulating across three separate fixes - flagged directly and
+    corrected. CLAUDE.md's "Known limitations" no longer documents
+    machine-wide credential/tool/PATH setup as a discovered limitation
+    either - it's now stated up front as a design decision ("Everything the
+    scheduled tasks depend on is configured machine-wide"), since
+    Install-Prerequisites.ps1 and the corrected README steps mean there's
+    nothing left to "discover" - just the right way to set this up.
     Version: 2.9.7 - fixed the exact risk v2.9.6 flagged but hadn't hit yet:
     confirmed via a script run through NinjaRMM (executes as SYSTEM by
     default, same as Task Scheduler) that git itself has the same

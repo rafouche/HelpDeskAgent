@@ -28,24 +28,28 @@ bigger one and a full tool loop).
 | `classifier-prompt.md` | Stage 1 instructions: find candidate tickets, tag each with a tier. |
 | `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
 | `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the classifier then a resolver call per ticket. |
-| `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job. |
-| `Install-ClaudeCodeMachineWide.ps1` | One-time setup: installs `claude` into a shared npm prefix so `SYSTEM` can find it too. |
+| `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job (and, with `-EnableAutoUpdate`, the auto-update job too). |
+| `Install-Prerequisites.ps1` | One-time setup: installs `claude` and makes sure it and `git` are both visible machine-wide, not just to your own account. |
 | `Copy-McpServersToProject.ps1` | One-time setup shortcut: copies already-registered `-s user` MCP servers into this folder's `.mcp.json`. |
 | `Update-HaloResponseAgent.ps1` | Checks for and pulls a new commit; logs only when something actually changed (or failed). |
-| `Register-UpdateCheckTask.ps1` | One-time setup: registers the Task Scheduler job that runs `Update-HaloResponseAgent.ps1` on its own schedule. |
-| `Add-GitToMachinePath.ps1` | One-time setup: adds git's install folder to the machine-wide `PATH` so `SYSTEM` can find it too. |
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
 
 ## Prerequisites
-1. **Claude Code installed and authenticated** on the Windows Server (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
-2. **MCP servers configured** on that machine/account for: Halo, Microsoft 365, CIPP, Ninja, UniFi, Meraki, Huntress, Hudu — the same connectors you already use, just reachable from wherever Claude Code runs on the server.
-3. PowerShell 5.1+ (built into Windows Server).
+1. **`Install-Prerequisites.ps1` run once, as Administrator** — installs `claude`
+   and makes sure both it and `git` are visible to every account on the
+   machine, including `SYSTEM` (the account the scheduled tasks below run
+   as), not just whichever account you're logged in as. See "Install and
+   authenticate Claude Code" below for the full step.
+2. **Claude Code authenticated** (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
+3. **MCP servers configured** on that machine for: Halo, Microsoft 365, CIPP, Ninja, UniFi, Meraki, Huntress, Hudu — the same connectors you already use, just reachable from wherever Claude Code runs on the server.
+4. PowerShell 5.1+ (built into Windows Server).
 
 ## Step by step
-1. Copy all six files (`config.json`, `classifier-prompt.md`, `resolver-prompt.md`,
-   `Invoke-HaloResponseAgent.ps1`, `Register-HaloResponseAgentTask.ps1`,
-   `Show-AgentLog.ps1`) to `C:\AltecAgents\HaloResponseAgent\` (or your preferred
-   path — just keep `RootPath` in the scripts consistent).
+1. Copy every file in the "Files" table above to
+   `C:\AltecAgents\HaloResponseAgent\` (or your preferred path — just keep
+   `RootPath` in the scripts consistent), then run `Install-Prerequisites.ps1`
+   once as Administrator (see "Install and authenticate Claude Code" below)
+   before anything else.
 2. **Fill in `config.json`:**
    - `on_call.primary.email` and `text_email` (your email-to-SMS gateway address).
    - Everything else already matches what's live in Halo (team/status names). Review `remediation_whitelist` and add/remove entries as you like.
@@ -110,15 +114,16 @@ bigger one and a full tool loop).
    same as running the switch by hand. Once comfortable with what's coming out
    of that mode, re-run this script *without* `-RequireApproval` to switch the
    existing task back to running fully live — no need to delete and recreate it.
-8. **(Optional) Register the auto-update check** (as Administrator) so a new
-   commit gets pulled onto this server on its own, instead of someone having
-   to remember to `git pull` by hand:
+8. **(Optional) Add auto-update on the same task**, so a new commit gets
+   pulled onto this server on its own, instead of someone having to remember
+   to `git pull` by hand — re-run step 7's command with `-EnableAutoUpdate`
+   added:
    ```powershell
-   .\Register-UpdateCheckTask.ps1
+   .\Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate
    ```
    Default is every 30 minutes - there's no need for this to run as often as
-   the ticket-processing task itself. See "Keeping this up to date
-   automatically" below before relying on it.
+   the ticket-processing task itself; adjust with `-UpdateCheckIntervalMinutes`.
+   See "Keeping this up to date automatically" below before relying on it.
 
 ## Keeping this up to date automatically
 
@@ -126,40 +131,25 @@ bigger one and a full tool loop).
 from disk fresh on each scheduled firing - a plain `git pull` in this folder
 is enough to make the very next cycle pick up whatever just shipped, no
 restart or reload step needed. `Update-HaloResponseAgent.ps1` does exactly
-that on its own schedule (via `Register-UpdateCheckTask.ps1`, step 8 above):
-checks for a new commit on `origin/main`, pulls it if one exists, and - only
-when something actually changed - logs the old/new commit and what shipped
-to `logs\update-<date>.log`. It also runs `Invoke-HaloResponseAgent.ps1
--DryRun` once after a real update as a smoke test (no Halo calls, no API
-cost) so a broken push is visible in that log immediately rather than
-silently discovered when the next real cycle fails. It's a smoke test, not a
-rollback - if it fails, the new code is still left in place and still runs
-next cycle; the log is what tells a human to go look.
+that on its own schedule (via `Register-HaloResponseAgentTask.ps1
+-EnableAutoUpdate`, step 8 above): checks for a new commit on `origin/main`,
+pulls it if one exists, and - only when something actually changed - logs
+the old/new commit and what shipped to `logs\update-<date>.log`. It also
+runs `Invoke-HaloResponseAgent.ps1 -DryRun` once after a real update as a
+smoke test (no Halo calls, no API cost) so a broken push is visible in that
+log immediately rather than silently discovered when the next real cycle
+fails. It's a smoke test, not a rollback - if it fails, the new code is
+still left in place and still runs next cycle; the log is what tells a
+human to go look.
 
-**Confirm `git` actually resolves for the `SYSTEM` account before relying on
-this - confirmed broken on a real machine, not just a theoretical risk.**
-This project has now hit this exact shape of bug four separate times
-(`claude`, MCP registration, Claude Code's credentials, now `git` - see
-`CLAUDE.md`'s "Known limitations"): a script run through NinjaRMM (which
-executes as `SYSTEM` by default, same as Task Scheduler) failed with
-`'git' is not recognized as the name of a cmdlet...`, even though `git pull`
-works fine run interactively as an admin. Run `Add-GitToMachinePath.ps1`
-once, as Administrator, from the account `git` already works for
-interactively:
-```powershell
-.\Add-GitToMachinePath.ps1
-```
-It finds git's real install location from your own working `PATH` and adds
-that folder to the machine-wide `PATH` - no reinstall needed, unlike the
-`claude`/npm fix, since git's installer already puts it in a machine-wide
-folder (`C:\Program Files\Git\...`); the missing piece is almost always that
-only your own account's `PATH` got updated at install time, not the
-machine-wide one. Then trigger the registered update-check task manually
-once (Task Scheduler -> right-click -> Run) and check
-`logs\update-<today>.log` for an `ERROR` line before trusting it on its own
-schedule. No log file at all is the expected quiet outcome when there's
-nothing new to pull - this script only logs when something actually
-happened, the same reasoning `Invoke-HaloResponseAgent.ps1` already follows.
+`git` needs to be visible to `SYSTEM` for this to work at all -
+`Install-Prerequisites.ps1` (step 1 above) already handles that alongside
+`claude`, so there's nothing extra to do here if you ran it first. Trigger
+the registered update task manually once (Task Scheduler -> right-click ->
+Run) and check `logs\update-<today>.log` for an `ERROR` line before trusting
+it on its own schedule, the same way you'd confirm any scheduled task -
+no log file at all is the expected quiet outcome when there's nothing new to
+pull, since this script only logs when something actually happened.
 
 This pulls whatever is on `origin/main` unconditionally, with no staging
 step or approval gate - worth being explicit about as a real tradeoff, not
@@ -368,30 +358,33 @@ npm -v
 
 ### 1. Install and authenticate Claude Code
 
-**Don't just run a plain `npm install -g @anthropic-ai/claude-code` as yourself.**
-npm's own documented default global-install location on Windows is `%AppData%\npm`
-— a per-user folder (confirmed against npm's own docs, not assumed) — so
-`claude` ends up on *your* `PATH` only. `SYSTEM` (the account
-`Register-HaloResponseAgentTask.ps1` runs the scheduled task as) has its own
-separate profile and `PATH`, and never sees it — confirmed by a real scheduled
-run failing with `'claude' is not recognized as the name of a cmdlet...`, even
-though `claude --version` worked fine interactively as an admin the whole time.
+The scheduled tasks in this setup run as the `SYSTEM` account
+(`New-ScheduledTaskPrincipal -UserId "SYSTEM"` in `Register-HaloResponseAgentTask.ps1`)
+— a separate Windows account from whichever one you're logged in as, with its
+own profile, its own `PATH`, and its own environment variables. Anything
+installed or configured only for your own account (a plain
+`npm install -g`, `claude setup-token`, `setx` without `/M`) is invisible to
+`SYSTEM`. So install and authenticate machine-wide from the start, not
+per-account:
 
-Run `Install-ClaudeCodeMachineWide.ps1` instead — as Administrator, once —
-which points npm's global-install prefix at `C:\ProgramData\npm` (a folder
-genuinely shared by every account on the machine, not tied to whichever
-account happens to run the install) and installs `claude` there:
 ```powershell
-.\Install-ClaudeCodeMachineWide.ps1
+.\Install-Prerequisites.ps1
 ```
-If npm nags about its own update (`npm error code EBADENGINE ... Not compatible
-with your version of node/npm`) during this, ignore it — that's npm's optional
-self-update rejecting itself because it wants a newer Node than the LTS above
-ships; it doesn't affect the `claude-code` install, which already succeeded.
+Run once, as Administrator. It installs `claude` into a shared npm prefix
+(`C:\ProgramData\npm`, not npm's per-user default of `%AppData%\npm`) via the
+machine-wide `NPM_CONFIG_PREFIX` environment variable, adds that folder to
+the machine `PATH`, and — while it's touching machine-wide `PATH` anyway —
+also makes sure `git`'s own install folder is on it too (needed later for
+"Keeping this up to date automatically" below; no separate step for that).
+If npm nags about its own update (`npm error code EBADENGINE ... Not
+compatible with your version of node/npm`) during this, ignore it — that's
+npm's optional self-update rejecting itself because it wants a newer Node
+than the LTS above ships; it doesn't affect the `claude-code` install, which
+already succeeded.
 
-Then, from a **new** PowerShell window (the one you just ran the install
-script in won't see the machine-wide `PATH`/`NPM_CONFIG_PREFIX` changes it
-just made — same reasoning as the `/M` note below):
+Then, from a **new** PowerShell window (the one you just ran
+`Install-Prerequisites.ps1` in won't see the machine-wide `PATH`/env changes
+it just made):
 ```powershell
 Get-Command claude   # Source should be under C:\ProgramData\npm, not your own AppData
 claude --version
@@ -401,17 +394,17 @@ claude setup-token                      # subscription login
 setx ANTHROPIC_API_KEY "sk-ant-..." /M   # API billing — more predictable for an unattended service
 ```
 
-**The `/M` above is not optional.** `Register-HaloResponseAgentTask.ps1` registers the scheduled
-task to run as the `SYSTEM` account (`New-ScheduledTaskPrincipal -UserId "SYSTEM"`), which has its
-own separate Windows profile — completely different from whichever account you're logged in as
-right now. Claude Code's credential storage is scoped per-user (`%USERPROFILE%\.claude\.credentials.json`,
-restricted to your own account by default; verified against Claude Code's own docs, not assumed),
-and `setx` *without* `/M` only sets a **per-user** environment variable (`HKCU`), which the `SYSTEM`
-account would never see either. `/M` writes it to the machine-wide `HKLM` environment instead, which
-every account on the box — `SYSTEM` included — inherits. Requires an elevated (Administrator) shell,
-same as everything else in this setup. Reboot the server once after setting it (or at least confirm
-with a fresh `-WhatIf` run once the task is registered) so Task Scheduler's own process picks up the
-change rather than a stale cached environment.
+**The `/M` above is not optional.** Claude Code's credential storage is
+scoped per-user (`%USERPROFILE%\.claude\.credentials.json`, restricted to
+your own account by default; verified against Claude Code's own docs, not
+assumed), and `setx` *without* `/M` only sets a **per-user** environment
+variable (`HKCU`), which `SYSTEM` would never see. `/M` writes it to the
+machine-wide `HKLM` environment instead, which every account on the box —
+`SYSTEM` included — inherits. Requires an elevated (Administrator) shell,
+same as everything else in this setup. Reboot the server once after setting
+it (or at least confirm with a fresh `-WhatIf` run once the task is
+registered) so Task Scheduler's own process picks up the change rather than
+a stale cached environment.
 
 If you use `claude setup-token` (a one-year subscription token, not a file - it prints to the
 terminal and does *not* save anywhere on its own) instead of an API key, the same rule applies to

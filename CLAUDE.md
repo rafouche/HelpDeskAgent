@@ -45,10 +45,14 @@ the full rationale.
 - `Invoke-HaloResponseAgent.ps1` — computes business-hours context, runs the ID
   resolver call, then the classifier call, then loops the resolver call once
   per classified ticket, logs everything.
-- `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup.
-- `Install-ClaudeCodeMachineWide.ps1` — one-time setup: installs the `claude`
-  CLI into a shared `C:\ProgramData\npm` prefix instead of npm's per-user
-  Windows default, so `SYSTEM` (and every other account) can find it.
+- `Register-HaloResponseAgentTask.ps1` — one-time Task Scheduler setup for
+  the ticket-processing task, and (with `-EnableAutoUpdate`) the auto-update
+  task on its own separate schedule in the same run.
+- `Install-Prerequisites.ps1` — one-time setup: installs the `claude` CLI
+  into a shared `C:\ProgramData\npm` prefix instead of npm's per-user
+  Windows default, and makes sure `git`'s install folder is on the
+  machine-wide `PATH` too - both so `SYSTEM` (and every other account) can
+  find them, not just whichever account you run this as.
 - `Copy-McpServersToProject.ps1` — copies already-registered `-s user` MCP
   servers into this folder's `.mcp.json` (`-s project` scope), instead of
   re-typing every `claude mcp add` command by hand. Only for connectors that
@@ -57,17 +61,37 @@ the full rationale.
   `origin/main`; logs only when something actually changed (or failed), and
   runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
   real update.
-- `Register-UpdateCheckTask.ps1` — one-time Task Scheduler setup for the
-  above, on its own (default 30-minute) schedule, separate from the
-  ticket-processing task.
-- `Add-GitToMachinePath.ps1` — one-time setup: adds git's install folder to
-  the machine-wide `PATH` so `SYSTEM` can find it too.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
 - `README.md` — setup + how-to-extend instructions for a human.
 
 ## Design decisions and why
+
+**Everything the scheduled tasks depend on is configured machine-wide, not
+per-account.** Both scheduled tasks run as `SYSTEM`
+(`Register-HaloResponseAgentTask.ps1`'s `New-ScheduledTaskPrincipal -UserId
+"SYSTEM"`) — a separate Windows account from whichever one this gets set up
+as, with its own profile, `PATH`, and environment variables. Concretely:
+- `Install-Prerequisites.ps1` installs `claude` into a shared npm prefix
+  (`C:\ProgramData\npm`, not npm's per-user default of `%AppData%\npm`) and
+  makes sure `git`'s install folder is on the machine `PATH` too.
+- `ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN` are set with `setx ... /M`
+  (machine-wide `HKLM`, not per-user `HKCU`).
+- MCP servers are registered with `-s project` (a plain `.mcp.json` file in
+  this folder, not tied to any account), and
+  `Register-HaloResponseAgentTask.ps1` sets the scheduled task's
+  `-WorkingDirectory` explicitly so that file actually gets discovered
+  (project-scoped MCP config is resolved from the current directory, not
+  from the script's own path).
+
+None of this shows up in interactive testing done as an admin - a `-WhatIf`
+run by hand uses that account's own credentials/MCP config/`PATH`
+regardless of what the scheduled task would see. Confirm the real thing by
+triggering the registered task manually once (Task Scheduler ->
+right-click -> Run) rather than trusting an interactive `-WhatIf` run alone.
+See README's "Install and authenticate Claude Code" and "Register each MCP
+server" sections for the actual setup steps.
 
 **Two-stage classifier/resolver pipeline (v2.0.0).** Every cycle used to be one
 `claude -p` call (Opus, full tool set, adaptive thinking) that pulled every
@@ -321,21 +345,18 @@ and runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
 real update so a broken push is visible immediately rather than discovered
 only when the next real cycle fails - a smoke test, not a rollback: the new
 code stays in place either way.
-Deliberately its own script and its own scheduled task
-(`Register-UpdateCheckTask.ps1`), not folded into
-`Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
-for updates" as two separately-failing concerns, so a git/network problem
-can never abort an actual ticket-processing cycle. Flagged in README as a
-risk worth confirming before trusting it unattended (the same
-account-scoping shape already hit three times for `claude`, MCP
-registration, and Claude Code's credentials) - and that flag turned out to
-be exactly right: a real test via NinjaRMM (also `SYSTEM` by default)
-confirmed `git` itself has the same gap, fixed in v2.9.7 (see "Known
-limitations" - `Add-GitToMachinePath.ps1`). Also worth being explicit about as a
-real tradeoff, not just a detail: this pulls whatever is on `origin/main`
-unconditionally, no staging or approval step - acceptable here because the
-only thing that pushes to `main` is Roger's own reviewed changes, not a
-tradeoff to carry over unexamined if that ever changes.
+Its own script and its own scheduled task (`Register-HaloResponseAgentTask.ps1
+-EnableAutoUpdate`), not folded into `Invoke-HaloResponseAgent.ps1` itself -
+keeps "run the pipeline" and "check for updates" as two separately-failing
+concerns, so a git/network problem can never abort an actual
+ticket-processing cycle. Depends on `git` being visible to `SYSTEM`, which
+`Install-Prerequisites.ps1` sets up alongside `claude` (see "Everything the
+scheduled tasks depend on is configured machine-wide" above). Also worth
+being explicit about as a real tradeoff, not just a
+detail: this pulls whatever is on `origin/main` unconditionally, no staging
+or approval step - acceptable here because the only thing that pushes to
+`main` is Roger's own reviewed changes, not a tradeoff to carry over
+unexamined if that ever changes.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
@@ -445,77 +466,6 @@ config tweak. Not worth building preemptively.
   `mcp__<ServerName>__<tool>` form from the start and confirm the server name via
   `claude mcp list` on the actual machine — don't assume it matches the vendor's
   display name.
-- **Credential/MCP-registration/PATH account scoping — same silent-failure
-  shape as the naming bug above, different root cause (fixed; the first two
-  were found before they shipped, the third and fourth weren't).** Raised as
-  a direct question ("will the SYSTEM-run scheduled task still have API
-  access") and verified against Claude Code's own docs rather than assumed,
-  since this project has already been burned once by an assumption in this
-  exact area. Four separate things, all scoped per-Windows-account by
-  default:
-  1. **Credentials.** `claude setup-token`/`/login` write to
-     `%USERPROFILE%\.claude\.credentials.json`, restricted to whichever
-     account is logged in when you run them. `Register-HaloResponseAgentTask.ps1`
-     runs the task as `SYSTEM` — a different account with its own empty
-     profile, which would see none of that. Fix: `ANTHROPIC_API_KEY` (or
-     `CLAUDE_CODE_OAUTH_TOKEN` if using a subscription token) set with
-     `setx ... /M` - the `/M` is not optional, plain `setx` only sets a
-     per-user variable that `SYSTEM` never sees either.
-  2. **MCP server registration.** `claude mcp add ... -s user` (what this
-     README used to say) registers a server only for the account you're
-     logged in as, in that account's own `~/.claude.json` - same account-
-     scoping problem, one layer down. Fix: `-s project`, which writes
-     `.mcp.json` into this folder instead - a plain file, not tied to any
-     account. That alone isn't sufficient either: Task Scheduler gives a
-     process no working directory by default (lands in
-     `%SystemRoot%\System32`), and project-scoped MCP config is discovered
-     from the current directory, not from the script's own location -
-     `Register-HaloResponseAgentTask.ps1` now sets the scheduled task's
-     `-WorkingDirectory` explicitly for exactly this reason. Miss either half
-     and the result is identical to the original naming bug: the task runs,
-     reports no error, and silently has zero working tools. `.mcp.json` holds
-     real credentials in plain text and is now in `.gitignore`.
-  3. **The `claude` executable itself (found v2.9.4, via the actual first
-     scheduled run failing).** `npm install -g @anthropic-ai/claude-code`
-     installs into the interactive user's own per-account npm prefix
-     (`%AppData%\npm\claude.cmd` - npm's own documented Windows default,
-     confirmed against npm's docs, not assumed) - on that user's `PATH`, not
-     `SYSTEM`'s. Real error hit: `'claude' is not recognized as the name of a
-     cmdlet, function, script file, or operable program.`
-     First attempt fixed this at runtime - `Invoke-HaloResponseAgent.ps1`
-     auto-detecting `claude`'s path at startup - but that treats the symptom,
-     not the cause, and was reverted the same day in favor of fixing the
-     install itself: `Install-ClaudeCodeMachineWide.ps1` points npm's global
-     prefix at `C:\ProgramData\npm` (genuinely shared by every account, unlike
-     `%AppData%`) via the machine-wide `NPM_CONFIG_PREFIX` environment
-     variable (documented npm behavior - env vars prefixed `NPM_CONFIG_` map
-     directly to npm config keys and take precedence over the per-user
-     default), adds that folder to the machine `PATH`, then reinstalls
-     `@anthropic-ai/claude-code` so it lands there once, for every account,
-     rather than needing this script to keep re-discovering it. See README's
-     "Install and authenticate Claude Code" section.
-  4. **`git` itself (found v2.9.7, confirmed via a script run through
-     NinjaRMM - which executes as `SYSTEM` by default, same as Task
-     Scheduler).** Same error shape: `'git' is not recognized as the name of
-     a cmdlet, function, script file, or operable program`, despite
-     `git pull` working fine run interactively as an admin the whole time -
-     confirmed on the real production machine, not just a predicted risk.
-     Unlike `claude`/npm, this one didn't need a reinstall: Git for Windows'
-     installer already puts `git.exe` in a machine-wide folder
-     (`C:\Program Files\Git\...`) - the missing piece is that only the
-     installing account's own `PATH` (`HKCU`) got updated, not the
-     machine-wide one (`HKLM`). `Add-GitToMachinePath.ps1` finds git's real
-     location from whichever account it already works for and adds that
-     folder to the machine `PATH` via `[Environment]::SetEnvironmentVariable`
-     (not `setx`, which silently truncates PATH-length values - same
-     reasoning as the `claude` fix above).
-  None of these four would show up in any interactive testing done as an
-  admin user (`-WhatIf` runs by hand use that account's own credentials/MCP
-  config regardless of what the scheduled task would see) - only an actual
-  scheduled firing, running as `SYSTEM`, exposes the gap. Confirm all four
-  are correct by triggering the registered task manually once (Task Scheduler
-  -> right-click -> Run) rather than trusting an interactive `-WhatIf` run
-  alone.
 - **Private-note handoff got dropped as "nothing new" (fixed, found via a live
   report - ticket #21568).** A human agent did real work on a ticket, wrote it
   up in a PRIVATE note (`hiddenfromuser: true`), reassigned the ticket to the
