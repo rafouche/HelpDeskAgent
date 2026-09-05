@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Registers the Scheduled Task that runs the Halo Response Agent every 10
+    Registers the Scheduled Task that runs the Halo Response Agent every 15
     minutes, 24/7 - and, optionally, the separate task that checks for and
     pulls a new commit on its own schedule.
 .DESCRIPTION
@@ -33,7 +33,7 @@
     directly if you want it gone.
 .PARAMETER UpdateCheckIntervalMinutes
     How often the auto-update task checks for changed files, if
-    -EnableAutoUpdate is passed. Defaults to 30 - there's no need for this
+    -EnableAutoUpdate is passed. Defaults to 60 - there's no need for this
     to run as often as the ticket-processing task, since a new commit
     typically only ships a handful of times a day at most.
 #>
@@ -42,10 +42,10 @@ param(
     # Defaults to Invoke-HaloResponseAgent.ps1 sitting next to this script - as long
     # as you keep the deployed files together, this needs no editing either.
     [string]$ScriptPath = (Join-Path $PSScriptRoot "Invoke-HaloResponseAgent.ps1"),
-    [int]$IntervalMinutes = 10,
+    [int]$IntervalMinutes = 15,
     [switch]$RequireApproval,
     [switch]$EnableAutoUpdate,
-    [int]$UpdateCheckIntervalMinutes = 30
+    [int]$UpdateCheckIntervalMinutes = 60
 )
 
 $taskName = "Altec Halo Response Agent"

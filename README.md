@@ -108,7 +108,7 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    ```powershell
    .\Register-HaloResponseAgentTask.ps1
    ```
-   Default is every 10 minutes, 24/7. Adjust with `-IntervalMinutes`. If you're
+   Default is every 15 minutes, 24/7. Adjust with `-IntervalMinutes`. If you're
    still in the `-RequireApproval` rollout stage, register it with that switch
    instead so every scheduled run starts in human-approval mode from the first
    firing:
@@ -128,7 +128,7 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    ```powershell
    .\Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate
    ```
-   Default is every 30 minutes - there's no need for this to run as often as
+   Default is every 60 minutes - there's no need for this to run as often as
    the ticket-processing task itself; adjust with `-UpdateCheckIntervalMinutes`.
    See "Keeping this up to date automatically" below before relying on it.
 
@@ -144,9 +144,9 @@ needed.
 
 `Update-HaloResponseAgent.ps1` automates exactly that, on its own schedule
 (via `Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`, step 8 above):
-it downloads a specific, minimal list of files - the three prompts and
-every `.ps1` file; deliberately *not* `README.md`/`CLAUDE.md`, which are
-documentation, not part of the deployed program - directly from
+it downloads a specific, minimal list of files - the three prompts,
+`Invoke-HaloResponseAgent.ps1`, `Update-HaloResponseAgent.ps1` itself, and
+`Show-AgentLog.ps1` - directly from
 `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>` over
 plain HTTPS (no authentication needed, this is a public repo), compares
 each one's hash against the local copy, and replaces only the ones that
@@ -156,6 +156,16 @@ updated to `logs\update-<date>.log`. It also runs
 `Invoke-HaloResponseAgent.ps1 -DryRun` once after a real update as a smoke
 test (no Halo calls, no API cost) so a broken push is visible in that log
 immediately rather than silently discovered when the next real cycle fails.
+
+**`Install-Prerequisites.ps1`, `Register-HaloResponseAgentTask.ps1`, and
+`Copy-McpServersToProject.ps1` are deliberately *not* in that list.** They're
+one-time setup/registration scripts you run once, by hand, as
+Administrator - nothing scheduled ever invokes them again afterward, so an
+unattended sync of them would just sit on disk unused. If one of them
+changes, re-download it the same way you did the first time; it only
+matters the next time you deliberately re-run it. `README.md`/`CLAUDE.md`
+are excluded for the same "not part of the running pipeline" reason,
+plus they're documentation, not program files.
 
 **`config.json` is never touched by this, on purpose - confirmed the hard
 way.** It's explicitly a per-deployment file (this README tells you to fill

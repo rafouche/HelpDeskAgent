@@ -7,7 +7,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
 
 ## What this is
 A Claude Code headless agent, scheduled via Windows Task Scheduler on a Windows
-Server, running 24/7. Every cycle (~10 min) it pulls open Halo tickets, works
+Server, running 24/7. Every cycle (~15 min) it pulls open Halo tickets, works
 multiple at once (sequentially within one run — not parallel processes; see
 Known limitations), tries to resolve easy ones directly, and escalates the rest.
 It's a **replacement for a Cloudflare Workers annotation-only bot** (`ai-triage-worker`
@@ -344,8 +344,7 @@ assumed a git working copy and needed git installed and visible to `SYSTEM`
 than once, before the root assumption itself was corrected rather than
 patched again.
 `Update-HaloResponseAgent.ps1` now fetches a specific, minimal file list
-(the three prompts, every `.ps1` - deliberately not `README.md`/`CLAUDE.md`,
-which are documentation, not part of the deployed program) directly from
+directly from
 `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>`,
 compares each one's hash against the local copy, and replaces only what
 changed, backing up the previous version first - no git, no authentication
@@ -367,6 +366,15 @@ of what the repo's own copy currently contains. Every file this script does
 sync now gets backed up before being overwritten for exactly this reason -
 even a file that's supposed to stay in sync shouldn't be unrecoverable if
 something ever goes wrong with a specific update.
+Still its own script and its own scheduled task
+(`Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`), not folded into
+`Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
+for updates" as two separately-failing concerns, so a network problem can
+never abort an actual ticket-processing cycle. Also worth being explicit
+about as a real tradeoff, not just a detail: this fetches whatever is on
+`origin/main` unconditionally, no staging or approval step - acceptable
+here because the only thing that pushes to `main` is Roger's own reviewed
+changes, not a tradeoff to carry over unexamined if that ever changes.
 
 **`create_contact` is granted when identity is independently verified, not
 just claimed in ticket text (v2.10.2, real incident).** A Huntress ITDR
@@ -396,15 +404,27 @@ text-only claims). `mcp__Halo__create_contact` and `mcp__Halo__list_sites`
 for non-APPROVED tickets, same tier as a password reset or reboot - FLOW B
 drafts the intended creation into the private note instead of creating it
 for real).
-Still its own script and its own scheduled task
-(`Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`), not folded into
-`Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
-for updates" as two separately-failing concerns, so a network problem can
-never abort an actual ticket-processing cycle. Also worth being explicit
-about as a real tradeoff, not just a detail: this fetches whatever is on
-`origin/main` unconditionally, no staging or approval step - acceptable
-here because the only thing that pushes to `main` is Roger's own reviewed
-changes, not a tradeoff to carry over unexamined if that ever changes.
+
+**Default intervals raised, and the auto-update file list narrowed further
+(v2.10.3, tuning only - no incident).** Ticket-processing raised from 10 to
+15 minutes (`-IntervalMinutes`), and the update-check task from 30 to 60
+minutes (`-UpdateCheckIntervalMinutes`), both in
+`Register-HaloResponseAgentTask.ps1` - a new commit only ships a handful of
+times a day at most, so checking hourly for one is plenty, and 15 minutes
+between ticket-processing cycles is still fast relative to how often a
+ticket actually needs a response.
+Also removed `Install-Prerequisites.ps1`, `Register-HaloResponseAgentTask.ps1`,
+and `Copy-McpServersToProject.ps1` from `Update-HaloResponseAgent.ps1`'s
+`$filesToSync` (previously described above as "every `.ps1` file," which was
+accurate at the time but is no longer). Those three are one-time
+setup/registration scripts run once, by hand, as Administrator - nothing
+scheduled ever invokes them again afterward, so syncing them bought nothing
+(a change only matters the next time someone deliberately re-runs one, at
+which point re-downloading it the normal way is no extra step) while still
+costing a download/hash-check/potential backup every update cycle for no
+reason. `$filesToSync` is now just the three prompts,
+`Invoke-HaloResponseAgent.ps1`, `Update-HaloResponseAgent.ps1` itself, and
+`Show-AgentLog.ps1`.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
@@ -557,7 +577,7 @@ config tweak. Not worth building preemptively.
   `record_count`. classifier-prompt.md's "Find candidate tickets" now makes
   two agent_id-filtered calls instead of one unfiltered one: `agent_id: 1`
   (Halo's real "Unassigned" agent) capped at page 1/15 (an old unassigned
-  ticket is a slower-moving gap, not worth a full sweep every 10 minutes),
+  ticket is a slower-moving gap, not worth a full sweep every 15 minutes),
   and `agent_id` = this bot's own ID, paged through in full regardless of
   `record_count` - that set should always be small, and must never
   silently truncate, since that's exactly the #21568 failure shape.
@@ -608,7 +628,7 @@ assuming from config.json alone:
   something else) isn't documented and needs a live test against a real
   tenant before wiring it in. Until then, a periodic wider sweep (paging
   through all of `agent_id: 1` account-wide, filtering to Help Desk
-  client-side, on some slower cadence than every 10-minute cycle) is the
+  client-side, on some slower cadence than every 15-minute cycle) is the
   fallback if this turns out to matter in practice.
 
 - **Ticket type and impact are now used for classification (v2.4.0).**

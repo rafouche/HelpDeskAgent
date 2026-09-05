@@ -73,6 +73,23 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.3 - two minor tuning changes, no incident behind either.
+    Default ticket-processing interval raised from 10 to 15 minutes
+    (Register-HaloResponseAgentTask.ps1's -IntervalMinutes default), and the
+    auto-update check interval raised from 30 to 60 minutes
+    (-UpdateCheckIntervalMinutes default) - a new commit only ships a
+    handful of times a day at most, so checking hourly is plenty.
+    Also narrowed Update-HaloResponseAgent.ps1's $filesToSync: it was
+    syncing Install-Prerequisites.ps1, Register-HaloResponseAgentTask.ps1,
+    and Copy-McpServersToProject.ps1 alongside the actual running-pipeline
+    files, but none of those three are ever invoked by anything scheduled -
+    they're one-time setup/registration scripts run once, by hand, as
+    Administrator. Syncing them bought nothing (a change to one only
+    matters the next time someone deliberately re-runs it, at which point
+    re-downloading it the normal way is no extra step) while still costing
+    a download/hash-check/potential backup every update cycle. Removed;
+    $filesToSync is now just the three prompts, Invoke-HaloResponseAgent.ps1,
+    Update-HaloResponseAgent.ps1 itself, and Show-AgentLog.ps1.
     Version: 2.10.2 - real incident: a Huntress ITDR escalation for
     mpon@battlefieldfire.gov came back from the resolver as "NEEDS CONTACT
     VERIFIED" instead of getting fixed automatically, even though the

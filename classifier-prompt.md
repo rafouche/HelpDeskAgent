@@ -55,7 +55,7 @@ the real case this was fixed from):
    unassigned tickets account-wide) - an unassigned ticket that's been
    sitting untouched long enough to fall past page 1 is a real but slower-
    moving gap than the one this fix targets; not worth a full paged sweep
-   every 10 minutes.
+   every 15 minutes.
 2. **Already mine:** `{ open_only: true, agent_id: {{AGENT_ID}},
    pageinate: true, page_no: 1, page_size: 15 }`. Unlike the unassigned
    call, **do not stop at page 1 here.** Check the response's `record_count`

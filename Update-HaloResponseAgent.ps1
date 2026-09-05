@@ -3,7 +3,7 @@
     Checks GitHub for a newer version of each file this project actually
     needs to run, and downloads any that changed - a self-update check,
     meant to run on its own schedule (see Register-HaloResponseAgentTask.ps1's
-    -EnableAutoUpdate switch), separate from the every-10-minute
+    -EnableAutoUpdate switch), separate from the every-15-minute
     ticket-processing task.
 .DESCRIPTION
     This deployment is a plain folder of downloaded files, not a git clone -
@@ -17,11 +17,18 @@
     https://raw.githubusercontent.com/<Owner>/<Repo>/<Branch>/<file> (plain
     HTTPS, no git, no authentication needed for a public repo) and compares
     its hash against the local copy, replacing only the files that actually
-    changed. $FilesToSync is deliberately a specific, minimal list - only
-    the program files (scripts, prompts) - not the whole repository, so
+    changed. $FilesToSync is deliberately a specific, minimal list - not the
+    whole repository, and not even every program file, just the ones this
+    deployment actually needs kept current without a human involved:
     documentation files (README.md, CLAUDE.md) and repo metadata
-    (.gitignore) never land in this folder. Update this list by hand if a
-    new required file is added to the project.
+    (.gitignore) never land in this folder, and neither do the one-time
+    setup scripts (Install-Prerequisites.ps1, Register-HaloResponseAgentTask.ps1,
+    Copy-McpServersToProject.ps1) - those run once, by hand, during initial
+    setup or when deliberately re-registering the task, never invoked again
+    afterward, so there's nothing this script's own unattended cycle would
+    ever pick up a change to; if one of them changes, re-download it the
+    same way you did the first time. Update this list by hand if a new
+    file is added that the running pipeline itself depends on.
 
     config.json is deliberately NOT in this list and must never be added to
     it. It's explicitly a per-deployment file - README tells every new
@@ -82,11 +89,20 @@ param(
     [string]$Branch = "main"
 )
 
-# Deliberately minimal - only the program files this project needs to run.
-# Update by hand if a new required file is added; do NOT change this to
-# "everything in the repo" - README.md/CLAUDE.md/.gitignore are
+# Deliberately minimal - only the files the unattended pipeline itself
+# depends on. Update by hand if a new required file is added; do NOT change
+# this to "everything in the repo" - README.md/CLAUDE.md/.gitignore are
 # documentation/repo metadata, not part of the deployed program, and should
 # never land here.
+#
+# Also deliberately excluded: Install-Prerequisites.ps1,
+# Register-HaloResponseAgentTask.ps1, Copy-McpServersToProject.ps1. These
+# are one-time setup/registration scripts - run once, by hand, as
+# Administrator, never invoked again by anything scheduled - so an
+# unattended sync of them would just sit on disk unused; a change to one of
+# these only matters the next time a human deliberately re-runs it, and at
+# that point re-downloading it the normal way (same as the first time) is
+# no extra step.
 #
 # config.json is deliberately NOT here and must never be added - see the
 # long comment in the header above. It's a per-deployment file (on-call
@@ -98,9 +114,6 @@ $filesToSync = @(
     "classifier-prompt.md",
     "resolver-prompt.md",
     "Invoke-HaloResponseAgent.ps1",
-    "Register-HaloResponseAgentTask.ps1",
-    "Install-Prerequisites.ps1",
-    "Copy-McpServersToProject.ps1",
     "Update-HaloResponseAgent.ps1",
     "Show-AgentLog.ps1"
 )
@@ -173,7 +186,7 @@ Write-UpdateLog "Updated file(s): $($changedFiles -join ', ')"
 
 # Smoke test: does the just-downloaded Invoke-HaloResponseAgent.ps1 still run
 # at all? -DryRun does no Halo calls and spends no API cost, so this is
-# cheap insurance against a broken push reaching the next real 10-minute
+# cheap insurance against a broken push reaching the next real 15-minute
 # cycle unnoticed.
 $mainScript = Join-Path $RepoPath "Invoke-HaloResponseAgent.ps1"
 try {
