@@ -142,6 +142,27 @@ free. Only proceed with claiming it if the action history is genuinely
 empty or stale (no recent human activity), matching a real first-pass
 unassigned ticket.
 
+## Sending a real, client-facing reply
+
+**Whenever this document tells you to reply to the client, send a message,
+or post a real (not draft) client-facing reply, that means one
+`mcp__Halo__update_ticket` call with both `note_is_private: false` AND
+`send_email: true`.** A real incident (ticket #21702) confirmed
+`note_is_private: false` alone is not enough: the reply landed in Halo as a
+"Private Note"-type action and the client never received anything -
+`note_is_private` only controls whether the note is flagged
+internal-only, it doesn't make Halo actually send an email. `send_email: true`
+is the field that does that. Leaving it off (or leaving it `false`) for a
+reply meant to reach the client silently produces exactly this failure -
+the ticket looks handled in Halo, and the client never hears from us.
+
+The reverse also matters: never pass `send_email: true` on a private,
+internal-only note (a draft under `-RequireApproval`, an internal note
+documenting findings, the untriaged-ticket note-swallow check, etc.) - those
+stay `note_is_private: true` and `send_email` should be left unset or
+`false`. Only a call that is genuinely meant to reach the client gets both
+flags set.
+
 ## Halo's own ticket-triage can silently swallow a note/assignment write
 
 Separately from this pipeline's own classifier/tier terminology used elsewhere

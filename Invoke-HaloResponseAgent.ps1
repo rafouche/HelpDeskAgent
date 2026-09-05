@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.6 - real incident: ticket #21702's approved reply landed
+    successfully via mcp__Halo__update_ticket with note_is_private: false,
+    but Halo recorded it as a "Private Note"-type action and the client
+    never received it - confirmed directly by pulling the ticket's own
+    action log, not assumed. note_is_private only flags a note
+    internal-only; it isn't what makes Halo actually email the ticket's
+    contact. Per config-owner's own domain knowledge running Halo day to
+    day, a private note never emails the client by definition, so this was
+    a real, silent non-delivery, not a display/labeling quirk.
+    Every place in this codebase that sends a real, client-facing reply now
+    pairs note_is_private: false with a new send_email: true parameter:
+    resolver-prompt.md gained a "Sending a real, client-facing reply"
+    section establishing this as the general rule, and FLOW A step 5 (the
+    approval-mode send-for-real step) was updated to match. Anything meant
+    to stay private (FLOW B's draft note, internal findings notes) is
+    unaffected - send_email stays unset/false there.
+    IMPORTANT CAVEAT, not glossed over: this assumes halopsa-mcp's
+    update_ticket tool gains a send_email parameter that reliably triggers
+    HaloPSA's real outbound email - that MCP-side change is being made
+    separately, not in this repo (see CLAUDE.md's "Known gaps and future
+    work" for the full caveat). If the real fix lands under a different
+    parameter name or mechanism, every reference to send_email above needs
+    to be updated to match before this actually works - confirm against
+    the real, updated tool schema once that fix ships, the same way every
+    other Halo-tool-schema fact in this project has been confirmed
+    directly rather than assumed.
     Version: 2.10.5 - real incident: ticket #21702, run again after v2.10.4,
     worked correctly but ended up assigned to the bot's own agent - and
     since Halo's API-user account doesn't show up in a normal
@@ -1432,8 +1458,10 @@ try {
             "   action is still safe to run as recorded? Say so in an internal note and",
             "   stop rather than run stale intent blindly.",
             "5. Post the approved text from step 2 as a real, public, client-facing reply",
-            "   (mcp__Halo__update_ticket, note_is_private: false) - its own call,",
-            "   unchanged from what was drafted.",
+            "   (mcp__Halo__update_ticket, note_is_private: false AND send_email: true -",
+            "   note_is_private alone does not email the client, see",
+            "   resolver-prompt.md's `"Sending a real, client-facing reply`" section) - its",
+            "   own call, unchanged from what was drafted.",
             "6. There is no tool that can delete or edit an existing Halo note -",
             "   update_ticket can only add a new one. So instead of literally deleting the",
             "   draft, add one more private note in the same final call as step 7:",
