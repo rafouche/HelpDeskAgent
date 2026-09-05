@@ -73,6 +73,26 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.4 - real incident: ticket #21702, a -RequireApproval-mode
+    run against a Huntress escalation for the same verified Mark Pon
+    scenario v2.10.2 was built for, still couldn't create/relink the
+    contact - it correctly did all the M365 verification work, then hit
+    "create_contact is not permitted in this run" and flagged it for a
+    human instead, because v2.10.2 had put mcp__Halo__create_contact in
+    $remediationMutatingTools, gating it behind approval for non-APPROVED
+    tickets same as a password reset or reboot. That was the wrong
+    category: fixing which contact a ticket is linked to is fixing the
+    ticket's OWN DATA, not a remediation action taken on the client's
+    actual problem - the same reasoning that already exempts
+    update_ticket's own bookkeeping and the on-call notification from
+    -RequireApproval's gating. mcp__Halo__create_contact is removed from
+    $remediationMutatingTools (it stays in $mutatingTools, so -WhatIf still
+    blocks it - simulation mode must still touch nothing real). The FLOW B
+    approval-banner text no longer lists create_contact among the deferred
+    remediation actions, and now has an explicit exception (matching the
+    existing EMERGENCY-acknowledgment one) telling the model to create/
+    relink a verified contact for real, immediately, regardless of
+    approval tier.
     Version: 2.10.3 - two minor tuning changes, no incident behind either.
     Default ticket-processing interval raised from 10 to 15 minutes
     (Register-HaloResponseAgentTask.ps1's -IntervalMinutes default), and the
@@ -880,15 +900,21 @@ $mutatingTools = @(
 # client correspondence, so it's never gated. What CAN be enforced at the
 # allowlist level - and is - is that a non-APPROVED-tier ticket physically cannot
 # call a remediation action, regardless of what the prompt says.
-# mcp__Halo__create_contact is included here too - creating a new identity
-# record in a client's Halo instance is a real, standalone action (not just
-# ticket bookkeeping like update_ticket), so it waits for approval the same
-# way a password reset or reboot does; the resolver drafts its intent into
-# the private note under FLOW B instead of creating the contact for real.
+# mcp__Halo__create_contact is deliberately NOT in this list, even though it's
+# in $mutatingTools above (so -WhatIf still blocks it) - a real -RequireApproval
+# run (ticket #21702, a Huntress escalation for a verified Mark Pon) showed the
+# resolver correctly do all the verification work, then refuse to create/relink
+# the contact because the tool had been stripped, flagging it for a human
+# instead. That's the wrong outcome: creating/relinking a contact once identity
+# is independently verified (resolver-prompt.md's "unknown or wrong contact"
+# section) is fixing the TICKET'S OWN DATA - who it's linked to - not a
+# remediation action taken on the client's actual problem. It's the same
+# category as update_ticket's own bookkeeping and the on-call notification
+# below: real work that should happen immediately regardless of approval tier,
+# with only the client-facing reply/remediation itself held back for sign-off.
 $remediationMutatingTools = @(
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
-    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
-    "mcp__Halo__create_contact"
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
 )
 
 # Base allowlist plus one pre-filtered variant for -RequireApproval, computed
@@ -1398,7 +1424,7 @@ try {
             "normally (investigate, judge difficulty, decide on a reply and/or a",
             "remediation action) with one change at the very end. Wherever this document",
             "would have you send a real, public, client-facing reply OR take a",
-            "remediation action (password reset/unlock/reboot/script run/create_contact), do this",
+            "remediation action (password reset/unlock/reboot/script run), do this",
             "instead, in one update_ticket call:",
             "1. note: a single private note, in this exact structure - `"[DRAFT PENDING",
             "   APPROVAL]`" on its own line, then the full client-facing reply text you",
@@ -1432,6 +1458,15 @@ try {
             "goes through the draft/approve flow above. The on-call notification itself",
             "(email/text) is never gated either - it's an internal alert to your own team,",
             "not client correspondence.",
+            "",
+            "ANOTHER EXCEPTION: fixing which contact/company a ticket is linked to",
+            "(resolver-prompt.md's `"unknown or wrong contact`" section, including",
+            "create_contact when identity is independently verified) is not the",
+            "client-facing reply or remediation this flow defers - it's fixing the",
+            "ticket's own data, the same category as the update_ticket bookkeeping this",
+            "flow itself relies on. Do this for real, immediately, exactly as that",
+            "section describes, whatever tier this ticket is - do not draft it into the",
+            "note above or wait for approval to create/relink a contact.",
             "",
             "Everything else in this document (investigation, judgment, Hudu",
             "documentation) still happens normally under FLOW B - only the outgoing",

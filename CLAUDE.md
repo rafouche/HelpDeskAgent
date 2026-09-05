@@ -400,10 +400,14 @@ everything else (ambiguous site, no independent verification available,
 text-only claims). `mcp__Halo__create_contact` and `mcp__Halo__list_sites`
 (`create_contact` requires a `site_id`, not just a `client_id`) are now in
 `$resolverTools`; `create_contact` is in `$mutatingTools` (stripped under
-`-WhatIf`) and `$remediationMutatingTools` (gated behind `-RequireApproval`
-for non-APPROVED tickets, same tier as a password reset or reboot - FLOW B
-drafts the intended creation into the private note instead of creating it
-for real).
+`-WhatIf`).
+**UPDATE (v2.10.4) - `create_contact` is no longer gated behind
+`-RequireApproval` either; see the entry below.** It was originally also put
+in `$remediationMutatingTools`, gated the same as a password reset or
+reboot - a real approval-mode run (ticket #21702) showed that was the wrong
+call: it made the resolver correctly verify identity and then refuse to
+fix the ticket's own contact link, flagging it for a human instead of just
+doing it.
 
 **Default intervals raised, and the auto-update file list narrowed further
 (v2.10.3, tuning only - no incident).** Ticket-processing raised from 10 to
@@ -425,6 +429,32 @@ costing a download/hash-check/potential backup every update cycle for no
 reason. `$filesToSync` is now just the three prompts,
 `Invoke-HaloResponseAgent.ps1`, `Update-HaloResponseAgent.ps1` itself, and
 `Show-AgentLog.ps1`.
+
+**`create_contact` no longer waits for `-RequireApproval` sign-off (v2.10.4,
+real incident, corrects v2.10.2).** Ticket #21702 - a Huntress escalation
+for the same kind of verified-but-unlinked user v2.10.2 was built to fix -
+ran in `-RequireApproval` mode and still came back "NEEDS CONTACT VERIFIED
+... create_contact is not permitted in this run." The resolver had done
+everything right (confirmed Mark Pon via M365/CIPP, matched the ticket's
+claim, identified the right client/site) and then couldn't act, because
+v2.10.2 had put `create_contact` in `$remediationMutatingTools` - the same
+gate as a password reset or reboot - so it got stripped from every
+non-APPROVED ticket's tools under approval mode.
+That gate was the wrong category for this action. `-RequireApproval` exists
+to hold back what the pipeline says or does *to the client's actual
+problem* - a reply, a password reset, a reboot - until a human signs off.
+Fixing which contact a ticket is linked to isn't that; it's correcting the
+ticket's own bookkeeping, the same class of action as the `update_ticket`
+calls `-RequireApproval` itself depends on to draft its note and change
+status, and the on-call notification email/text, both of which were already
+exempted from gating for exactly this reason. `create_contact` is removed
+from `$remediationMutatingTools` (so it's available to every ticket
+regardless of approval tier) but stays in `$mutatingTools`, so `-WhatIf`
+still blocks it - a dry run must still write nothing real to Halo. The
+FLOW B approval-banner text gained an explicit exception for this, mirroring
+the existing EMERGENCY-acknowledgment one: create/relink a verified contact
+for real, immediately, whatever tier the ticket is - only the client-facing
+reply and any remediation action still go through the draft-and-wait flow.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
