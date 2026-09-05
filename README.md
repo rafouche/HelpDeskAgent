@@ -334,6 +334,18 @@ account on a later run means something went wrong last time (a crash, or Halo's
 own triage-swallow quirk eating part of a write) and needs a look, not that it's
 still being worked normally.
 
+**If this account is an API-only integration user rather than a licensed
+one** (confirmed for real: `mcp__Halo__list_agents` does not return API-only
+users at all, so name-based resolution can never succeed for one), also set
+`halo.agent_id` to its real numeric ID. When present, this pipeline uses it
+directly and skips the `list_agents` name lookup entirely for this field -
+`agent_username` still just needs to be a readable label at that point.
+Find the real ID from a ticket this account has actually worked (any of its
+actions in `mcp__Halo__get_ticket_time_entries`'s response shows its
+`who_agentid`) or from Halo's own admin UI - there's no tool that can look
+an API-only agent up by name. Leave `agent_id` blank/`0`/absent for a normal
+licensed agent account, which resolves by name exactly as before.
+
 ## Adding a new system (e.g. 3CX later)
 The whole point of the split between `config.json` (day-to-day) and the static
 allowlist (rare) is that adding a new *system* — a new connector like a future 3CX

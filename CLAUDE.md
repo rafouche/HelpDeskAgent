@@ -730,6 +730,31 @@ BOM/encoding bug class they were built for (see the project's PowerShell
 conventions above), but were never a substitute for actually parsing the
 file and should not be treated as one going forward.
 
+**`halo.agent_id` lets an API-only agent account skip name resolution
+entirely - real incident (v2.10.13).** ID resolution failed to match
+`agent_id` on every run, aborting the cycle before the classifier or
+resolver ever started. Confirmed directly against the live tenant, not
+assumed: the account this pipeline runs as (Cynthia Hicks) is an API-only
+integration user, not a licensed one, and `mcp__Halo__list_agents` does not
+return API-only users at all - a real ticket's own action log
+(`get_ticket_time_entries`) independently confirmed her real `agent_id` is
+`17` (every automated action's `who_agentid`), an ID genuinely absent from
+a live `list_agents` call made in the same session. There is no tool
+available that resolves an API-only agent by name - name-based lookup can
+never succeed for this account no matter what name is configured.
+(`config.json`'s `agent_username` had also separately drifted to a wrong
+value - "Artie Fischel," matching nothing in Halo - corrected back to
+"Cynthia Hicks," but that was independent of the actual root cause.)
+`halo.agent_id` (optional, set to `17`) is the fix: when present and a real
+positive number, `id-resolver-prompt.md` uses it directly and skips
+`list_agents` entirely for this field, immune to the account never
+appearing there. Blank/`0`/absent falls back to the original name-based
+`list_agents` lookup, so a normal licensed agent account needs no config
+change at all. `agent_id` was also added to `$currentHaloIdentity` (the
+ID-resolution cache's invalidation key, alongside `agent_username`) so
+changing it by itself in the future correctly forces a fresh resolution
+instead of silently keeping a stale cached value.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

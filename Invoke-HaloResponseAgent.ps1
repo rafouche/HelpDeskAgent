@@ -73,6 +73,31 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.13 - real incident: ID resolution failed to match
+    agent_id on every run, aborting the cycle before the classifier or
+    resolver ever started. Root cause, confirmed directly against the live
+    tenant (not assumed): the account this pipeline runs as (Cynthia Hicks)
+    is an API-only integration user, not a licensed one, and
+    mcp__Halo__list_agents does not return API-only users at all - a real
+    ticket's own action log (get_ticket_time_entries) independently
+    confirmed her real agent_id is 17 by showing every automated action's
+    who_agentid as 17, an ID absent from a live list_agents call made in
+    this same session. Name-based resolution can never succeed for this
+    account, no matter what name.list_agents actually contains - there is
+    no tool available that resolves an API-only agent by name at all.
+    config.json's halo.agent_username had also drifted to a wrong value
+    ("Artie Fischel," matching nothing in Halo) independent of this
+    root cause - corrected back to "Cynthia Hicks."
+    Added halo.agent_id (config.json, set to 17): when present and a real
+    positive number, id-resolver-prompt.md uses it directly and skips
+    list_agents entirely for this field, immune to the account never
+    appearing there. Falls back to the original name-based list_agents
+    lookup when blank/0/absent, so a licensed agent account (one that
+    does show up in list_agents) needs no config change at all.
+    agent_id added to $currentHaloIdentity (the ID-resolution cache's
+    invalidation key) alongside agent_username, so changing it by itself
+    in the future correctly forces a fresh resolution instead of silently
+    keeping a stale cached value.
     Version: 2.10.12 - real incident: v2.10.9's new warning line, "TICKET
     $ticketId: WARNING - ...", crashed the script outright on every run
     ("Variable reference is not valid. ':' was not followed by a valid
@@ -1443,6 +1468,7 @@ try {
     $currentHaloIdentity = [PSCustomObject]@{
         help_desk_team_name              = $config.halo.help_desk_team_name
         agent_username                   = $config.halo.agent_username
+        agent_id                         = $config.halo.agent_id
         resolved_status_name             = $config.halo.resolved_status_name
         waiting_on_client_status_name    = $config.halo.waiting_on_client_status_name
         follow_up_status_name            = $config.halo.follow_up_status_name

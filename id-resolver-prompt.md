@@ -28,8 +28,17 @@ plain names - resolve each to its Halo ID:
 
 - `halo.help_desk_team_name` -> call `mcp__Halo__list_teams` once, match by name
   (case-insensitive) -> `team_id`
-- `halo.agent_username` -> call `mcp__Halo__list_agents` once, match by name
-  (case-insensitive) -> `agent_id`
+- `agent_id`: **check `halo.agent_id` in the config file first.** If it's present
+  and a real positive number, use it directly as `agent_id` - do NOT call
+  `mcp__Halo__list_agents` at all in this case, and do not attempt to verify it
+  against `halo.agent_username`. This exists because the account this pipeline
+  runs as can be an API-only integration user, and `mcp__Halo__list_agents`
+  does not return API-only users at all (confirmed directly against a real
+  tenant, not assumed) - there is no tool available that can resolve such an
+  account by name, so a pre-confirmed numeric ID is the only reliable source
+  for it. Only if `halo.agent_id` is blank, `0`, or absent, fall back to the
+  normal lookup: call `mcp__Halo__list_agents` once, match `halo.agent_username`
+  by name (case-insensitive) -> `agent_id`.
 - `halo.resolved_status_name`, `halo.waiting_on_client_status_name`, and
   `halo.follow_up_status_name` -> call `mcp__Halo__list_statuses` ONCE and match
   all three names against that single response (case-insensitive) ->
@@ -69,7 +78,8 @@ data, meaningless without a name):
   its `name` (e.g. `"Alert"`). Include every type returned, not just ones you
   recognize - this is a lookup table, not a filtered list.
 
-That's exactly 4 tool calls (one per list_* tool), plus one more -
+That's 4 tool calls (one per list_* tool) normally, or 3 if `halo.agent_id`
+is set and `list_agents` gets skipped, plus one more -
 `mcp__Halo__list_clients` - only if `compliance.excluded_client_names` is
 non-empty. Never call any of them more than once, and never call
 `mcp__Halo__get_ticket` or `mcp__Halo__list_tickets` at all, you have no need
