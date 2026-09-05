@@ -73,6 +73,37 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.5 - real incident: ticket #21702, run again after v2.10.4,
+    worked correctly but ended up assigned to the bot's own agent - and
+    since Halo's API-user account doesn't show up in a normal
+    licensed-user list, the ticket became effectively invisible in the
+    Help Desk ticket list. Root cause: FLOW A step 7 (the approval-mode
+    send-for-real step) set agent_id per a "[INTENDED ASSIGNMENT] keep"
+    marker for Resolved/Waiting-on-client outcomes, deliberately leaving
+    the ticket assigned to the bot so a later cycle's "already mine" check
+    could track it for a possible client reply - the same design this
+    whole pipeline used for every Resolved/Waiting-on-client ticket, not
+    just approval-mode ones, since v1.
+    That tracking design is now inverted: the bot always unassigns itself
+    (`agent_id: 1`) at the end of every path in resolver-prompt.md
+    (Resolved, Waiting on client, Follow Up Needed, before-hours draft,
+    emergency), and FLOW A step 7 always unassigns too - the
+    "[INTENDED ASSIGNMENT] keep|unassign" marker is removed from the
+    draft-note protocol entirely, since there's no longer a "keep" case.
+    Cross-cycle tracking of "did the client reply yet" no longer depends on
+    staying assigned - it's done by status instead. The classifier's
+    existing "Unassigned" call (`agent_id: 1`, page 1) now doubles as the
+    re-check pool: a fresh "Distinguish a fresh ticket from a re-check"
+    step calls `get_ticket_time_entries` on every candidate in it (bounded
+    to that same 15-ticket page) and skips any where the bot's own last
+    note is still the most recent entry with no new client-facing activity
+    since. The old "Already mine" call (`agent_id: {{AGENT_ID}}`, fully
+    paged) is repurposed as a stuck-claimed recovery check - it should
+    normally come back empty now, and a hit means a prior cycle's final
+    unassign write never landed (a crash, or Halo's own triage-swallow
+    bug), which resolver-prompt.md's "Claim the ticket" section now
+    handles explicitly as a recovery case rather than assuming it's a
+    normal multi-reply continuation.
     Version: 2.10.4 - real incident: ticket #21702, a -RequireApproval-mode
     run against a Huntress escalation for the same verified Mark Pon
     scenario v2.10.2 was built for, still couldn't create/relink the
@@ -1383,12 +1414,11 @@ try {
             "2. Read its structure: the text after that first line is the exact",
             "   client-facing reply a human approved, verbatim - don't edit, improve, or",
             "   shorten it. A line `"[INTENDED STATUS] <name>`" names the status to set",
-            "   afterward. A line `"[INTENDED ASSIGNMENT] keep`" or `"...unassign`" says",
-            "   whether to stay assigned to yourself or hand back to the Help Desk queue",
-            "   unassigned. A line `"[INTENDED REMEDIATION] none`" or `"...  <description>`"",
+            "   afterward. A line `"[INTENDED REMEDIATION] none`" or `"...  <description>`"",
             "   names the exact whitelisted remediation action, if any, queued for this",
             "   ticket, with enough detail (target device/account) to actually perform it",
-            "   now.",
+            "   now. There is no assignment line to read - step 7 below always unassigns",
+            "   regardless of which status this lands on.",
             "3. Assign yourself to the ticket (mcp__Halo__update_ticket, your resolved",
             "   agent_id) - its own call, before anything else below. Verify it landed",
             "   per resolver-prompt.md's untriaged-ticket section before proceeding - the",
@@ -1410,12 +1440,14 @@ try {
             "   `"Approved and sent - see the reply above. (The draft note above is now`"",
             "   `"historical, not pending.)`" - this keeps the record unambiguous for anyone",
             "   reading the ticket later, without a delete that isn't actually possible.",
-            "7. In that same call: set status to [INTENDED STATUS] and agent_id/team_id",
-            "   per [INTENDED ASSIGNMENT] (unassign -> agent_id: 1, team back to",
-            "   help_desk_team_name - same as any other escalation; keep -> leave assigned",
-            "   to yourself). Verify steps 5-7 all actually landed per",
-            "   resolver-prompt.md's untriaged-ticket section before your summary below -",
-            "   don't report `"sent`" if the reply never actually posted.",
+            "7. In that same call: set status to [INTENDED STATUS], agent_id: 1 (always",
+            "   unassign yourself, whatever status this landed on - Halo's API-user",
+            "   account doesn't show up in a normal licensed-user list, so a ticket left",
+            "   assigned to it is invisible in the Help Desk ticket list a human looks",
+            "   at), and team_id back to help_desk_team_name. Verify steps 5-7 all",
+            "   actually landed per resolver-prompt.md's untriaged-ticket section before",
+            "   your summary below - don't report `"sent`" if the reply never actually",
+            "   posted.",
             "8. Print your one-line summary and stop - nothing else in this document",
             "   applies to an APPROVED-tier ticket (Hudu documentation, if warranted,",
             "   already happened when the draft was written).",
@@ -1431,14 +1463,13 @@ try {
             "   would have sent, verbatim, exactly as you'd have sent it live; then a line",
             "   `"[INTENDED STATUS] <name>`" (whichever this document's own rules would",
             "   have set - resolved_status_name/waiting_on_client_status_name/",
-            "   follow_up_status_name); then a line `"[INTENDED ASSIGNMENT] keep`" or",
-            "   `"...unassign`" (keep if you'd have stayed assigned to yourself -",
-            "   Resolved/Waiting on client -, unassign if you'd have handed it back to the",
-            "   queue - Follow Up Needed/escalation); then a line",
+            "   follow_up_status_name); then a line",
             "   `"[INTENDED REMEDIATION] none`" or `"...  <exact whitelisted action +",
             "   target>`" (e.g. `"Reset M365 password for jsmith@client.com`" or `"Run",
             "   NinjaOne script 'Reset Printing' on device WKS-1234`") - specific enough",
             "   that FLOW A can execute this exact action later without re-diagnosing.",
+            "   No assignment line is needed - FLOW A always unassigns regardless of",
+            "   which status this lands on (see its own step 7).",
             "2. note_is_private: true.",
             "3. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name).",
             "4. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",

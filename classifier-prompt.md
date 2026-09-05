@@ -51,21 +51,35 @@ the real case this was fixed from):
 1. **Unassigned:** `{ open_only: true, agent_id: 1, pageinate: true,
    page_no: 1, page_size: 15 }`. Halo has a real agent record named
    "Unassigned" (`is_agent: false`) whose id is `1` - a ticket with
-   `agent_id: 1` has nobody working it. This is page 1 only (most recent 15
+   `agent_id: 1` has nobody working it. This is your main candidate pool,
+   and it holds two very different kinds of ticket mixed together: ones
+   nobody has touched yet, and ones the bot already investigated and
+   replied to in an earlier cycle - the resolver always unassigns itself
+   once it's done with a ticket (see resolver-prompt.md), specifically
+   because Halo's API-user account doesn't show up in a normal
+   licensed-user list, so a ticket left assigned to it is effectively
+   invisible in the Help Desk ticket list a human actually looks at. The
+   "Distinguish a fresh ticket from a re-check" section below tells you how
+   to tell these two kinds apart. This is page 1 only (most recent 15
    unassigned tickets account-wide) - an unassigned ticket that's been
    sitting untouched long enough to fall past page 1 is a real but slower-
    moving gap than the one this fix targets; not worth a full paged sweep
    every 15 minutes.
-2. **Already mine:** `{ open_only: true, agent_id: {{AGENT_ID}},
-   pageinate: true, page_no: 1, page_size: 15 }`. Unlike the unassigned
-   call, **do not stop at page 1 here.** Check the response's `record_count`
-   - if it's more than 15 (more than fit on one page), keep calling with
-   `page_no: 2`, `3`, ... until you've seen every ticket currently assigned
-   to you, regardless of how old or quiet any of them are. This is the one
-   that must never silently truncate: a ticket handed to you and then gone
-   quiet for a while is exactly the failure this two-call design exists to
-   catch, and in practice this set should be small (a handful of tickets at
-   most), so paging through all of it costs almost nothing.
+2. **Stuck-claimed (recovery only):** `{ open_only: true,
+   agent_id: {{AGENT_ID}}, pageinate: true, page_no: 1, page_size: 15 }`.
+   Under normal operation this should come back empty - the resolver always
+   unassigns itself when it finishes a ticket, so a ticket still assigned to
+   `config.halo.agent_username` here means a prior cycle's final unassign
+   write never landed: it crashed or threw before reaching that call, or
+   Halo's own triage-swallow bug (see "Halo's own ticket-triage" in
+   resolver-prompt.md) ate the agent_id part of an otherwise-successful
+   write. Don't stop at page 1 here - check the response's `record_count`
+   and keep calling `page_no: 2`, `3`, ... until you've seen everything
+   currently assigned to you, however old or quiet. This one must never
+   silently truncate: a ticket stuck showing as yours is invisible to a
+   human exactly the way this whole design exists to prevent, so missing
+   one here defeats the purpose. In practice this set should normally be
+   empty or a single ticket, so paging through it costs almost nothing.
 
 From the combined results of both calls, keep only tickets whose `team_id`
 matches the Help Desk team_id given above - `agent_id` filtering alone spans
@@ -88,39 +102,46 @@ the exclusion is about what happens *after* that: it never becomes a
 candidate, is never tiered, and the resolver (with its much deeper
 investigation and every downstream tool) never sees it at all.
 
-## Drop already-claimed tickets with nothing new to act on
+## Distinguish a fresh ticket from a re-check
 
-A ticket already assigned to `config.halo.agent_username` was claimed by a
-prior cycle - it's already been investigated and replied to, and is now
-sitting on "waiting on client" or similar. Sending it to the resolver again
-is only worth the cost if the client has actually said something new since
-our last reply or internal note; if they haven't replied yet, nothing has
-changed and a full re-investigation is pure waste, repeated every cycle
-until they respond.
+Every candidate from the **Unassigned** call above needs one cheap check
+before you decide it's a genuinely fresh, first-pass ticket - since that
+same call also returns tickets the bot already investigated and replied to
+in an earlier cycle and then correctly unassigned (see above). Sending an
+already-worked ticket to the resolver again as if it were new is only worth
+the cost if the client has actually said something new since our last
+reply or internal note; if they haven't, nothing has changed and a full
+re-investigation is pure waste, repeated every cycle until they respond.
 
-So for each candidate already assigned to you (not the unassigned ones -
-those always need first-pass handling), call `mcp__Halo__get_ticket_time_entries`
+So for each **Unassigned** candidate, call `mcp__Halo__get_ticket_time_entries`
 to look at the actual action log. This is the one exception to the
-no-per-ticket-lookup rule above - it's bounded to just this already-mine
-subset, typically a handful of tickets at most, not the whole list. Use
-this tool rather than `mcp__Halo__get_ticket` for this check specifically:
-`get_ticket` has no field that distinguishes a client-facing reply from an
-internal-only note or tells you who is on which side of a given entry -
-only the action log's `hiddenfromuser` flag (`false` = public/client-facing,
-`true` = private/internal-only) actually answers "did the client see
-something new, or did we just talk to ourselves?"
+no-per-ticket-lookup rule above - it's bounded to this one page-1 list (at
+most 15 tickets), not the whole account. Use this tool rather than
+`mcp__Halo__get_ticket` for this check specifically: `get_ticket` has no
+field that distinguishes a client-facing reply from an internal-only note
+or tells you who is on which side of a given entry - only the action log's
+`hiddenfromuser` flag (`false` = public/client-facing, `true` =
+private/internal-only) actually answers "did the client see something new,
+or did we just talk to ourselves?"
 
-Read the log entries in time order and find the most recent substantive
-one (skip pure system noise like `SLA Hold`/`Rule Applied`). Drop the
-ticket from the candidate list entirely only if that most recent entry is
-already a public, client-facing note or reply from us with nothing after
-it - that means the client has been told where things stand and hasn't
-answered yet, so nothing has changed. Include it in three cases instead:
+If the log is empty, or has nothing beyond routine system noise (`SLA
+Hold`, `Rule Applied`), this is a genuinely fresh ticket - include it as a
+normal first-pass candidate, no further check needed.
+
+Otherwise, someone (the bot in an earlier cycle, or a human colleague) has
+already worked this ticket. Read the log in time order and find the most
+recent substantive entry. Drop the ticket from the candidate list entirely
+only if that entry is already a public, client-facing note or reply from us
+with nothing after it - that means the client has been told where things
+stand and hasn't answered yet, so nothing has changed. Include it instead,
+as a candidate for a fresh look (not a silent drop), in three cases:
 
 - the client has posted something since our last note or reply (an entry
   from them, not from an agent);
-- for some reason it was never actually worked despite being assigned
-  (no substantive entry at all since assignment); or
+- there's substantive prior activity but it stalled before a reply ever
+  went out (e.g. a before-hours draft note with no client-facing reply sent
+  yet - see resolver-prompt.md's "Outside business hours, NOT an
+  emergency"); or
 - the most recent substantive entry is a **private** note (`hiddenfromuser:
   true`) describing real work done on the ticket - whether that note was
   written by the bot in an earlier cycle or by a human colleague who did
@@ -128,6 +149,11 @@ answered yet, so nothing has changed. Include it in three cases instead:
   reply sent since. A private note is never a substitute for telling the
   client something; if nobody has actually told them yet, this ticket
   still needs the resolver to close that loop.
+
+Every candidate from the **Stuck-claimed** call is included regardless of
+what its action log shows - that bucket existing at all means something
+already went wrong last cycle, so it always needs a look, never a silent
+drop.
 
 ## Classify each candidate into exactly one tier
 

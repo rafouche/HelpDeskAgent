@@ -86,9 +86,28 @@ sentinel is `agent_id: 1`, not `0` or blank - Halo has a real agent record
 named "Unassigned" (`is_agent: false`) whose id is `1`. If the ticket's
 `agent_id` is `1`, it's unassigned: assign it to yourself
 (`mcp__Halo__update_ticket` with your resolved `agent_id`) before doing
-anything else, so it's visibly claimed. If it's already assigned to you (a prior
-cycle picked it up and it's still being worked across multiple ticket replies), no
-reassignment needed. **This claim call can silently fail to actually land on a
+anything else, so it's visibly claimed while you're actually working it.
+This assignment is deliberately temporary - every path below ends by
+unassigning yourself again (`agent_id: 1`), because Halo's API-user account
+doesn't appear in a normal licensed-user list, so a ticket left assigned to
+it is effectively invisible in the Help Desk ticket list a human looks at.
+Stay assigned to yourself only for the duration of this one pass, never
+across cycles.
+
+**If it's already assigned to you when you fetch it, something went wrong
+last time - treat this as a recovery, not a normal continuation.** Every
+pass is supposed to end unassigned, so a ticket still showing as yours means
+a prior cycle's final unassign write never landed: it crashed or threw
+before reaching that call, or Halo's own triage-swallow bug (see "Halo's own
+ticket-triage" below) ate the `agent_id` part of an otherwise-successful
+write. Before doing anything else, pull its notes/actions
+(`mcp__Halo__get_ticket_time_entries`) and check its current status so you
+understand what was actually completed last time rather than assuming -
+then finish whatever's missing (a reply that never went out, a status that
+never changed) and make sure this pass still ends with a proper unassign,
+the same as any other ticket.
+
+**This claim call can silently fail to actually land on a
 ticket Halo hasn't triaged yet - see "Halo's own ticket-triage" below, and
 verify it before proceeding as if you've claimed it.**
 
@@ -391,7 +410,13 @@ simulated - only add to it, and only mark your addition itself as unverified.
 language explaining what you found and did. Set status to Resolved (config's
 `resolved_status_name`) if you're confident it's fixed, or Waiting on client
 (`waiting_on_client_status_name`) if they need to confirm something. Log a brief
-internal note with the technical detail for the record.
+internal note with the technical detail for the record. In that same
+`update_ticket` call, unassign yourself (`agent_id: 1` - Halo's real
+"Unassigned" placeholder, not `0`) - per "Claim the ticket" above, don't stay
+assigned once this pass is done. If the client replies again later, the
+classifier's "Unassigned" pass and its "Distinguish a fresh ticket from a
+re-check" step (see classifier-prompt.md) will find it and bring it back as
+a candidate - you don't need to stay assigned to track that yourself.
 
 **Business hours, NOT EASY (or frustrated):** If frustration is present, or you're
 genuinely out of distinct ideas (see "Trying more than one fix before escalating"
@@ -409,8 +434,9 @@ frustrated, try it instead of escalating rather than jumping straight to a human
 a plain-language suggested step for the client to try themselves is always fine;
 anything that means you taking an action yourself still must be in the config
 remediation whitelist with its "requires" condition met - same rule as anywhere
-else. Reply with the step, log the attempt as an internal note, and set status to
-`waiting_on_client_status_name`.
+else. Reply with the step, log the attempt as an internal note, set status to
+`waiting_on_client_status_name`, and unassign yourself (`agent_id: 1`) in that
+same call - same reasoning as the EASY case above.
 
 **Outside business hours, NOT an emergency:** Per the service plan, live responses
 are business-hours only - do not send an external reply. Still investigate quietly.
@@ -418,7 +444,15 @@ If EASY and a whitelisted low-risk action (e.g. an account unlock) would clearly
 and waiting until morning would make things worse, you may still apply it - otherwise
 hold. Add an internal-only note with your findings and a ready-to-send draft reply so
 the morning tech can review and send quickly. Don't change status in a way that
-implies the client was already contacted.
+implies the client was already contacted, and unassign yourself (`agent_id: 1`)
+in that same call - this ticket needs to be visible and pickable in the normal
+Help Desk queue by morning, not sitting invisible under the bot's own account.
+Leaving it unassigned doesn't mean it gets re-investigated from scratch every
+cycle between now and morning: the classifier's "Distinguish a fresh ticket
+from a re-check" step (see classifier-prompt.md) finds the draft note you just
+left with no client-facing reply after it and brings it back as a candidate
+each cycle without wasting a fresh investigation on it, until either the
+client says something new or a human acts on it.
 
 **Outside business hours, EMERGENCY:** Err toward treating a plausible outage as an
 emergency rather than making the client wait to find out. Send one brief

@@ -231,19 +231,25 @@ status to approved on a later cycle. Design decisions worth recording:
 - **The two-phase note protocol is plain-text, not a structured API.** A
   first-pass draft note is a private note starting with the literal line
   `[DRAFT PENDING APPROVAL]`, followed by the exact reply text, then
-  `[INTENDED STATUS] <name>`, `[INTENDED ASSIGNMENT] keep|unassign`, and
-  `[INTENDED REMEDIATION] none|<description>` lines - the only channel
-  connecting the two resolver calls (first-pass and approval-pass) is this
-  note's text, since they're separate `claude -p` sessions with no shared
-  memory. The approval-pass resolver is told to stop and flag rather than
-  guess if it finds zero or more than one such note, or can't tell exactly
-  what a recorded remediation action meant.
+  `[INTENDED STATUS] <name>` and `[INTENDED REMEDIATION] none|<description>`
+  lines - the only channel connecting the two resolver calls (first-pass and
+  approval-pass) is this note's text, since they're separate `claude -p`
+  sessions with no shared memory. The approval-pass resolver is told to stop
+  and flag rather than guess if it finds zero or more than one such note, or
+  can't tell exactly what a recorded remediation action meant.
+  **UPDATE (v2.10.5) - there used to be an `[INTENDED ASSIGNMENT]
+  keep|unassign` line here too; it's gone.** See the entry below - the
+  approval-pass now always unassigns, so there's nothing left for that line
+  to record.
 - **`classifier-prompt.md`/`resolver-prompt.md` themselves are unchanged.**
   The whole feature is an "approval banner" built at runtime in
   `Invoke-HaloResponseAgent.ps1` from Stage 0's resolved IDs and prepended to
   each prompt only when `-RequireApproval` is passed - same pattern as the
   existing `-WhatIf` simulation banner. A run without the switch sends the
   exact same prompt bytes as before this version existed.
+  **UPDATE (v2.10.5) - no longer true.** Both documents now have their own
+  always-unassign end-state instructions that apply regardless of
+  `-RequireApproval`; see the entry below.
 
 **Cross-client fix history + Hudu documentation.** Before diagnosing anything
 non-trivial, the agent searches past tickets *org-wide* (`mcp__Halo__list_tickets`
@@ -455,6 +461,52 @@ FLOW B approval-banner text gained an explicit exception for this, mirroring
 the existing EMERGENCY-acknowledgment one: create/relink a verified contact
 for real, immediately, whatever tier the ticket is - only the client-facing
 reply and any remediation action still go through the draft-and-wait flow.
+
+**The bot always unassigns itself when it's done with a ticket - cross-cycle
+tracking no longer depends on staying assigned (v2.10.5, real incident,
+inverts a design decision that dated back to v1).** Ticket #21702, run again
+after v2.10.4's create_contact fix, worked correctly end to end - but ended
+up assigned to the bot's own agent, and since Halo's API-user account
+doesn't appear in a normal licensed-user list, the ticket became effectively
+invisible in the Help Desk ticket list Roger actually looks at. Root cause:
+FLOW A step 7 (the approval-mode send-for-real step) left Resolved/Waiting-
+on-client tickets assigned to the bot on purpose, via an
+`[INTENDED ASSIGNMENT] keep` marker written by FLOW B's draft - and that
+same "stay assigned to track it" design wasn't approval-mode-specific at
+all: every non-approval-mode Resolved/Waiting-on-client ticket had been
+doing the exact same thing since before `-RequireApproval` existed, via
+resolver-prompt.md's own end-state instructions. It just took an
+approval-mode run to surface it, because that's the run Roger happened to
+be watching closely enough to notice a ticket disappear.
+Roger's own framing, and the one now implemented: only stay assigned to
+yourself for as long as you're actively working the ticket and sending
+responses; once a pass is done, always unassign, no exceptions, regardless
+of outcome or which status the ticket landed on. That breaks the original
+tracking mechanism (agent_id as the signal for "the bot already handled
+this and is waiting on the client") - Roger flagged this tension himself
+("not sure how you will cache or track the tickets you've worked on at that
+point") rather than assuming it away.
+The replacement tracking mechanism reuses a pattern already proven
+elsewhere in this same file: `-RequireApproval`'s own `ai_approved_status_name`
+tickets were already being found via status, sitting unassigned
+(`agent_id: 1`), inside the classifier's ordinary "Unassigned" query - no
+separate agent-based bucket needed for those. Generalizing that: the
+classifier's "Unassigned" call (`agent_id: 1`, page 1/15) now doubles as the
+re-check pool for every outcome, not just approval-mode ones. A new
+"Distinguish a fresh ticket from a re-check" step calls
+`get_ticket_time_entries` on every candidate in that page (bounded to 15
+tickets/cycle, the same cost the old "already mine" bucket used to pay for
+its own smaller set) and skips any where the bot's own last note is still
+the most recent entry with nothing new from the client since. The old
+"Already mine" call (`agent_id: {{AGENT_ID}}`, fully paged) isn't removed -
+it's repurposed as a stuck-claimed recovery check. It should come back
+empty under normal operation now; a hit means a prior cycle's final
+unassign write never landed (crashed, threw, or Halo's own triage-swallow
+bug ate it), and resolver-prompt.md's "Claim the ticket" section now treats
+that explicitly as a recovery case - verify what was actually completed
+before finishing the job and unassigning properly - rather than assuming
+it's a normal multi-reply conversation still in progress, which is what it
+would have meant under the old design.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

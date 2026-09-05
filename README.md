@@ -323,9 +323,14 @@ in Halo. No ID lookup needed — the agent resolves it itself.
 **To change who the agent works as in Halo**, edit `halo.agent_username` to the exact
 name of the Halo user account (rename the existing temporary account, or create a new
 one and update this to match — either way, nothing else needs to change). The agent
-claims unassigned Help Desk tickets under this name and picks back up anything already
-assigned to it; on escalation it unassigns itself and hands the ticket back to the
-Help Desk team, unassigned, for a human to pick up.
+claims an unassigned Help Desk ticket under this name only for as long as it's
+actively working it, and always unassigns itself again once it's done — whether
+it resolved the ticket, is waiting on the client, or is handing it back to a
+human — so it never sits showing as owned by an account that doesn't even
+appear in Halo's normal licensed-user list. A ticket still assigned to this
+account on a later run means something went wrong last time (a crash, or Halo's
+own triage-swallow quirk eating part of a write) and needs a look, not that it's
+still being worked normally.
 
 ## Adding a new system (e.g. 3CX later)
 The whole point of the split between `config.json` (day-to-day) and the static
