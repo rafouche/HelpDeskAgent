@@ -18,10 +18,30 @@
     HTTPS, no git, no authentication needed for a public repo) and compares
     its hash against the local copy, replacing only the files that actually
     changed. $FilesToSync is deliberately a specific, minimal list - only
-    what's needed to run this project (config, prompts, scripts) - not the
-    whole repository, so documentation files (README.md, CLAUDE.md) and repo
-    metadata (.gitignore) never land in this folder. Update this list by
-    hand if a new required file is added to the project.
+    the program files (scripts, prompts) - not the whole repository, so
+    documentation files (README.md, CLAUDE.md) and repo metadata
+    (.gitignore) never land in this folder. Update this list by hand if a
+    new required file is added to the project.
+
+    config.json is deliberately NOT in this list and must never be added to
+    it. It's explicitly a per-deployment file - README tells every new
+    deployment to fill in on_call.primary.email/text_email and review
+    remediation_whitelist by hand, and those edits only ever exist on this
+    server, never in the repo. A real incident confirmed exactly this risk:
+    an earlier version of this script did sync config.json, and the very
+    first update cycle silently overwrote a live on_call.primary.email with
+    the repo's still-placeholder value, with no backup and no way to tell
+    it had happened until on-call escalation broke. If you ever want
+    config.json changes to ship automatically, that needs a real design
+    (e.g. a separate template file merged with local overrides) - never
+    just adding it back to this list.
+
+    Every file this script DOES touch is still backed up before being
+    overwritten (to <file>.bak-<timestamp>, next to the original) precisely
+    because of that incident - even for files that are supposed to be kept
+    in sync, a silent, unrecoverable overwrite is worse than a little disk
+    clutter. Old backups are not cleaned up automatically; delete them by
+    hand once you're confident you don't need them.
 
     Invoke-HaloResponseAgent.ps1 re-reads every file fresh on each scheduled
     firing - it's not a long-running process with anything cached in memory
@@ -62,12 +82,18 @@ param(
     [string]$Branch = "main"
 )
 
-# Deliberately minimal - only what's needed to run this project. Update by
-# hand if a new required file is added; do NOT change this to "everything in
-# the repo" - README.md/CLAUDE.md/.gitignore are documentation/repo
-# metadata, not part of the deployed program, and should never land here.
+# Deliberately minimal - only the program files this project needs to run.
+# Update by hand if a new required file is added; do NOT change this to
+# "everything in the repo" - README.md/CLAUDE.md/.gitignore are
+# documentation/repo metadata, not part of the deployed program, and should
+# never land here.
+#
+# config.json is deliberately NOT here and must never be added - see the
+# long comment in the header above. It's a per-deployment file (on-call
+# contacts, remediation whitelist) that only ever exists correctly on this
+# server, never in the repo - a real incident confirmed that syncing it
+# silently overwrites live settings with the repo's placeholder values.
 $filesToSync = @(
-    "config.json",
     "id-resolver-prompt.md",
     "classifier-prompt.md",
     "resolver-prompt.md",
@@ -115,6 +141,14 @@ foreach ($file in $filesToSync) {
     }
 
     if ($isDifferent) {
+        if (-not $isNew) {
+            # Back up whatever was there before overwriting it. Cheap
+            # insurance - the config.json incident that prompted this exists
+            # precisely because a prior version of this script overwrote a
+            # live file with no way to get the old content back.
+            $backupPath = "$localPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item -Path $localPath -Destination $backupPath -Force
+        }
         Move-Item -Path $tempPath -Destination $localPath -Force
         $changedFiles += $file
     }

@@ -58,11 +58,11 @@ the full rationale.
   re-typing every `claude mcp add` command by hand. Only for connectors that
   need no further interactive auth.
 - `Update-HaloResponseAgent.ps1` — fetches a specific, minimal list of files
-  (config + prompts + every `.ps1` - not `README.md`/`CLAUDE.md`) directly
-  from GitHub over plain HTTPS, replacing only the ones that changed; logs
-  only when something actually changed (or failed), and runs
-  `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a real
-  update.
+  (prompts + every `.ps1` - deliberately never `config.json`, and not
+  `README.md`/`CLAUDE.md`) directly from GitHub over plain HTTPS, backing up
+  and replacing only the ones that changed; logs only when something
+  actually changed (or failed), and runs `Invoke-HaloResponseAgent.ps1
+  -DryRun` once as a smoke test after a real update.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
@@ -344,17 +344,29 @@ assumed a git working copy and needed git installed and visible to `SYSTEM`
 than once, before the root assumption itself was corrected rather than
 patched again.
 `Update-HaloResponseAgent.ps1` now fetches a specific, minimal file list
-(`config.json`, the three prompts, every `.ps1` - deliberately not
-`README.md`/`CLAUDE.md`, which are documentation, not part of the deployed
-program) directly from `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>`,
+(the three prompts, every `.ps1` - deliberately not `README.md`/`CLAUDE.md`,
+which are documentation, not part of the deployed program) directly from
+`https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>`,
 compares each one's hash against the local copy, and replaces only what
-changed - no git, no authentication needed for a public repo. Logs only
-when something actually changed or failed (same cost-conscious-logging
-reasoning as this pipeline's own logs), and runs
-`Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a real
-update so a broken push is visible immediately rather than discovered only
-when the next real cycle fails - a smoke test, not a rollback: the new code
-stays in place either way.
+changed, backing up the previous version first - no git, no authentication
+needed for a public repo. Logs only when something actually changed or
+failed (same cost-conscious-logging reasoning as this pipeline's own logs),
+and runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
+real update so a broken push is visible immediately rather than discovered
+only when the next real cycle fails - a smoke test, not a rollback: the new
+code stays in place either way.
+**`config.json` is deliberately excluded from that list (v2.10.1, found via
+a real incident) - never add it back.** An earlier version of this list did
+include it, and the very first real update cycle silently overwrote a live
+`on_call.primary.email` with the repo's still-placeholder value - no
+backup existed yet either, so it wasn't even recoverable. `config.json` is
+explicitly a per-deployment file (README has every new deployment fill in
+`on_call`/`remediation_whitelist` by hand); those edits only ever exist on
+that one server, never in the repo, so syncing it is never safe regardless
+of what the repo's own copy currently contains. Every file this script does
+sync now gets backed up before being overwritten for exactly this reason -
+even a file that's supposed to stay in sync shouldn't be unrecoverable if
+something ever goes wrong with a specific update.
 Still its own script and its own scheduled task
 (`Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`), not folded into
 `Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check

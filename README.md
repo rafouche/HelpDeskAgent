@@ -144,17 +144,28 @@ needed.
 
 `Update-HaloResponseAgent.ps1` automates exactly that, on its own schedule
 (via `Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`, step 8 above):
-it downloads a specific, minimal list of files - `config.json`, the three
-prompts, and every `.ps1` file; deliberately *not* `README.md`/`CLAUDE.md`,
-which are documentation, not part of the deployed program - directly from
+it downloads a specific, minimal list of files - the three prompts and
+every `.ps1` file; deliberately *not* `README.md`/`CLAUDE.md`, which are
+documentation, not part of the deployed program - directly from
 `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>` over
 plain HTTPS (no authentication needed, this is a public repo), compares
 each one's hash against the local copy, and replaces only the ones that
-changed. Only when something actually changed does it log which files
+changed, backing up whatever was there before to `<file>.bak-<timestamp>`
+first. Only when something actually changed does it log which files
 updated to `logs\update-<date>.log`. It also runs
 `Invoke-HaloResponseAgent.ps1 -DryRun` once after a real update as a smoke
 test (no Halo calls, no API cost) so a broken push is visible in that log
 immediately rather than silently discovered when the next real cycle fails.
+
+**`config.json` is never touched by this, on purpose - confirmed the hard
+way.** It's explicitly a per-deployment file (this README tells you to fill
+in `on_call.primary.email`/`text_email` and review `remediation_whitelist`
+by hand), and those edits only ever exist on this server, never in the
+repo. An earlier version of this script did sync `config.json`, and the
+very first update cycle silently overwrote a live `on_call.primary.email`
+with the repo's still-placeholder value - no backup, no warning, discovered
+only when on-call escalation broke. Never add `config.json` back to that
+file list.
 It's a smoke test, not a rollback - if it fails, the new code is still left
 in place and still runs next cycle; the log is what tells a human to go
 look. A download failure for one file logs an error and leaves that file

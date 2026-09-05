@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.1 - real incident: v2.10.0's Update-HaloResponseAgent.ps1
+    included config.json in its synced file list, and the very first real
+    update cycle silently overwrote a live on_call.primary.email with the
+    repo's still-placeholder value ("REPLACE_ME@altecusa.com") - no backup,
+    no warning, discovered only when on-call escalation broke. config.json
+    is explicitly a per-deployment file (README has every deployment fill
+    in on_call/remediation_whitelist by hand) whose real values only ever
+    exist on that one server, never in the repo - syncing it is never safe
+    regardless of what the repo's own copy contains, and it's removed from
+    $filesToSync for good. Every file the script does still sync now gets
+    backed up (to <file>.bak-<timestamp>) before being overwritten, so even
+    a file that's supposed to stay in sync can't become unrecoverable the
+    way config.json just did.
     Version: 2.10.0 - dropped git entirely. v2.9.9's fix was still built on
     a wrong root assumption, stated directly: this deployment has never
     been a git clone - files get onto the server by downloading them
