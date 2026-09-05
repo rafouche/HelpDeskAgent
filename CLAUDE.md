@@ -516,13 +516,23 @@ action and the client never got it - confirmed by pulling the ticket's own
 action log directly rather than assuming. Per Roger's own domain knowledge
 running Halo day to day: a private note never emails the client, by
 definition, so from his side this was indistinguishable from "the bot
-never sent it" regardless of what the `note_is_private` flag said. See the
-"Known gaps and future work" entry above for the full detail, including the
-explicit caveat that this assumes a `send_email` parameter is added to
-`halopsa-mcp`'s `update_ticket` tool - a companion fix Roger is making
-separately in that repo's own session, not confirmed against the real
-updated schema the way this project normally insists on. Every place in
-this codebase that sends a real reply (resolver-prompt.md's new "Sending a
+never sent it" regardless of what the `note_is_private` flag said.
+Root cause confirmed directly, not assumed: `mcp__Halo__list_outcomes`
+against the live tenant showed `update_ticket` was hardcoding
+`outcome_id: 7` ("Private Note") for every note, and that outcome has
+`hidesendemail: true` in HaloPSA - it can never trigger an email regardless
+of `hiddenfromuser`. Outcome `16` ("Email User") has `hidesendemail: false`
+and `sendemail: 1` - it's the one that actually emails the ticket's
+contact. Read and fixed directly in `halopsa-mcp`'s own source
+(`rafouche/MCPs`, commit `37143c8`): `update_ticket` now accepts
+`send_email: true` to use outcome 16 instead of 7 (and forces
+`hiddenfromuser` false when it's set, since emailing a note the client
+can't see in the portal isn't coherent). That commit is made but not yet
+pushed/deployed to Cloudflare - Roger is handling the push and live deploy
+himself from his own session on that repo. See the "Known gaps and future
+work" entry above for the deploy-status caveat: `send_email: true` is a
+no-op against the live tool until that deploy lands. Every place in this
+codebase that sends a real reply (resolver-prompt.md's new "Sending a
 real, client-facing reply" section, FLOW A step 5) now pairs
 `note_is_private: false` with `send_email: true`; every place that stays
 private (FLOW B's draft note, internal findings notes) explicitly leaves
@@ -699,25 +709,34 @@ Found by directly querying the live Halo instance (`list_ticket_types`,
 assuming from config.json alone:
 
 - **`note_is_private: false` alone does not email the client - a real
-  incident on ticket #21702 confirmed this the hard way (v2.10.6).** The
-  resolver posted a real, approved reply with `note_is_private: false` and
-  the call landed successfully, but Halo recorded it as a "Private Note"-
-  type action and the client never received anything - `note_is_private`
-  only controls whether a note is flagged internal-only, it isn't what
-  triggers Halo's outbound email. This pipeline now always pairs
-  `note_is_private: false` with a new `send_email: true` parameter on any
-  `update_ticket` call meant to actually reach the client (see
+  incident on ticket #21702 confirmed this the hard way, and the root cause
+  was tracked down and fixed at the source (v2.10.6).** The resolver posted
+  a real, approved reply with `note_is_private: false` and the call landed
+  successfully, but Halo recorded it as a "Private Note"-type action and
+  the client never received anything. Root cause, confirmed directly
+  against the live tenant (`mcp__Halo__list_outcomes`), not assumed:
+  `halopsa-mcp`'s `update_ticket` hardcoded `outcome_id: 7` ("Private
+  Note") for every note it created, and that outcome has
+  `hidesendemail: true` in HaloPSA - it can never trigger an email
+  regardless of `hiddenfromuser`. Outcome `16` ("Email User") has
+  `hidesendemail: false` and `sendemail: 1` - it's the one that actually
+  emails the ticket's contact.
+  Fixed directly in `halopsa-mcp`'s own source (`rafouche/MCPs`, commit
+  `37143c8`, type-checked clean): `update_ticket` now accepts a
+  `send_email: true` parameter that selects outcome 16 instead of 7 (and
+  forces `hiddenfromuser` false when set - emailing a note the client can't
+  see in the portal isn't coherent). Existing callers that don't pass
+  `send_email` keep the exact prior behavior, so this is additive, not a
+  breaking change. **That commit exists but is not yet pushed or deployed
+  to Cloudflare** - Roger is handling the push and live deploy himself from
+  his own session on that repo ("I'll push the MCP in the other chat
+  controlling the MCPs"), so `send_email: true` is a no-op against the live
+  tool until he does. This pipeline pairs `note_is_private: false` with
+  `send_email: true` on every real client-facing reply (see
   resolver-prompt.md's "Sending a real, client-facing reply" section and
-  Invoke-HaloResponseAgent.ps1's FLOW A step 5). **This assumes
-  `halopsa-mcp`'s `update_ticket` tool gains a `send_email` parameter that
-  reliably triggers HaloPSA's real outbound email to the ticket's contact
-  when true** - that MCP-side change is being made separately (Roger's own
-  words: "I'll push the MCP fix in the other chat controlling the MCPs"),
-  not in this repo. If the real fix ends up using a different parameter
-  name or mechanism than `send_email`, every place listed above needs to be
-  updated to match - this was deliberately assumed ahead of that fix
-  landing, not confirmed against the updated `halopsa-mcp` schema the way
-  this project normally insists on.
+  Invoke-HaloResponseAgent.ps1's FLOW A step 5) - confirm against the live
+  tool schema once the deploy lands, the same way every other Halo-tool
+  fact in this project gets confirmed directly.
 - **`compliance.excluded_client_names` (v2.9.0) cannot stop the classifier's
   unassigned/mine `list_tickets` calls from seeing an excluded client's ticket
   subject/summary line every cycle** - confirmed directly against HaloPSA's

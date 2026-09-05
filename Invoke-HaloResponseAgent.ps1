@@ -89,15 +89,23 @@
     approval-mode send-for-real step) was updated to match. Anything meant
     to stay private (FLOW B's draft note, internal findings notes) is
     unaffected - send_email stays unset/false there.
-    IMPORTANT CAVEAT, not glossed over: this assumes halopsa-mcp's
-    update_ticket tool gains a send_email parameter that reliably triggers
-    HaloPSA's real outbound email - that MCP-side change is being made
-    separately, not in this repo (see CLAUDE.md's "Known gaps and future
-    work" for the full caveat). If the real fix lands under a different
-    parameter name or mechanism, every reference to send_email above needs
-    to be updated to match before this actually works - confirm against
-    the real, updated tool schema once that fix ships, the same way every
-    other Halo-tool-schema fact in this project has been confirmed
+    UPDATE, same day: the send_email dependency is no longer just an
+    assumption - confirmed directly against this tenant's real Outcome list
+    (mcp__Halo__list_outcomes) and fixed at the source. update_ticket was
+    hardcoding outcome_id: 7 ("Private Note") for every note it created,
+    and that outcome has hidesendemail: true in HaloPSA - it can never
+    email the client regardless of hiddenfromuser. Outcome 16 ("Email
+    User") has hidesendemail: false and sendemail: 1 - it's the one that
+    actually emails the ticket's contact. halopsa-mcp's update_ticket now
+    accepts send_email: true to use outcome 16 instead of 7, confirmed by
+    reading and fixing the real halopsa-mcp source (rafouche/MCPs, commit
+    37143c8) directly, not guessed. That fix is committed but not yet
+    pushed/deployed to Cloudflare - Roger is handling that push and the
+    live deploy from his own session on that repo. Until it's deployed,
+    send_email: true is a no-op against the live tool (the parameter isn't
+    in the schema Halo's MCP server actually serves yet) - re-confirm
+    against the deployed tool schema once he's pushed it, the same way
+    every other Halo-tool-schema fact in this project gets confirmed
     directly rather than assumed.
     Version: 2.10.5 - real incident: ticket #21702, run again after v2.10.4,
     worked correctly but ended up assigned to the bot's own agent - and
