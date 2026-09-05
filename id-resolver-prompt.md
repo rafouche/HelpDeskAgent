@@ -2,8 +2,10 @@
 
 Your only job this run is to resolve a handful of fixed Halo names from config.json
 into their numeric IDs, once, so the classifier and resolver stages that run after
-you don't each have to do it again for every ticket. You don't look at any ticket
-at all - this is pure name-to-ID lookup, nothing else.
+you don't each have to do it again for every ticket. You don't investigate any
+ticket's content at all - this is pure ID lookup, not triage - though one specific
+fallback below (only when it's needed) does check a few recent tickets' action logs
+purely to find a numeric ID, nothing more.
 
 You have no code-execution tool - no Bash, no PowerShell, nothing that runs a
 script - and you don't need one; this is a handful of small, fixed-size lookups
@@ -28,17 +30,34 @@ plain names - resolve each to its Halo ID:
 
 - `halo.help_desk_team_name` -> call `mcp__Halo__list_teams` once, match by name
   (case-insensitive) -> `team_id`
-- `agent_id`: **check `halo.agent_id` in the config file first.** If it's present
-  and a real positive number, use it directly as `agent_id` - do NOT call
-  `mcp__Halo__list_agents` at all in this case, and do not attempt to verify it
-  against `halo.agent_username`. This exists because the account this pipeline
-  runs as can be an API-only integration user, and `mcp__Halo__list_agents`
-  does not return API-only users at all (confirmed directly against a real
-  tenant, not assumed) - there is no tool available that can resolve such an
-  account by name, so a pre-confirmed numeric ID is the only reliable source
-  for it. Only if `halo.agent_id` is blank, `0`, or absent, fall back to the
-  normal lookup: call `mcp__Halo__list_agents` once, match `halo.agent_username`
-  by name (case-insensitive) -> `agent_id`.
+- `halo.agent_username` -> call `mcp__Halo__list_agents` once, match by name
+  (case-insensitive) -> `agent_id`. If it matches, you're done with this field -
+  skip the fallback below entirely.
+
+  If it does NOT match anything returned, don't give up and don't set `agent_id`
+  to `null` yet - the account this pipeline runs as can be an API-only
+  integration user, and `mcp__Halo__list_agents` does not return API-only users
+  at all (confirmed directly against a real tenant, not assumed), so a genuinely
+  correct `agent_username` can still fail to match here. Fall back to finding
+  this account's ID from its own past work instead: call `mcp__Halo__list_tickets`
+  once with `count: 10` (most recently touched tickets - this pipeline runs
+  every 15 minutes, so recent tickets are very likely to include ones it has
+  already touched), then call `mcp__Halo__get_ticket_time_entries` on each
+  returned ticket's ID, one at a time in order, stopping the moment you find an
+  action entry whose `actionby_application_id` is exactly `"Claude"` - that
+  field is written by this same pipeline and nothing else, so it identifies
+  this account's ID reliably even when the account's Halo display name on that
+  action (the `who` field) doesn't match `agent_username` at all. (A real
+  incident found exactly this: an API-only account's actions logged under a
+  generic system username, not the display name configured for it - do not
+  require `who` to match `agent_username`, only `actionby_application_id` matters
+  here.) Use that action's `who_agentid` as `agent_id`. Stop checking further
+  tickets as soon as you find one match - don't keep going once you have it.
+  Only if you check all 10 recent tickets and find no action with
+  `actionby_application_id` equal to `"Claude"` on any of them (e.g. this is
+  the very first run and the pipeline has never touched a ticket yet) does
+  `agent_id` become `null`, same as any other field below that fails to
+  resolve.
 - `halo.resolved_status_name`, `halo.waiting_on_client_status_name`, and
   `halo.follow_up_status_name` -> call `mcp__Halo__list_statuses` ONCE and match
   all three names against that single response (case-insensitive) ->
@@ -78,12 +97,16 @@ data, meaningless without a name):
   its `name` (e.g. `"Alert"`). Include every type returned, not just ones you
   recognize - this is a lookup table, not a filtered list.
 
-That's 4 tool calls (one per list_* tool) normally, or 3 if `halo.agent_id`
-is set and `list_agents` gets skipped, plus one more -
+That's 4 tool calls (one per list_* tool) in the normal case, plus one more -
 `mcp__Halo__list_clients` - only if `compliance.excluded_client_names` is
-non-empty. Never call any of them more than once, and never call
-`mcp__Halo__get_ticket` or `mcp__Halo__list_tickets` at all, you have no need
-for ticket data here.
+non-empty. Never call `mcp__Halo__list_teams`, `list_agents`, `list_statuses`,
+`list_ticket_types`, or `list_clients` more than once each. The one exception
+to "never call `list_tickets`/`get_ticket_time_entries`" is the `agent_id`
+fallback above, when `agent_username` doesn't match anything in
+`list_agents` - that adds one `list_tickets` call plus up to 10
+`get_ticket_time_entries` calls (usually far fewer; you stop at the first
+match). Never call `mcp__Halo__get_ticket` at all, you have no need for full
+ticket bodies here.
 
 If a name doesn't match anything in the corresponding list, don't guess and don't
 omit it - set that specific field to `null` so the caller can see exactly which

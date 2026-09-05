@@ -73,31 +73,54 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
-    Version: 2.10.13 - real incident: ID resolution failed to match
-    agent_id on every run, aborting the cycle before the classifier or
-    resolver ever started. Root cause, confirmed directly against the live
-    tenant (not assumed): the account this pipeline runs as (Cynthia Hicks)
-    is an API-only integration user, not a licensed one, and
-    mcp__Halo__list_agents does not return API-only users at all - a real
-    ticket's own action log (get_ticket_time_entries) independently
-    confirmed her real agent_id is 17 by showing every automated action's
-    who_agentid as 17, an ID absent from a live list_agents call made in
-    this same session. Name-based resolution can never succeed for this
-    account, no matter what name.list_agents actually contains - there is
-    no tool available that resolves an API-only agent by name at all.
-    config.json's halo.agent_username had also drifted to a wrong value
-    ("Artie Fischel," matching nothing in Halo) independent of this
-    root cause - corrected back to "Cynthia Hicks."
-    Added halo.agent_id (config.json, set to 17): when present and a real
-    positive number, id-resolver-prompt.md uses it directly and skips
-    list_agents entirely for this field, immune to the account never
-    appearing there. Falls back to the original name-based list_agents
-    lookup when blank/0/absent, so a licensed agent account (one that
-    does show up in list_agents) needs no config change at all.
-    agent_id added to $currentHaloIdentity (the ID-resolution cache's
-    invalidation key) alongside agent_username, so changing it by itself
-    in the future correctly forces a fresh resolution instead of silently
-    keeping a stale cached value.
+    Version: 2.10.14 - two real incidents, both from the same overnight run.
+
+    First: the tracked-tickets cache (v2.10.9) silently failed to write on
+    every cycle where $trackedTicketIds ended up empty (the common case -
+    nothing currently waiting on a client) - "WARNING: could not write
+    tracked-tickets cache ... Cannot find path '...tracked-tickets.json.tmp'
+    because it does not exist." Root cause, reproduced directly: piping an
+    empty array into Select-Object -Unique produces zero pipeline objects,
+    so the downstream ConvertTo-Json | Set-Content never actually runs and
+    the .tmp file is never created - Move-Item then fails because its
+    source doesn't exist. Fixed by calling ConvertTo-Json -InputObject
+    explicitly instead of piping, which always passes exactly one array
+    (even an empty one) through, reliably emitting "[]".
+
+    Second, superseding v2.10.13 entirely: v2.10.13's halo.agent_id config
+    field (a human-entered numeric override for an API-only agent account
+    that mcp__Halo__list_agents can never return) was correctly pushed back
+    on - it broke this project's own standing design principle that every
+    halo.* field is a plain name the pipeline resolves and caches itself,
+    never a raw ID a human has to look up and paste in. It also turned out
+    config.json's halo.agent_username was never actually wrong - this
+    repo's own tracked config.json has said "Artie Fischel" since the
+    commit that first added it (confirmed via git log), but config.json was
+    deliberately dropped from auto-sync back in v2.10.1 specifically so a
+    live server's hand-edited copy is never overwritten by this repo's
+    template - the two were simply never the same file, and the live
+    account name has been correct all along. What actually changed was the
+    account's Halo-side license status, from licensed to API-only, which is
+    what broke name-based resolution for the first time.
+    id-resolver-prompt.md's agent_id resolution now tries
+    mcp__Halo__list_agents first as always, but when agent_username doesn't
+    match anything there, it falls back to finding the account's ID from
+    its own past ticket actions: mcp__Halo__list_tickets (count 10, most
+    recently touched) then mcp__Halo__get_ticket_time_entries on each,
+    stopping at the first action entry tagged actionby_application_id:
+    "Claude" - written by this same pipeline and nothing else - and reading
+    its who_agentid. That same investigation found the API-only account's
+    action-log entries show a generic display name ("halointegrator"), not
+    agent_username's configured value at all, so the fallback deliberately
+    does not require the log's "who" field to match - only
+    actionby_application_id is trusted. halo.agent_id was removed from
+    config.json and from $currentHaloIdentity (the ID-resolution cache's
+    invalidation key) along with this revert. This fallback only works once
+    the pipeline has touched at least one ticket under this account, and
+    costs up to 10 extra tool calls on the (id_cache_max_age_hours-gated,
+    so infrequent) cycles it actually runs - usually far fewer, since this
+    pipeline touches tickets every 15 minutes - a deliberate tradeoff of
+    some cost for never requiring a human to know a raw Halo ID.
     Version: 2.10.12 - real incident: v2.10.9's new warning line, "TICKET
     $ticketId: WARNING - ...", crashed the script outright on every run
     ("Variable reference is not valid. ':' was not followed by a valid
@@ -930,7 +953,15 @@ $idResolverTools = @(
     # instruction, not enforced here) - granted unconditionally since it's cheap
     # to have available and the alternative (conditionally building this array)
     # isn't worth the complexity for one more tool name.
-    "mcp__Halo__list_clients"
+    "mcp__Halo__list_clients",
+    # list_tickets/get_ticket_time_entries: only actually called when
+    # halo.agent_username doesn't match anything in list_agents (an API-only
+    # integration account, which list_agents can never return - confirmed live)
+    # - id-resolver-prompt.md's fallback then finds this account's ID from its
+    # own past ticket actions instead of requiring a human to look up and paste
+    # in a raw Halo ID. Granted unconditionally for the same reason as
+    # list_clients above.
+    "mcp__Halo__list_tickets", "mcp__Halo__get_ticket_time_entries"
 )
 
 # Classifier: read-only, just enough to find and skim candidate tickets. Never
@@ -1468,7 +1499,6 @@ try {
     $currentHaloIdentity = [PSCustomObject]@{
         help_desk_team_name              = $config.halo.help_desk_team_name
         agent_username                   = $config.halo.agent_username
-        agent_id                         = $config.halo.agent_id
         resolved_status_name             = $config.halo.resolved_status_name
         waiting_on_client_status_name    = $config.halo.waiting_on_client_status_name
         follow_up_status_name            = $config.halo.follow_up_status_name
@@ -2005,7 +2035,16 @@ finally {
     if (-not $WhatIf) {
         try {
             $tempTrackedPath = "$trackedTicketsPath.tmp"
-            @($trackedTicketIds | Select-Object -Unique) | ConvertTo-Json | Set-Content -Path $tempTrackedPath -Encoding UTF8
+            # -InputObject, not piped: piping an empty array into Select-Object
+            # produces zero pipeline objects, so ConvertTo-Json/Set-Content never
+            # runs at all and the .tmp file is never created - Move-Item then
+            # fails with "Cannot find path ... because it does not exist." This
+            # hits on the very common case of an empty tracked list (nothing
+            # currently waiting on a client), confirmed by reproducing it
+            # directly. -InputObject always passes exactly one array, even an
+            # empty one, so ConvertTo-Json reliably emits "[]".
+            $uniqueTrackedIds = @($trackedTicketIds | Select-Object -Unique)
+            ConvertTo-Json -InputObject $uniqueTrackedIds | Set-Content -Path $tempTrackedPath -Encoding UTF8
             Move-Item -Path $tempTrackedPath -Destination $trackedTicketsPath -Force
         }
         catch {

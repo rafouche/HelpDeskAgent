@@ -336,15 +336,16 @@ still being worked normally.
 
 **If this account is an API-only integration user rather than a licensed
 one** (confirmed for real: `mcp__Halo__list_agents` does not return API-only
-users at all, so name-based resolution can never succeed for one), also set
-`halo.agent_id` to its real numeric ID. When present, this pipeline uses it
-directly and skips the `list_agents` name lookup entirely for this field -
-`agent_username` still just needs to be a readable label at that point.
-Find the real ID from a ticket this account has actually worked (any of its
-actions in `mcp__Halo__get_ticket_time_entries`'s response shows its
-`who_agentid`) or from Halo's own admin UI - there's no tool that can look
-an API-only agent up by name. Leave `agent_id` blank/`0`/absent for a normal
-licensed agent account, which resolves by name exactly as before.
+users at all, so name-based resolution can never succeed for one), nothing
+extra needs to be set in `config.json` - the ID resolver automatically falls
+back to finding this account's ID from its own past ticket actions (any
+action it's taken shows its `who_agentid` in
+`mcp__Halo__get_ticket_time_entries`'s response, tagged
+`actionby_application_id: "Claude"`) instead of a plain name match. This
+only works once the pipeline has actually touched at least one ticket under
+this account; a brand-new API-only account with zero history yet won't
+resolve until it has a first real action to find (see id-resolver-prompt.md
+for exactly how this fallback searches).
 
 ## Adding a new system (e.g. 3CX later)
 The whole point of the split between `config.json` (day-to-day) and the static

@@ -730,30 +730,53 @@ BOM/encoding bug class they were built for (see the project's PowerShell
 conventions above), but were never a substitute for actually parsing the
 file and should not be treated as one going forward.
 
-**`halo.agent_id` lets an API-only agent account skip name resolution
-entirely - real incident (v2.10.13).** ID resolution failed to match
-`agent_id` on every run, aborting the cycle before the classifier or
-resolver ever started. Confirmed directly against the live tenant, not
-assumed: the account this pipeline runs as (Cynthia Hicks) is an API-only
-integration user, not a licensed one, and `mcp__Halo__list_agents` does not
-return API-only users at all - a real ticket's own action log
-(`get_ticket_time_entries`) independently confirmed her real `agent_id` is
-`17` (every automated action's `who_agentid`), an ID genuinely absent from
-a live `list_agents` call made in the same session. There is no tool
-available that resolves an API-only agent by name - name-based lookup can
-never succeed for this account no matter what name is configured.
-(`config.json`'s `agent_username` had also separately drifted to a wrong
-value - "Artie Fischel," matching nothing in Halo - corrected back to
-"Cynthia Hicks," but that was independent of the actual root cause.)
-`halo.agent_id` (optional, set to `17`) is the fix: when present and a real
-positive number, `id-resolver-prompt.md` uses it directly and skips
-`list_agents` entirely for this field, immune to the account never
-appearing there. Blank/`0`/absent falls back to the original name-based
-`list_agents` lookup, so a normal licensed agent account needs no config
-change at all. `agent_id` was also added to `$currentHaloIdentity` (the
-ID-resolution cache's invalidation key, alongside `agent_username`) so
-changing it by itself in the future correctly forces a fresh resolution
-instead of silently keeping a stale cached value.
+**API-only agent accounts resolve from their own ticket history, not a
+manual config field - real incident, two rounds (v2.10.13, superseded by
+v2.10.14).** ID resolution failed to match `agent_id` on every run,
+aborting the cycle before the classifier or resolver ever started.
+Confirmed directly against the live tenant, twice, in two separate
+sessions: the account this pipeline runs as is an API-only integration
+user, not a licensed one, and `mcp__Halo__list_agents` does not return
+API-only users at all - so a genuinely correct `agent_username` can still
+fail to match here, through no fault of config.json. (This repo's own
+tracked `config.json` showed "Artie Fischel" going into v2.10.13 - that's a
+stale template value, not evidence about the live server's config: `git
+log`-ing this file shows it's said "Artie Fischel" since the very first
+commit that added it, while `config.json` itself was deliberately dropped
+from auto-sync back in v2.10.1 specifically so a live server's hand-edited
+copy is never overwritten - the two were simply never the same file. The
+live account name really has been correct since it was set up; only its
+Halo-side license status changed, from licensed to API-only, which is what
+actually broke resolution.)
+
+v2.10.13's fix was `halo.agent_id`: an optional config field the human sets
+once to a real numeric ID (found from a real ticket's action log,
+`get_ticket_time_entries`'s `who_agentid`), used directly whenever present
+so `list_agents` never needs to see the account at all. This technically
+worked, but it broke this project's own standing design principle - every
+other `halo.*` field is a plain name the pipeline resolves and caches
+itself, precisely so a human never needs to know or paste in a raw Halo ID
+- and was correctly pushed back on for that reason. v2.10.14 replaces it:
+when `agent_username` doesn't match `list_agents`, `id-resolver-prompt.md`
+now falls back to scanning a handful of recently-touched tickets
+(`list_tickets`, count 10) via `get_ticket_time_entries`, looking for an
+action tagged `actionby_application_id: "Claude"` - written by this same
+pipeline and nothing else - and reading that action's `who_agentid`. This
+needed one more real-world correction along the way: that same ticket's
+action log showed the API-only account's display name in the log as
+`"halointegrator"`, not `agent_username`'s configured value at all - so the
+fallback deliberately does NOT require the log's `who` field to match
+`agent_username`; only `actionby_application_id` is trusted. `agent_id` was
+removed from `config.json` and from `$currentHaloIdentity` (the
+ID-resolution cache's invalidation key) along with this revert - there's
+nothing left to key on beyond `agent_username`, same as before v2.10.13.
+This fallback only works once the pipeline has touched at least one ticket
+under this account; a brand-new API-only account with zero history yet
+won't resolve until it has a first real action to find. It also costs more
+than the reverted static field on the (rare, `id_cache_max_age_hours`-gated)
+cycles it actually runs - up to 10 extra tool calls, usually far fewer since
+this pipeline touches tickets every 15 minutes - a deliberate tradeoff of
+some cost for never requiring a human to know a raw Halo ID.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
