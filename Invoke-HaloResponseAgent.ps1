@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.7 - fixed the exact risk v2.9.6 flagged but hadn't hit yet:
+    confirmed via a script run through NinjaRMM (executes as SYSTEM by
+    default, same as Task Scheduler) that git itself has the same
+    account-scoping gap already hit for claude, MCP registration, and
+    Claude Code's credentials - "'git' is not recognized..." despite
+    `git pull` working fine run interactively as an admin. Added
+    Add-GitToMachinePath.ps1: unlike the claude/npm fix, no reinstall
+    needed - Git for Windows' installer already puts git.exe in a
+    machine-wide folder (C:\Program Files\Git\...), the missing piece is
+    that only the installing account's own PATH (HKCU) got updated, not the
+    machine-wide one (HKLM). Finds git's real location from whichever
+    account it already works for and adds that folder to the machine PATH
+    via [Environment]::SetEnvironmentVariable (not setx, which silently
+    truncates PATH-length values).
     Version: 2.9.6 - added Update-HaloResponseAgent.ps1 +
     Register-UpdateCheckTask.ps1: an auto-update check, on its own schedule
     (default 30 min), separate from this script's every-10-minute ticket

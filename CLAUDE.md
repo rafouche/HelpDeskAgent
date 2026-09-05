@@ -60,6 +60,8 @@ the full rationale.
 - `Register-UpdateCheckTask.ps1` — one-time Task Scheduler setup for the
   above, on its own (default 30-minute) schedule, separate from the
   ticket-processing task.
+- `Add-GitToMachinePath.ps1` — one-time setup: adds git's install folder to
+  the machine-wide `PATH` so `SYSTEM` can find it too.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
@@ -323,12 +325,13 @@ Deliberately its own script and its own scheduled task
 (`Register-UpdateCheckTask.ps1`), not folded into
 `Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
 for updates" as two separately-failing concerns, so a git/network problem
-can never abort an actual ticket-processing cycle. Explicitly flagged in
-README rather than assumed safe: this is the fourth tool in this project
-(`claude`, MCP registration, Claude Code's credentials, now `git`) where
-"works interactively as an admin" has turned out not to imply "works for
-`SYSTEM`" - confirm with a manual trigger before trusting it unattended, per
-the same lesson as the other three. Also worth being explicit about as a
+can never abort an actual ticket-processing cycle. Flagged in README as a
+risk worth confirming before trusting it unattended (the same
+account-scoping shape already hit three times for `claude`, MCP
+registration, and Claude Code's credentials) - and that flag turned out to
+be exactly right: a real test via NinjaRMM (also `SYSTEM` by default)
+confirmed `git` itself has the same gap, fixed in v2.9.7 (see "Known
+limitations" - `Add-GitToMachinePath.ps1`). Also worth being explicit about as a
 real tradeoff, not just a detail: this pulls whatever is on `origin/main`
 unconditionally, no staging or approval step - acceptable here because the
 only thing that pushes to `main` is Roger's own reviewed changes, not a
@@ -444,11 +447,12 @@ config tweak. Not worth building preemptively.
   display name.
 - **Credential/MCP-registration/PATH account scoping — same silent-failure
   shape as the naming bug above, different root cause (fixed; the first two
-  were found before they shipped, the third wasn't).** Raised as a direct
-  question ("will the SYSTEM-run scheduled task still have API access") and
-  verified against Claude Code's own docs rather than assumed, since this
-  project has already been burned once by an assumption in this exact area.
-  Three separate things, all scoped per-Windows-account by default:
+  were found before they shipped, the third and fourth weren't).** Raised as
+  a direct question ("will the SYSTEM-run scheduled task still have API
+  access") and verified against Claude Code's own docs rather than assumed,
+  since this project has already been burned once by an assumption in this
+  exact area. Four separate things, all scoped per-Windows-account by
+  default:
   1. **Credentials.** `claude setup-token`/`/login` write to
      `%USERPROFILE%\.claude\.credentials.json`, restricted to whichever
      account is logged in when you run them. `Register-HaloResponseAgentTask.ps1`
@@ -490,10 +494,25 @@ config tweak. Not worth building preemptively.
      `@anthropic-ai/claude-code` so it lands there once, for every account,
      rather than needing this script to keep re-discovering it. See README's
      "Install and authenticate Claude Code" section.
-  None of these three would show up in any interactive testing done as an
+  4. **`git` itself (found v2.9.7, confirmed via a script run through
+     NinjaRMM - which executes as `SYSTEM` by default, same as Task
+     Scheduler).** Same error shape: `'git' is not recognized as the name of
+     a cmdlet, function, script file, or operable program`, despite
+     `git pull` working fine run interactively as an admin the whole time -
+     confirmed on the real production machine, not just a predicted risk.
+     Unlike `claude`/npm, this one didn't need a reinstall: Git for Windows'
+     installer already puts `git.exe` in a machine-wide folder
+     (`C:\Program Files\Git\...`) - the missing piece is that only the
+     installing account's own `PATH` (`HKCU`) got updated, not the
+     machine-wide one (`HKLM`). `Add-GitToMachinePath.ps1` finds git's real
+     location from whichever account it already works for and adds that
+     folder to the machine `PATH` via `[Environment]::SetEnvironmentVariable`
+     (not `setx`, which silently truncates PATH-length values - same
+     reasoning as the `claude` fix above).
+  None of these four would show up in any interactive testing done as an
   admin user (`-WhatIf` runs by hand use that account's own credentials/MCP
   config regardless of what the scheduled task would see) - only an actual
-  scheduled firing, running as `SYSTEM`, exposes the gap. Confirm all three
+  scheduled firing, running as `SYSTEM`, exposes the gap. Confirm all four
   are correct by triggering the registered task manually once (Task Scheduler
   -> right-click -> Run) rather than trusting an interactive `-WhatIf` run
   alone.

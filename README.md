@@ -33,6 +33,7 @@ bigger one and a full tool loop).
 | `Copy-McpServersToProject.ps1` | One-time setup shortcut: copies already-registered `-s user` MCP servers into this folder's `.mcp.json`. |
 | `Update-HaloResponseAgent.ps1` | Checks for and pulls a new commit; logs only when something actually changed (or failed). |
 | `Register-UpdateCheckTask.ps1` | One-time setup: registers the Task Scheduler job that runs `Update-HaloResponseAgent.ps1` on its own schedule. |
+| `Add-GitToMachinePath.ps1` | One-time setup: adds git's install folder to the machine-wide `PATH` so `SYSTEM` can find it too. |
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
 
 ## Prerequisites
@@ -135,16 +136,29 @@ silently discovered when the next real cycle fails. It's a smoke test, not a
 rollback - if it fails, the new code is still left in place and still runs
 next cycle; the log is what tells a human to go look.
 
-**Before relying on this, confirm `git` actually resolves for the `SYSTEM`
-account** - this project has already hit that exact shape of bug three
-separate times for `claude`, MCP registration, and Claude Code's
-credentials (see `CLAUDE.md`'s "Known limitations"), and there's no
-particular reason to assume `git` is different just because it already
-works fine when you run `git pull` yourself interactively. Trigger the
-registered task manually once (Task Scheduler -> right-click -> Run) and
-check `logs\update-<today>.log` for an `ERROR` line before trusting it on
-its own schedule. No log file at all is the expected quiet outcome when
-there's nothing new to pull - this script only logs when something actually
+**Confirm `git` actually resolves for the `SYSTEM` account before relying on
+this - confirmed broken on a real machine, not just a theoretical risk.**
+This project has now hit this exact shape of bug four separate times
+(`claude`, MCP registration, Claude Code's credentials, now `git` - see
+`CLAUDE.md`'s "Known limitations"): a script run through NinjaRMM (which
+executes as `SYSTEM` by default, same as Task Scheduler) failed with
+`'git' is not recognized as the name of a cmdlet...`, even though `git pull`
+works fine run interactively as an admin. Run `Add-GitToMachinePath.ps1`
+once, as Administrator, from the account `git` already works for
+interactively:
+```powershell
+.\Add-GitToMachinePath.ps1
+```
+It finds git's real install location from your own working `PATH` and adds
+that folder to the machine-wide `PATH` - no reinstall needed, unlike the
+`claude`/npm fix, since git's installer already puts it in a machine-wide
+folder (`C:\Program Files\Git\...`); the missing piece is almost always that
+only your own account's `PATH` got updated at install time, not the
+machine-wide one. Then trigger the registered update-check task manually
+once (Task Scheduler -> right-click -> Run) and check
+`logs\update-<today>.log` for an `ERROR` line before trusting it on its own
+schedule. No log file at all is the expected quiet outcome when there's
+nothing new to pull - this script only logs when something actually
 happened, the same reasoning `Invoke-HaloResponseAgent.ps1` already follows.
 
 This pulls whatever is on `origin/main` unconditionally, with no staging
