@@ -32,14 +32,16 @@ plain names - resolve each to its Halo ID:
   (case-insensitive) -> `agent_id`. If it matches, you're done with this field.
 
   If it does NOT match anything returned, don't give up and don't set `agent_id`
-  to `null` yet - `mcp__Halo__list_agents` excludes inactive/disabled agent
-  accounts by default (confirmed directly against a real tenant, not assumed),
-  so an account whose Halo licence was removed - kept only as an API-only
-  integration identity - can be a genuinely correct `agent_username` that
-  still fails to match here. Call `mcp__Halo__list_agents` a second time with
-  `include_inactive: true` and match against that instead. Only if it's
-  still not found in that second, larger list does `agent_id` become `null`,
-  same as any other field below that fails to resolve.
+  to `null` yet - `mcp__Halo__list_agents` excludes two independent
+  categories of agent by default: disabled accounts, and API-only agents
+  (no interactive login - confirmed directly against a real tenant, not
+  assumed: an account can be API-only without being disabled, or disabled
+  without being API-only, so neither flag alone is reliable on its own).
+  Call `mcp__Halo__list_agents` a second time with BOTH
+  `include_inactive: true` AND `include_api_agents: true` together and
+  match against that instead. Only if it's still not found in that second,
+  larger list does `agent_id` become `null`, same as any other field below
+  that fails to resolve.
 - `halo.resolved_status_name`, `halo.waiting_on_client_status_name`, and
   `halo.follow_up_status_name` -> call `mcp__Halo__list_statuses` ONCE and match
   all three names against that single response (case-insensitive) ->
@@ -81,11 +83,11 @@ data, meaningless without a name):
 
 That's 4 tool calls (one per list_* tool) normally, or 5 if `agent_username`
 doesn't match the first `list_agents` call and you need the
-`include_inactive: true` retry, plus one more - `mcp__Halo__list_clients` -
-only if `compliance.excluded_client_names` is non-empty. Never call
-`list_teams`, `list_statuses`, `list_ticket_types`, or `list_clients` more
-than once, and never call `list_agents` more than twice (plain, then
-`include_inactive: true`, only if the first didn't match). Never call
+`include_inactive: true` + `include_api_agents: true` retry, plus one more -
+`mcp__Halo__list_clients` - only if `compliance.excluded_client_names` is
+non-empty. Never call `list_teams`, `list_statuses`, `list_ticket_types`, or
+`list_clients` more than once, and never call `list_agents` more than twice
+(plain, then both flags together, only if the first didn't match). Never call
 `mcp__Halo__get_ticket`, `list_tickets`, or `get_ticket_time_entries` at all,
 you have no need for ticket data here.
 

@@ -334,14 +334,15 @@ account on a later run means something went wrong last time (a crash, or Halo's
 own triage-swallow quirk eating part of a write) and needs a look, not that it's
 still being worked normally.
 
-**If this account's Halo licence has been removed and it's kept only as an
-API-only integration identity**, nothing extra needs to be set in
-`config.json` either - `mcp__Halo__list_agents` excludes inactive/disabled
-agents by default (confirmed directly against a live tenant, the same
-behavior `list_clients` already has for inactive clients), so the ID
-resolver automatically retries with `include_inactive: true` when the
-plain lookup doesn't match, and still resolves this account by its real
-name, no config change needed.
+**If this account is disabled or API-only (no interactive login)**,
+nothing extra needs to be set in `config.json` either -
+`mcp__Halo__list_agents` excludes both of those categories by default, and
+confirmed live against a real tenant, they're independent: an account can
+be API-only without being disabled (or the reverse), so either alone can
+leave it missing from a plain lookup. The ID resolver automatically
+retries with `include_inactive: true` AND `include_api_agents: true`
+together when the plain lookup doesn't match, and still resolves this
+account by its real name, no config change needed.
 
 **Separately, and easy to miss:** HaloPSA attributes every note/reply an
 API application creates to whichever agent that application is bound to in

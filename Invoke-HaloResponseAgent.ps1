@@ -73,6 +73,23 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.16 - v2.10.15's include_inactive fix was itself
+    incomplete, two more real corrections found by testing live rather
+    than trusting the fix worked: (1) include_inactive was sending
+    includeinactive, the /Client convention this codebase copied - but
+    /Agent's real param is includedisabled (confirmed against HaloPSA's
+    live swagger spec); includeinactive isn't real on /Agent at all, so it
+    was silently ignored the whole time, no error, no effect. (2) Even
+    fixed, Cynthia Hicks still wouldn't have appeared: she's
+    isdisabled: false, just isapiagent: true (no interactive login) -
+    API-only and disabled are independent categories on /Agent, confirmed
+    live (this tenant has 3 API-only agents - halointegrator, Huntress,
+    Cynthia Hicks - none disabled, plus separate disabled-but-not-API-only
+    agents). Fixed in halopsa-mcp: list_agents' include_inactive now sends
+    includedisabled, and a new include_api_agents sends includeapiagents.
+    id-resolver-prompt.md's retry now passes both together in one call.
+    Verified live: list_agents({include_inactive:true,
+    include_api_agents:true}) returns Cynthia Hicks (agent_id: 31).
     Version: 2.10.15 - supersedes v2.10.14's agent-identity fix with the
     actual root cause, plus a second, separate bug found while chasing it
     down. v2.10.14's ticket-history-scanning fallback (list_tickets +

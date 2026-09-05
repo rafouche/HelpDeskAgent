@@ -837,6 +837,39 @@ against HaloPSA's real behavior rather than assumed:
    before that deploy will keep showing the old generic identity in Halo's
    permanent history; only new ones after deploy are corrected.
 
+**v2.10.15's `include_inactive` fix was itself incomplete - two more real
+corrections, v2.10.16.** After the `halopsa-mcp` deploy, `list_agents` with
+`include_inactive: true` still returned the same 7 agents, no Cynthia
+Hicks - the fix hadn't actually worked. Investigating turned up two
+separate mistakes stacked on top of each other, both confirmed live rather
+than assumed:
+
+1. `include_inactive` was sending HaloPSA's query param as `includeinactive`
+   - the `/Client`/`/Users` convention this codebase copied from - but
+   `/Agent`'s real parameter is `includedisabled` (confirmed against
+   HaloPSA's live swagger spec). `includeinactive` on `/Agent` isn't a
+   real parameter at all, so it was silently ignored the whole time -
+   Halo doesn't error on an unrecognized query param, it just does
+   nothing with it, which is exactly why the symptom was "no visible
+   effect" rather than a clear failure.
+2. Even with that fixed, Cynthia Hicks still wouldn't have appeared:
+   she's `isdisabled: false` - not disabled at all, just `isapiagent: true`
+   (no interactive login). API-only and disabled are independent
+   categories on `/Agent`, confirmed live: this tenant has three API-only
+   agents (`halointegrator`, `Huntress`, and Cynthia Hicks), none of them
+   disabled, plus separate disabled-but-not-API-only agents (Derek
+   Garoutte, Michael Thompson, Richard Stone). `include_inactive` alone
+   could never have surfaced her regardless of the param-name fix.
+
+Fixed in `halopsa-mcp`: `list_agents`'s `include_inactive` now sends
+`includedisabled`, and a new, independent `include_api_agents` sends
+`includeapiagents`. `id-resolver-prompt.md`'s retry now passes both flags
+together in its one second `list_agents` call. Verified live, directly:
+`list_agents({ include_inactive: true, include_api_agents: true })` returns
+13 agents including Cynthia Hicks (`agent_id: 31`) - confirmed by an
+independent Claude Code session re-testing from scratch, not by trusting
+the fix's own commit message.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
