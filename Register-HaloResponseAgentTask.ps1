@@ -21,17 +21,18 @@
     running fully live - no need to delete and recreate it.
 .PARAMETER EnableAutoUpdate
     Also register a second scheduled task that runs Update-HaloResponseAgent.ps1
-    on its own schedule (see -UpdateCheckIntervalMinutes), checking for and
-    pulling a new commit so this deployment stays current without someone
-    running `git pull` by hand. Kept as its own task, not folded into the
-    main one, so a git/network problem can never abort a real
-    ticket-processing cycle. Off by default. Omitting this switch on a
-    later re-run never touches the update task either way - it doesn't add
-    it if missing, and doesn't remove it if already registered; use
-    `Unregister-ScheduledTask -TaskName "Altec Halo Response Agent - Auto Update"`
+    on its own schedule (see -UpdateCheckIntervalMinutes), checking GitHub for
+    changed files and downloading them over plain HTTPS (no git - this
+    deployment is downloaded files, not a git clone) so this deployment
+    stays current without someone re-downloading files by hand. Kept as its
+    own task, not folded into the main one, so a network problem can never
+    abort a real ticket-processing cycle. Off by default. Omitting this
+    switch on a later re-run never touches the update task either way - it
+    doesn't add it if missing, and doesn't remove it if already registered;
+    use `Unregister-ScheduledTask -TaskName "Altec Halo Response Agent - Auto Update"`
     directly if you want it gone.
 .PARAMETER UpdateCheckIntervalMinutes
-    How often the auto-update task checks for a new commit, if
+    How often the auto-update task checks for changed files, if
     -EnableAutoUpdate is passed. Defaults to 30 - there's no need for this
     to run as often as the ticket-processing task, since a new commit
     typically only ships a handful of times a day at most.
@@ -133,15 +134,14 @@ if ($EnableAutoUpdate) {
 
     Register-ScheduledTask -TaskName $updateTaskName -Action $updateAction -Trigger $updateTrigger `
         -Principal $principal -Settings $updateSettings `
-        -Description "Checks for and pulls a new commit to this folder every $UpdateCheckIntervalMinutes minutes." `
+        -Description "Checks GitHub for changed files and downloads them every $UpdateCheckIntervalMinutes minutes." `
         -Force
 
     Write-Host "`nScheduled task '$updateTaskName' registered - checks every $UpdateCheckIntervalMinutes minutes." -ForegroundColor Green
     Write-Host "Trigger it manually once (Task Scheduler -> right-click -> Run) and check" -ForegroundColor Yellow
     Write-Host "logs\update-<today>.log for an ERROR line before trusting it on its own" -ForegroundColor Yellow
-    Write-Host "schedule - confirms git actually works for SYSTEM, not just interactively as" -ForegroundColor Yellow
-    Write-Host "you (Install-Prerequisites.ps1 should already have made sure of this). No log" -ForegroundColor Yellow
-    Write-Host "file at all is the expected quiet outcome when there's nothing new to pull -" -ForegroundColor Yellow
+    Write-Host "schedule - confirms SYSTEM has outbound internet access to GitHub. No log" -ForegroundColor Yellow
+    Write-Host "file at all is the expected quiet outcome when there's nothing new to fetch -" -ForegroundColor Yellow
     Write-Host "this script only logs when something actually happened." -ForegroundColor Yellow
 }
 else {

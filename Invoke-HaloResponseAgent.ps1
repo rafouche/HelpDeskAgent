@@ -73,6 +73,23 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.0 - dropped git entirely. v2.9.9's fix was still built on
+    a wrong root assumption, stated directly: this deployment has never
+    been a git clone - files get onto the server by downloading them
+    individually (via a browser), not `git clone`/`git pull`, as stated
+    from the very start of this project. Every git-based fix since v2.9.6
+    (Register-UpdateCheckTask.ps1, Add-GitToMachinePath.ps1, then
+    Install-Prerequisites.ps1's git section, v2.9.9's winget install) was
+    solving a problem that didn't need to exist.
+    Update-HaloResponseAgent.ps1 now fetches a specific, minimal list of
+    files (config.json, the three prompts, and every .ps1 - not
+    README.md/CLAUDE.md, which are documentation, not part of the deployed
+    program) directly from
+    https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>
+    over plain HTTPS, comparing each one's hash against the local copy and
+    replacing only what changed - no git, no authentication needed for a
+    public repo. Install-Prerequisites.ps1's entire git section is removed;
+    nothing in this project needs git installed at all anymore.
     Version: 2.9.9 - fixed a real gap in Install-Prerequisites.ps1's git
     handling, found via a real run: it assumed git was already installed
     somewhere on the box and only fixed machine PATH visibility, the same

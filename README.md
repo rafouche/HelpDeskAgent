@@ -29,17 +29,24 @@ bigger one and a full tool loop).
 | `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
 | `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the classifier then a resolver call per ticket. |
 | `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job (and, with `-EnableAutoUpdate`, the auto-update job too). |
-| `Install-Prerequisites.ps1` | One-time setup: installs `claude` and makes sure it and `git` are both visible machine-wide, not just to your own account. |
+| `Install-Prerequisites.ps1` | One-time setup: installs `claude` machine-wide so `SYSTEM` (not just your own account) can find it. |
 | `Copy-McpServersToProject.ps1` | One-time setup shortcut: copies already-registered `-s user` MCP servers into this folder's `.mcp.json`. |
-| `Update-HaloResponseAgent.ps1` | Checks for and pulls a new commit; logs only when something actually changed (or failed). |
+| `Update-HaloResponseAgent.ps1` | Fetches a minimal set of files from GitHub over HTTPS (no git); logs only when something actually changed (or failed). |
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
+
+This is the complete set of files this project needs to run - deliberately
+everything in this table, nothing more. `README.md` and `CLAUDE.md` (this
+file and the one written for Claude Code's own future reference) are
+documentation, not part of the deployed program - keep them wherever's
+convenient for reading, but there's no need to copy either onto the server
+at all, and `Update-HaloResponseAgent.ps1` never fetches them.
 
 ## Prerequisites
 1. **`Install-Prerequisites.ps1` run once, as Administrator** — installs `claude`
-   and makes sure both it and `git` are visible to every account on the
-   machine, including `SYSTEM` (the account the scheduled tasks below run
-   as), not just whichever account you're logged in as. See "Install and
-   authenticate Claude Code" below for the full step.
+   machine-wide so it's visible to every account on the machine, including
+   `SYSTEM` (the account the scheduled tasks below run as), not just
+   whichever account you're logged in as. See "Install and authenticate
+   Claude Code" below for the full step.
 2. **Claude Code authenticated** (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
 3. **MCP servers configured** on that machine for: Halo, Microsoft 365, CIPP, Ninja, UniFi, Meraki, Huntress, Hudu — the same connectors you already use, just reachable from wherever Claude Code runs on the server.
 4. PowerShell 5.1+ (built into Windows Server).
@@ -114,10 +121,10 @@ bigger one and a full tool loop).
    same as running the switch by hand. Once comfortable with what's coming out
    of that mode, re-run this script *without* `-RequireApproval` to switch the
    existing task back to running fully live — no need to delete and recreate it.
-8. **(Optional) Add auto-update on the same task**, so a new commit gets
-   pulled onto this server on its own, instead of someone having to remember
-   to `git pull` by hand — re-run step 7's command with `-EnableAutoUpdate`
-   added:
+8. **(Optional) Add auto-update on the same task**, so changed files get
+   fetched onto this server on their own, instead of someone having to
+   re-download them from GitHub by hand — re-run step 7's command with
+   `-EnableAutoUpdate` added:
    ```powershell
    .\Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate
    ```
@@ -127,31 +134,41 @@ bigger one and a full tool loop).
 
 ## Keeping this up to date automatically
 
-`Invoke-HaloResponseAgent.ps1` re-reads every `.ps1`/`.md`/`config.json` file
-from disk fresh on each scheduled firing - a plain `git pull` in this folder
-is enough to make the very next cycle pick up whatever just shipped, no
-restart or reload step needed. `Update-HaloResponseAgent.ps1` does exactly
-that on its own schedule (via `Register-HaloResponseAgentTask.ps1
--EnableAutoUpdate`, step 8 above): checks for a new commit on `origin/main`,
-pulls it if one exists, and - only when something actually changed - logs
-the old/new commit and what shipped to `logs\update-<date>.log`. It also
-runs `Invoke-HaloResponseAgent.ps1 -DryRun` once after a real update as a
-smoke test (no Halo calls, no API cost) so a broken push is visible in that
-log immediately rather than silently discovered when the next real cycle
-fails. It's a smoke test, not a rollback - if it fails, the new code is
-still left in place and still runs next cycle; the log is what tells a
-human to go look.
+This deployment is a plain folder of files downloaded individually from
+GitHub (e.g. clicking Download on each file in a browser) - not a git
+clone, no `git`/`git pull` involved anywhere, and nothing in this project
+needs `git` installed at all. `Invoke-HaloResponseAgent.ps1` re-reads every
+file fresh on each scheduled firing, so replacing a changed file on disk is
+enough to make the very next cycle pick it up - no restart or reload step
+needed.
 
-`git` needs to be visible to `SYSTEM` for this to work at all -
-`Install-Prerequisites.ps1` (step 1 above) already handles that alongside
-`claude`, so there's nothing extra to do here if you ran it first. Trigger
-the registered update task manually once (Task Scheduler -> right-click ->
-Run) and check `logs\update-<today>.log` for an `ERROR` line before trusting
-it on its own schedule, the same way you'd confirm any scheduled task -
-no log file at all is the expected quiet outcome when there's nothing new to
-pull, since this script only logs when something actually happened.
+`Update-HaloResponseAgent.ps1` automates exactly that, on its own schedule
+(via `Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`, step 8 above):
+it downloads a specific, minimal list of files - `config.json`, the three
+prompts, and every `.ps1` file; deliberately *not* `README.md`/`CLAUDE.md`,
+which are documentation, not part of the deployed program - directly from
+`https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>` over
+plain HTTPS (no authentication needed, this is a public repo), compares
+each one's hash against the local copy, and replaces only the ones that
+changed. Only when something actually changed does it log which files
+updated to `logs\update-<date>.log`. It also runs
+`Invoke-HaloResponseAgent.ps1 -DryRun` once after a real update as a smoke
+test (no Halo calls, no API cost) so a broken push is visible in that log
+immediately rather than silently discovered when the next real cycle fails.
+It's a smoke test, not a rollback - if it fails, the new code is still left
+in place and still runs next cycle; the log is what tells a human to go
+look. A download failure for one file logs an error and leaves that file
+untouched - it never partially overwrites anything on disk.
 
-This pulls whatever is on `origin/main` unconditionally, with no staging
+Trigger the registered update task manually once (Task Scheduler ->
+right-click -> Run) and check `logs\update-<today>.log` for an `ERROR` line
+before trusting it on its own schedule, the same way you'd confirm any
+scheduled task - this mainly just confirms `SYSTEM` has outbound internet
+access to GitHub. No log file at all is the expected quiet outcome when
+there's nothing new to fetch, since this script only logs when something
+actually happened.
+
+This fetches whatever is on `origin/main` unconditionally, with no staging
 step or approval gate - worth being explicit about as a real tradeoff, not
 just a detail. In this project's actual setup that risk is contained (the
 only thing that pushes to `main` is Roger's own reviewed changes), but if
@@ -372,11 +389,8 @@ per-account:
 ```
 Run once, as Administrator. It installs `claude` into a shared npm prefix
 (`C:\ProgramData\npm`, not npm's per-user default of `%AppData%\npm`) via the
-machine-wide `NPM_CONFIG_PREFIX` environment variable, adds that folder to
-the machine `PATH`, and — while it's touching machine-wide `PATH` anyway —
-also makes sure `git`'s own install folder is on it too (needed later for
-"Keeping this up to date automatically" below; no separate step for that).
-If npm nags about its own update (`npm error code EBADENGINE ... Not
+machine-wide `NPM_CONFIG_PREFIX` environment variable, and adds that folder
+to the machine `PATH`. If npm nags about its own update (`npm error code EBADENGINE ... Not
 compatible with your version of node/npm`) during this, ignore it — that's
 npm's optional self-update rejecting itself because it wants a newer Node
 than the LTS above ships; it doesn't affect the `claude-code` install, which

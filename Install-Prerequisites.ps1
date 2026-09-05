@@ -1,37 +1,35 @@
 ﻿<#
 .SYNOPSIS
-    One-time setup: installs the claude CLI and makes sure both claude and
-    git are visible to every account on this machine, not just whichever
-    account you run this as.
+    One-time setup: installs the claude CLI into a shared npm prefix so
+    every account on this machine, not just whichever one you run this as,
+    can find it.
 .DESCRIPTION
     Run this once, as Administrator, before authenticating Claude Code or
     registering any scheduled task. `Register-HaloResponseAgentTask.ps1`
     registers the ticket-processing (and, optionally, auto-update) tasks to
     run as SYSTEM - a separate Windows account from whichever one you're
-    logged in as, with its own profile and its own PATH. Anything installed
-    or configured only for your own account is invisible to SYSTEM, so this
-    script does the two things that need to be machine-wide instead of
-    per-account:
+    logged in as, with its own profile and its own PATH. A plain
+    `npm install -g @anthropic-ai/claude-code` run as yourself only lands in
+    your own account's per-user npm prefix (%AppData%\npm - npm's own
+    documented Windows default), which SYSTEM never sees.
 
-    1. Installs @anthropic-ai/claude-code into a shared npm prefix
-       (C:\ProgramData\npm, not npm's per-user default of %AppData%\npm) via
-       the machine-wide NPM_CONFIG_PREFIX environment variable, and adds
-       that folder to the machine PATH.
-    2. Installs git (via winget, if it isn't already installed at all - not
-       assumed present) and makes sure its install folder is on the machine
-       PATH too. Git for Windows installs into a machine-wide folder
-       (C:\Program Files\Git\...) by default, so the most common gap is that
-       only the installing account's own PATH got updated, not the
-       machine-wide one - but this checks for and installs git itself
-       first, rather than assuming it's already there and only fixing PATH.
+    This installs @anthropic-ai/claude-code into a shared npm prefix
+    instead (C:\ProgramData\npm) via the machine-wide NPM_CONFIG_PREFIX
+    environment variable, and adds that folder to the machine PATH.
 
-    Safe to re-run - each step detects whether it's already correct and
-    skips redundant work unless told otherwise.
+    Safe to re-run - detects whether it's already correct and skips
+    redundant work unless told otherwise.
 
-    This only handles WHERE claude and git are installed/visible, not
-    Claude Code authentication - still run `claude setup-token` or set
+    This only handles WHERE claude is installed, not Claude Code
+    authentication - still run `claude setup-token` or set
     `ANTHROPIC_API_KEY` afterward, and still register each MCP server with
     `-s project`, per README's setup steps.
+
+    Auto-update (Register-HaloResponseAgentTask.ps1's -EnableAutoUpdate)
+    does not need git - it fetches individual files over plain HTTPS (see
+    Update-HaloResponseAgent.ps1), matching how this project is actually
+    deployed (files downloaded individually, not cloned with git). Nothing
+    in this project needs git installed at all.
 .PARAMETER NpmPrefix
     The shared, machine-wide folder to install claude-code into. Defaults
     to C:\ProgramData\npm - change this only if that path is unsuitable for
@@ -67,7 +65,7 @@ function Add-ToMachinePath {
     Write-Host "Added $Directory to the machine PATH" -ForegroundColor Green
 }
 
-Write-Host "=== 1. claude (via a machine-wide npm prefix) ===" -ForegroundColor Cyan
+Write-Host "=== claude (via a machine-wide npm prefix) ===" -ForegroundColor Cyan
 
 if (-not (Test-Path $NpmPrefix)) {
     New-Item -ItemType Directory -Path $NpmPrefix | Out-Null
@@ -111,58 +109,10 @@ else {
     }
 }
 
-Write-Host "`n=== 2. git (install if missing, then machine-wide PATH visibility) ===" -ForegroundColor Cyan
-
-$gitCmd = Get-Command git -ErrorAction SilentlyContinue
-
-if (-not $gitCmd) {
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-        Write-Host "git not found - installing via winget (Git.Git, machine-wide by default) ..." -ForegroundColor Cyan
-        winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
-    }
-    else {
-        Write-Warning "git isn't installed and winget isn't available to install it automatically. Install Git for Windows manually (https://git-scm.com/download/win - use the default 'Git from the command line and also from 3rd-party software' PATH option), then re-run this script."
-    }
-
-    # winget's own install can finish without this process's PATH knowing
-    # about it yet - refresh from the registry (same trick as README's
-    # Node.js install step) before checking again, rather than immediately
-    # reporting a false "still missing".
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
-}
-
-if (-not $gitCmd) {
-    Write-Warning "git still isn't found after attempting to install it. Install it manually, then re-run this script to fix its machine-wide PATH visibility."
-}
-else {
-    # Git for Windows already installs git.exe into a machine-wide folder
-    # (C:\Program Files\Git\... by default) - the only thing usually missing
-    # after that is that only the installing account's own PATH (HKCU) got
-    # updated, not the machine-wide one (HKLM).
-    $gitDir = Split-Path -Path $gitCmd.Source -Parent
-    Write-Host "Found git at $($gitCmd.Source)" -ForegroundColor Green
-    Add-ToMachinePath -Directory $gitDir
-
-    # Git for Windows' full installer normally puts both a `cmd` directory
-    # (git.exe, git-gui.exe) and a sibling `bin` directory on PATH. Whichever
-    # one was found above, also add the other if it exists - cheap insurance
-    # in case something ever needs a tool only shipped in the one not
-    # already covered.
-    $parent = Split-Path -Path $gitDir -Parent
-    foreach ($siblingName in @("cmd", "bin")) {
-        $sibling = Join-Path $parent $siblingName
-        if ((Test-Path $sibling) -and ($sibling -ne $gitDir)) {
-            Add-ToMachinePath -Directory $sibling
-        }
-    }
-}
-
 Write-Host "`nNext steps:" -ForegroundColor Yellow
 Write-Host "  1. Open a NEW PowerShell window (this one won't see the machine-wide" -ForegroundColor Yellow
 Write-Host "     PATH/NPM_CONFIG_PREFIX changes just made)." -ForegroundColor Yellow
-Write-Host "  2. Authenticate - this only handled WHERE claude/git are installed, not" -ForegroundColor Yellow
+Write-Host "  2. Authenticate - this only handled WHERE claude is installed, not" -ForegroundColor Yellow
 Write-Host "     credentials:" -ForegroundColor Yellow
 Write-Host "       claude setup-token                      # subscription login" -ForegroundColor Cyan
 Write-Host "       # or" -ForegroundColor Yellow

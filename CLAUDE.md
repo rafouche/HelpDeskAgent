@@ -50,17 +50,19 @@ the full rationale.
   task on its own separate schedule in the same run.
 - `Install-Prerequisites.ps1` — one-time setup: installs the `claude` CLI
   into a shared `C:\ProgramData\npm` prefix instead of npm's per-user
-  Windows default, and makes sure `git`'s install folder is on the
-  machine-wide `PATH` too - both so `SYSTEM` (and every other account) can
-  find them, not just whichever account you run this as.
+  Windows default, so `SYSTEM` (and every other account) can find it, not
+  just whichever account you run this as. Does not touch `git` - nothing in
+  this project needs it (see "Auto-update" below).
 - `Copy-McpServersToProject.ps1` — copies already-registered `-s user` MCP
   servers into this folder's `.mcp.json` (`-s project` scope), instead of
   re-typing every `claude mcp add` command by hand. Only for connectors that
   need no further interactive auth.
-- `Update-HaloResponseAgent.ps1` — checks for and pulls a new commit on
-  `origin/main`; logs only when something actually changed (or failed), and
-  runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
-  real update.
+- `Update-HaloResponseAgent.ps1` — fetches a specific, minimal list of files
+  (config + prompts + every `.ps1` - not `README.md`/`CLAUDE.md`) directly
+  from GitHub over plain HTTPS, replacing only the ones that changed; logs
+  only when something actually changed (or failed), and runs
+  `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a real
+  update.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
@@ -74,8 +76,7 @@ per-account.** Both scheduled tasks run as `SYSTEM`
 "SYSTEM"`) — a separate Windows account from whichever one this gets set up
 as, with its own profile, `PATH`, and environment variables. Concretely:
 - `Install-Prerequisites.ps1` installs `claude` into a shared npm prefix
-  (`C:\ProgramData\npm`, not npm's per-user default of `%AppData%\npm`) and
-  makes sure `git`'s install folder is on the machine `PATH` too.
+  (`C:\ProgramData\npm`, not npm's per-user default of `%AppData%\npm`).
 - `ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN` are set with `setx ... /M`
   (machine-wide `HKLM`, not per-user `HKCU`).
 - MCP servers are registered with `-s project` (a plain `.mcp.json` file in
@@ -332,31 +333,37 @@ voicemail-generated one (see "Known limitations" below for the original
 ticket-re-linking entry), just matched by email instead of phone number -
 the confidence-gated re-linking logic now accepts either.
 
-**Auto-update, on its own schedule, deliberately separate from the
-ticket-processing task (v2.9.6).** `Invoke-HaloResponseAgent.ps1` re-reads
-every `.ps1`/`.md`/`config.json` file from disk fresh on each firing - it's
-not a long-running process with anything cached between cycles - so a plain
-`git pull` in this folder is enough to make the very next cycle pick up
-whatever just shipped, no restart or reload step needed. `Update-
-HaloResponseAgent.ps1` does that check-and-pull, logging only when something
-actually changed or failed (same reasoning as this pipeline's own cost-
-conscious logging - a silent no-op every 30 minutes would just be noise),
-and runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
-real update so a broken push is visible immediately rather than discovered
-only when the next real cycle fails - a smoke test, not a rollback: the new
-code stays in place either way.
-Its own script and its own scheduled task (`Register-HaloResponseAgentTask.ps1
--EnableAutoUpdate`), not folded into `Invoke-HaloResponseAgent.ps1` itself -
-keeps "run the pipeline" and "check for updates" as two separately-failing
-concerns, so a git/network problem can never abort an actual
-ticket-processing cycle. Depends on `git` being visible to `SYSTEM`, which
-`Install-Prerequisites.ps1` sets up alongside `claude` (see "Everything the
-scheduled tasks depend on is configured machine-wide" above). Also worth
-being explicit about as a real tradeoff, not just a
-detail: this pulls whatever is on `origin/main` unconditionally, no staging
-or approval step - acceptable here because the only thing that pushes to
-`main` is Roger's own reviewed changes, not a tradeoff to carry over
-unexamined if that ever changes.
+**Auto-update fetches specific files over plain HTTPS - no git (v2.10.0,
+correcting v2.9.6-2.9.9).** This deployment is downloaded files, not a git
+clone - files land on the server by downloading them individually (e.g. via
+a browser), not `git clone`/`git pull`, true from the very start of this
+project. Every earlier version of this feature (`Register-UpdateCheckTask.ps1`,
+`Add-GitToMachinePath.ps1`, `Install-Prerequisites.ps1`'s git section) wrongly
+assumed a git working copy and needed git installed and visible to `SYSTEM`
+- confirmed broken in exactly that way on the real production machine, more
+than once, before the root assumption itself was corrected rather than
+patched again.
+`Update-HaloResponseAgent.ps1` now fetches a specific, minimal file list
+(`config.json`, the three prompts, every `.ps1` - deliberately not
+`README.md`/`CLAUDE.md`, which are documentation, not part of the deployed
+program) directly from `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>`,
+compares each one's hash against the local copy, and replaces only what
+changed - no git, no authentication needed for a public repo. Logs only
+when something actually changed or failed (same cost-conscious-logging
+reasoning as this pipeline's own logs), and runs
+`Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a real
+update so a broken push is visible immediately rather than discovered only
+when the next real cycle fails - a smoke test, not a rollback: the new code
+stays in place either way.
+Still its own script and its own scheduled task
+(`Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`), not folded into
+`Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
+for updates" as two separately-failing concerns, so a network problem can
+never abort an actual ticket-processing cycle. Also worth being explicit
+about as a real tradeoff, not just a detail: this fetches whatever is on
+`origin/main` unconditionally, no staging or approval step - acceptable
+here because the only thing that pushes to `main` is Roger's own reviewed
+changes, not a tradeoff to carry over unexamined if that ever changes.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

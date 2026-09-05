@@ -1,41 +1,82 @@
 ﻿<#
 .SYNOPSIS
-    Checks this folder's git repo for a new commit on origin/main and pulls
-    it if one exists - a self-update check, meant to run on its own schedule
-    (see Register-HaloResponseAgentTask.ps1's -EnableAutoUpdate switch),
-    separate from the every-10-minute ticket-processing task.
+    Checks GitHub for a newer version of each file this project actually
+    needs to run, and downloads any that changed - a self-update check,
+    meant to run on its own schedule (see Register-HaloResponseAgentTask.ps1's
+    -EnableAutoUpdate switch), separate from the every-10-minute
+    ticket-processing task.
 .DESCRIPTION
-    Invoke-HaloResponseAgent.ps1 re-reads every .ps1/.md/config.json file
-    from disk fresh on each scheduled firing - it's not a long-running
-    process with anything cached in memory between cycles. That means a
-    plain `git pull` in this folder is enough to make the very next
-    ticket-processing cycle pick up whatever just shipped - no restart, no
-    reload step, nothing else needed.
+    This deployment is a plain folder of downloaded files, not a git clone -
+    files get onto the server by downloading them individually from GitHub
+    (e.g. via a browser), not `git clone`/`git pull`. An earlier version of
+    this script assumed a git working copy and required git to be installed
+    and visible to SYSTEM; that assumption was wrong from the start and has
+    been dropped along with the git dependency entirely.
+
+    Instead, this fetches each file in $FilesToSync directly from
+    https://raw.githubusercontent.com/<Owner>/<Repo>/<Branch>/<file> (plain
+    HTTPS, no git, no authentication needed for a public repo) and compares
+    its hash against the local copy, replacing only the files that actually
+    changed. $FilesToSync is deliberately a specific, minimal list - only
+    what's needed to run this project (config, prompts, scripts) - not the
+    whole repository, so documentation files (README.md, CLAUDE.md) and repo
+    metadata (.gitignore) never land in this folder. Update this list by
+    hand if a new required file is added to the project.
+
+    Invoke-HaloResponseAgent.ps1 re-reads every file fresh on each scheduled
+    firing - it's not a long-running process with anything cached in memory
+    between cycles - so downloading a changed file here is enough to make
+    the very next ticket-processing cycle pick it up, no restart needed.
 
     This script only logs when something actually happened (a real update,
     or a real error) - a silent no-op check every cycle would just be log
     noise, the same reasoning Invoke-HaloResponseAgent.ps1 already follows
-    for its own logging. On finding a new commit, it also runs
+    for its own logging. On finding an update, it also runs
     Invoke-HaloResponseAgent.ps1 -DryRun once as a smoke test (parses/runs
-    the just-pulled script without touching Halo or spending any API cost)
-    so a broken update is visible in this script's own log immediately,
-    rather than silently discovered only when the next real cycle fails.
-    This is a smoke test, not a rollback mechanism - if the DryRun fails,
-    the new code is still left in place and still runs on the next real
-    cycle; the log is what tells a human to go look.
+    the just-downloaded script without touching Halo or spending any API
+    cost) so a broken update is visible in this script's own log
+    immediately, rather than silently discovered only when the next real
+    cycle fails. This is a smoke test, not a rollback mechanism - if the
+    DryRun fails, the new code is still left in place and still runs on the
+    next real cycle; the log is what tells a human to go look.
 
-    Git operations never throw in a way that leaves this folder corrupted:
-    `git pull` itself refuses to partially apply on a conflict, and this
-    script wraps everything in try/catch so a network blip or conflict logs
-    an error and exits cleanly rather than crashing.
+    A download failure for one file logs an error and leaves that file
+    untouched - it never partially overwrites a file (downloads to a .new
+    temp path first, only replaces the real file once the download fully
+    succeeds), so a network blip can't corrupt anything on disk.
 .PARAMETER RepoPath
-    The git repo to check/pull. Defaults to the folder this script lives in
-    - as long as you keep the deployed files together, this needs no
-    editing either.
+    The folder this project is deployed to, and where updated files get
+    written. Defaults to the folder this script lives in - as long as you
+    keep the deployed files together, this needs no editing either.
+.PARAMETER RepoOwner
+.PARAMETER RepoName
+.PARAMETER Branch
+    Which GitHub repo/branch to check. Defaults to rafouche/HelpDeskAgent's
+    main branch.
 #>
 
 param(
-    [string]$RepoPath = $PSScriptRoot
+    [string]$RepoPath = $PSScriptRoot,
+    [string]$RepoOwner = "rafouche",
+    [string]$RepoName = "HelpDeskAgent",
+    [string]$Branch = "main"
+)
+
+# Deliberately minimal - only what's needed to run this project. Update by
+# hand if a new required file is added; do NOT change this to "everything in
+# the repo" - README.md/CLAUDE.md/.gitignore are documentation/repo
+# metadata, not part of the deployed program, and should never land here.
+$filesToSync = @(
+    "config.json",
+    "id-resolver-prompt.md",
+    "classifier-prompt.md",
+    "resolver-prompt.md",
+    "Invoke-HaloResponseAgent.ps1",
+    "Register-HaloResponseAgentTask.ps1",
+    "Install-Prerequisites.ps1",
+    "Copy-McpServersToProject.ps1",
+    "Update-HaloResponseAgent.ps1",
+    "Show-AgentLog.ps1"
 )
 
 $logDir = Join-Path $RepoPath "logs"
@@ -48,46 +89,58 @@ function Write-UpdateLog {
     Add-Content -Path $logFile -Value "[$timestamp] $Message" -Encoding UTF8
 }
 
-try {
-    $beforeHash = (& git -C $RepoPath rev-parse HEAD 2>&1).Trim()
-}
-catch {
-    Write-UpdateLog "ERROR: could not read current commit - is $RepoPath a git repo, and is git on PATH for this account? $($_.Exception.Message)"
-    exit 1
+$changedFiles = @()
+$downloadErrors = @()
+
+foreach ($file in $filesToSync) {
+    $url = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch/$file"
+    $localPath = Join-Path $RepoPath $file
+    $tempPath = "$localPath.new"
+
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $tempPath -UseBasicParsing -ErrorAction Stop
+    }
+    catch {
+        $downloadErrors += "$file - $($_.Exception.Message)"
+        if (Test-Path $tempPath) { Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue }
+        continue
+    }
+
+    $isNew = -not (Test-Path $localPath)
+    $isDifferent = $true
+    if (-not $isNew) {
+        $oldHash = (Get-FileHash -Path $localPath -Algorithm SHA256).Hash
+        $newHash = (Get-FileHash -Path $tempPath -Algorithm SHA256).Hash
+        $isDifferent = $oldHash -ne $newHash
+    }
+
+    if ($isDifferent) {
+        Move-Item -Path $tempPath -Destination $localPath -Force
+        $changedFiles += $file
+    }
+    else {
+        Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
-try {
-    $pullOutput = & git -C $RepoPath pull origin main 2>&1
-    $pullExitCode = $LASTEXITCODE
-}
-catch {
-    Write-UpdateLog "ERROR: git pull threw - $($_.Exception.Message)"
-    exit 1
+if ($downloadErrors.Count -gt 0) {
+    Write-UpdateLog "ERROR downloading $($downloadErrors.Count) file(s):`n$($downloadErrors -join "`n")"
 }
 
-if ($pullExitCode -ne 0) {
-    Write-UpdateLog "ERROR: git pull failed (exit $pullExitCode) - nothing changed, existing files untouched. Output: $($pullOutput | Out-String)"
-    exit 1
-}
-
-$afterHash = (& git -C $RepoPath rev-parse HEAD 2>&1).Trim()
-
-if ($afterHash -eq $beforeHash) {
-    # No update - nothing worth logging, same reasoning as Invoke-HaloResponseAgent.ps1
-    # not logging a cycle that found zero candidate tickets any louder than it has to.
+if ($changedFiles.Count -eq 0) {
+    # No update - nothing worth logging beyond any errors already logged
+    # above, same reasoning as Invoke-HaloResponseAgent.ps1 not logging a
+    # cycle that found zero candidate tickets any louder than it has to.
+    if ($downloadErrors.Count -gt 0) { exit 1 }
     exit 0
 }
 
-$shortBefore = $beforeHash.Substring(0, 7)
-$shortAfter  = $afterHash.Substring(0, 7)
-$commitSummary = & git -C $RepoPath log --oneline "$beforeHash..$afterHash" 2>&1
-Write-UpdateLog "Updated $shortBefore -> $shortAfter"
-Write-UpdateLog "Commits pulled:`n$($commitSummary | Out-String)"
+Write-UpdateLog "Updated file(s): $($changedFiles -join ', ')"
 
-# Smoke test: does the just-pulled Invoke-HaloResponseAgent.ps1 still run at
-# all? -DryRun does no Halo calls and spends no API cost, so this is cheap
-# insurance against a broken push reaching the next real 10-minute cycle
-# unnoticed.
+# Smoke test: does the just-downloaded Invoke-HaloResponseAgent.ps1 still run
+# at all? -DryRun does no Halo calls and spends no API cost, so this is
+# cheap insurance against a broken push reaching the next real 10-minute
+# cycle unnoticed.
 $mainScript = Join-Path $RepoPath "Invoke-HaloResponseAgent.ps1"
 try {
     & $mainScript -DryRun *>&1 | Out-Null
