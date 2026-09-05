@@ -73,6 +73,25 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.9.6 - added Update-HaloResponseAgent.ps1 +
+    Register-UpdateCheckTask.ps1: an auto-update check, on its own schedule
+    (default 30 min), separate from this script's every-10-minute ticket
+    cycle. This script re-reads every .ps1/.md/config.json file fresh on
+    each firing, so a plain `git pull` in this folder is enough to make the
+    very next cycle pick up whatever just shipped - no restart/reload
+    needed. The update script only logs when something actually changed or
+    failed, and runs this script with -DryRun once after a real update as a
+    smoke test (no Halo calls, no API cost) so a broken push is visible
+    immediately rather than discovered only when the next real cycle fails -
+    a smoke test, not a rollback, the new code stays either way. Kept as its
+    own script/task rather than folded in here, so a git/network problem can
+    never abort an actual ticket-processing cycle.
+    This is the fourth tool in this project (claude, MCP registration,
+    Claude Code's credentials, now git) where "works interactively as an
+    admin" has turned out not to reliably imply "works for SYSTEM" -
+    README/CLAUDE.md both flag confirming this by hand before trusting it
+    unattended, rather than assuming git is different just because it
+    already works fine run by hand.
     Version: 2.9.5 - policy request from a real -RequireApproval-mode ticket:
     a personal/consumer VPN flagged (most often via Huntress, but the policy
     itself is general - it applies regardless of which system surfaces it).

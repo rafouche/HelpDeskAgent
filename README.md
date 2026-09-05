@@ -29,6 +29,10 @@ bigger one and a full tool loop).
 | `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
 | `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the classifier then a resolver call per ticket. |
 | `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job. |
+| `Install-ClaudeCodeMachineWide.ps1` | One-time setup: installs `claude` into a shared npm prefix so `SYSTEM` can find it too. |
+| `Copy-McpServersToProject.ps1` | One-time setup shortcut: copies already-registered `-s user` MCP servers into this folder's `.mcp.json`. |
+| `Update-HaloResponseAgent.ps1` | Checks for and pulls a new commit; logs only when something actually changed (or failed). |
+| `Register-UpdateCheckTask.ps1` | One-time setup: registers the Task Scheduler job that runs `Update-HaloResponseAgent.ps1` on its own schedule. |
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
 
 ## Prerequisites
@@ -105,6 +109,50 @@ bigger one and a full tool loop).
    same as running the switch by hand. Once comfortable with what's coming out
    of that mode, re-run this script *without* `-RequireApproval` to switch the
    existing task back to running fully live — no need to delete and recreate it.
+8. **(Optional) Register the auto-update check** (as Administrator) so a new
+   commit gets pulled onto this server on its own, instead of someone having
+   to remember to `git pull` by hand:
+   ```powershell
+   .\Register-UpdateCheckTask.ps1
+   ```
+   Default is every 30 minutes - there's no need for this to run as often as
+   the ticket-processing task itself. See "Keeping this up to date
+   automatically" below before relying on it.
+
+## Keeping this up to date automatically
+
+`Invoke-HaloResponseAgent.ps1` re-reads every `.ps1`/`.md`/`config.json` file
+from disk fresh on each scheduled firing - a plain `git pull` in this folder
+is enough to make the very next cycle pick up whatever just shipped, no
+restart or reload step needed. `Update-HaloResponseAgent.ps1` does exactly
+that on its own schedule (via `Register-UpdateCheckTask.ps1`, step 8 above):
+checks for a new commit on `origin/main`, pulls it if one exists, and - only
+when something actually changed - logs the old/new commit and what shipped
+to `logs\update-<date>.log`. It also runs `Invoke-HaloResponseAgent.ps1
+-DryRun` once after a real update as a smoke test (no Halo calls, no API
+cost) so a broken push is visible in that log immediately rather than
+silently discovered when the next real cycle fails. It's a smoke test, not a
+rollback - if it fails, the new code is still left in place and still runs
+next cycle; the log is what tells a human to go look.
+
+**Before relying on this, confirm `git` actually resolves for the `SYSTEM`
+account** - this project has already hit that exact shape of bug three
+separate times for `claude`, MCP registration, and Claude Code's
+credentials (see `CLAUDE.md`'s "Known limitations"), and there's no
+particular reason to assume `git` is different just because it already
+works fine when you run `git pull` yourself interactively. Trigger the
+registered task manually once (Task Scheduler -> right-click -> Run) and
+check `logs\update-<today>.log` for an `ERROR` line before trusting it on
+its own schedule. No log file at all is the expected quiet outcome when
+there's nothing new to pull - this script only logs when something actually
+happened, the same reasoning `Invoke-HaloResponseAgent.ps1` already follows.
+
+This pulls whatever is on `origin/main` unconditionally, with no staging
+step or approval gate - worth being explicit about as a real tradeoff, not
+just a detail. In this project's actual setup that risk is contained (the
+only thing that pushes to `main` is Roger's own reviewed changes), but if
+that ever stops being true, this auto-update task should stop running
+before anything else does.
 
 ## Human approval mode
 

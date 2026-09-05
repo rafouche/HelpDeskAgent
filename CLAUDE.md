@@ -53,6 +53,13 @@ the full rationale.
   servers into this folder's `.mcp.json` (`-s project` scope), instead of
   re-typing every `claude mcp add` command by hand. Only for connectors that
   need no further interactive auth.
+- `Update-HaloResponseAgent.ps1` — checks for and pulls a new commit on
+  `origin/main`; logs only when something actually changed (or failed), and
+  runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
+  real update.
+- `Register-UpdateCheckTask.ps1` — one-time Task Scheduler setup for the
+  above, on its own (default 30-minute) schedule, separate from the
+  ticket-processing task.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
@@ -298,6 +305,34 @@ same "is this actually linked to the real person" check as a
 voicemail-generated one (see "Known limitations" below for the original
 ticket-re-linking entry), just matched by email instead of phone number -
 the confidence-gated re-linking logic now accepts either.
+
+**Auto-update, on its own schedule, deliberately separate from the
+ticket-processing task (v2.9.6).** `Invoke-HaloResponseAgent.ps1` re-reads
+every `.ps1`/`.md`/`config.json` file from disk fresh on each firing - it's
+not a long-running process with anything cached between cycles - so a plain
+`git pull` in this folder is enough to make the very next cycle pick up
+whatever just shipped, no restart or reload step needed. `Update-
+HaloResponseAgent.ps1` does that check-and-pull, logging only when something
+actually changed or failed (same reasoning as this pipeline's own cost-
+conscious logging - a silent no-op every 30 minutes would just be noise),
+and runs `Invoke-HaloResponseAgent.ps1 -DryRun` once as a smoke test after a
+real update so a broken push is visible immediately rather than discovered
+only when the next real cycle fails - a smoke test, not a rollback: the new
+code stays in place either way.
+Deliberately its own script and its own scheduled task
+(`Register-UpdateCheckTask.ps1`), not folded into
+`Invoke-HaloResponseAgent.ps1` itself - keeps "run the pipeline" and "check
+for updates" as two separately-failing concerns, so a git/network problem
+can never abort an actual ticket-processing cycle. Explicitly flagged in
+README rather than assumed safe: this is the fourth tool in this project
+(`claude`, MCP registration, Claude Code's credentials, now `git`) where
+"works interactively as an admin" has turned out not to imply "works for
+`SYSTEM`" - confirm with a manual trigger before trusting it unattended, per
+the same lesson as the other three. Also worth being explicit about as a
+real tradeoff, not just a detail: this pulls whatever is on `origin/main`
+unconditionally, no staging or approval step - acceptable here because the
+only thing that pushes to `main` is Roger's own reviewed changes, not a
+tradeoff to carry over unexamined if that ever changes.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
