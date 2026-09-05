@@ -707,6 +707,29 @@ was always in that bookkeeping running on a ticket that should never have
 reached it in the first place, not in the bookkeeping itself - removing it
 would have only hidden the symptom.
 
+**Real incident: v2.10.9 shipped a crash, and it exposed a real gap in how
+`.ps1` changes get verified (v2.10.12).** The new tracked-tickets warning
+line - `"TICKET $ticketId: WARNING - ..."` - broke every single run:
+PowerShell parses `$name:` inside a double-quoted string as an attempted
+scope/drive reference (the same syntax as `$env:PATH`), not the variable
+followed by a literal colon, whenever nothing that looks like a valid scope
+name follows the colon. Fixed by wrapping it as `${ticketId}:`.
+The real problem wasn't the typo itself - it's that this project's only
+`.ps1` verification before this was byte-level (BOM presence,
+ASCII-after-BOM, paren/brace/bracket balance counts). None of those can
+catch this class of error: brackets stayed balanced, encoding was never
+wrong. **From v2.10.12 on, every `.ps1` change gets checked with a real
+PowerShell parser** (`[System.Management.Automation.Language.Parser]::ParseFile`)
+before it ships, not just the byte-level checks. No Windows/`pwsh` install
+is needed to do this - the official PowerShell-for-Linux release tarball
+(`powershell-<version>-linux-x64.tar.gz` from the GitHub releases page)
+extracts and runs standalone, no install step, and gives a real parse
+result: exact line numbers and messages for genuine syntax errors, a clean
+pass otherwise. The byte-level checks remain useful for the specific
+BOM/encoding bug class they were built for (see the project's PowerShell
+conventions above), but were never a substitute for actually parsing the
+file and should not be treated as one going forward.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
