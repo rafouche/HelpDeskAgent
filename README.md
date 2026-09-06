@@ -673,6 +673,16 @@ Two more levers, both structural rather than config-driven:
   expecting a reply, and the classifier checks only that small list each
   cycle (not the whole open-ticket backlog) for a new client reply, dropping
   a ticket from the cache once it's resolved or a human has taken it over.
+- **Server-side team filtering on the classifier's own candidate search.**
+  A real incident found the "Unassigned"/"Stuck-claimed" `list_tickets`
+  calls had no `team_id` filter, so they fetched every team's tickets
+  account-wide (82 full ticket bodies in one real cycle, almost all
+  irrelevant) just to manually discard everything outside Help Desk - real
+  cost on every cycle, whether or not anything was actually found. Both
+  calls now pass `team_id` directly (`halopsa-mcp`'s `list_tickets` gained
+  the parameter), so a mixed-team result set is never fetched at all; the
+  classifier's own "keep only Help Desk team_id" double-check right after
+  stays in place as a backstop, not the primary filter.
   This only shows its effect on real (non-`-WhatIf`) runs, since `-WhatIf`
   never writes to this cache - a `-WhatIf` test will keep re-showing the
   same backlog every time regardless of this fix, because nothing ever

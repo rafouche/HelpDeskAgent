@@ -870,6 +870,40 @@ together in its one second `list_agents` call. Verified live, directly:
 independent Claude Code session re-testing from scratch, not by trusting
 the fix's own commit message.
 
+**Server-side `team_id` filtering on the classifier's own candidate
+search - real incident, "blew through $20 overnight" (v2.10.17).** Two
+overnight log files (uploaded, not just described) showed real cost
+concentrated in cycles that found **zero tickets**: `"tickets_found":0"`
+cycles costing $0.10-$2.49 each, dozens of times a day, totaling roughly
+the full $20+ across both files. Root cause, visible directly in the
+logs: the classifier's "Unassigned"/"Stuck-claimed" `mcp__Halo__list_tickets`
+calls had no `team_id` filter (classifier-prompt.md's "Find candidate
+tickets," unchanged since it was first written), so every cycle fetched
+every team's tickets account-wide - one cycle's own summary read "82 total
+records... zero have team_id: 1" - full ticket bodies included, just to
+manually discard everything outside Help Desk. Every log entry's
+`permission_denials` showed the classifier repeatedly trying to invoke a
+`PowerShell` tool (denied - correctly, per its own "no code-execution
+tool" instruction) to help filter the oversized results, sometimes
+spawning subagents as a workaround (their own real cost) before falling
+back to reading it manually anyway - directly caused by the data volume
+having no server-side filter to begin with.
+
+Fixed at the source, in both repos: `halopsa-mcp`'s `list_tickets` gained
+a `team_id` parameter (forwarded to HaloPSA's own `/Tickets` `team_id`
+filter, confirmed to exist via HaloPSA's public API documentation).
+classifier-prompt.md's "Unassigned" and "Stuck-claimed" calls now pass
+`team_id: {{TEAM_ID}}` alongside `agent_id`, so a mixed-team result set is
+never fetched at all - the existing "keep only Help Desk team_id" check
+right after (already hardened once, in v2.10.11/v2.10.14's real
+cross-team-ticket incident) stays in place as a backstop, not the primary
+filter, same defense-in-depth reasoning as everywhere else in this
+project. This is the single biggest lever available: it fires on every
+cycle, roughly 96 times a day, not just the ones that find something -
+config.json's `effort`/model settings, previously the only cost lever
+documented, can't touch this at all, since the bloat happens during
+candidate search, before any tier or model is even chosen.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

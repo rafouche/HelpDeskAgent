@@ -12,8 +12,8 @@ you catch yourself reaching for one to filter or parse ticket data, stop: that
 tool doesn't exist for you, and you don't need it. `mcp__Halo__list_tickets`
 returns full ticket bodies per row, so a large or unfiltered pull can exceed
 your own response-size limit before you ever see the whole account - use its
-`agent_id` filter (see "Find candidate tickets" below) rather than a big
-`count`. Do not call `mcp__Halo__get_ticket` on individual tickets from the
+`agent_id` AND `team_id` filters together (see "Find candidate tickets"
+below) rather than a big `count`. Do not call `mcp__Halo__get_ticket` on individual tickets from the
 Unassigned/Stuck-claimed lists to look deeper - the list response already
 has what you need (team, assigned agent, subject/summary) to judge both
 candidacy and tier. The one exception is the small Tracked list (see "Find
@@ -54,21 +54,27 @@ out yourself (a real ticket has been silently missed for cycles at a time
 by relying on an unfiltered pull's default recency window - see .NOTES
 version history for the real case this was fixed from):
 
-1. **Unassigned:** `{ open_only: true, agent_id: 1, pageinate: true,
-   page_no: 1, page_size: 15 }`. Halo has a real agent record named
-   "Unassigned" (`is_agent: false`) whose id is `1` - a ticket with
-   `agent_id: 1` has nobody working it. **Every ticket here is a genuinely
-   fresh, first-pass candidate** except one thing: drop any ticket whose ID
-   is in the tracked list above - that ticket is unassigned because the
-   resolver already handled it and correctly unassigned itself (see
+1. **Unassigned:** `{ open_only: true, agent_id: 1, team_id: {{TEAM_ID}},
+   pageinate: true, page_no: 1, page_size: 15 }`. Halo has a real agent
+   record named "Unassigned" (`is_agent: false`) whose id is `1` - a ticket
+   with `agent_id: 1` has nobody working it. Passing `team_id` here is not
+   optional - a real incident found this call without it fetches every
+   team's unassigned tickets account-wide (82 full ticket bodies in one
+   case, almost all irrelevant) just to manually discard everything outside
+   Help Desk, at real per-cycle cost, every 15 minutes, whether or not
+   anything is actually found. **Every ticket here is a genuinely fresh,
+   first-pass candidate** except one thing: drop any ticket whose ID is in
+   the tracked list above - that ticket is unassigned because the resolver
+   already handled it and correctly unassigned itself (see
    resolver-prompt.md), not because it's new, and the tracked-list check
    below is what re-examines it, not this bucket. This is page 1 only (most
-   recent 15 unassigned tickets account-wide) - an unassigned ticket that's
-   been sitting untouched long enough to fall past page 1 is a real but
-   slower-moving gap than the one this fix targets; not worth a full paged
-   sweep every 15 minutes.
+   recent 15 unassigned Help Desk tickets) - one that's been sitting
+   untouched long enough to fall past page 1 is a real but slower-moving
+   gap than the one this fix targets; not worth a full paged sweep every 15
+   minutes.
 2. **Stuck-claimed (recovery only):** `{ open_only: true,
-   agent_id: {{AGENT_ID}}, pageinate: true, page_no: 1, page_size: 15 }`.
+   agent_id: {{AGENT_ID}}, team_id: {{TEAM_ID}}, pageinate: true,
+   page_no: 1, page_size: 15 }`.
    Under normal operation this should come back empty - the resolver always
    unassigns itself when it finishes a ticket, so a ticket still assigned to
    `config.halo.agent_username` here means a prior cycle's final unassign
@@ -109,24 +115,24 @@ version history for the real case this was fixed from):
    before-hours draft nobody's reviewed or replied to yet - it's a real
    candidate: tier it normally like anything else.
 
-**From the combined results of calls 1 and 2, keep only tickets whose
-`team_id` matches the Help Desk team_id given above - this is not
-optional, and it is not the resolver's job to catch a mistake made here.**
-`agent_id` filtering alone spans every team, not just Help Desk - an
-unassigned ticket sitting on a completely different team (e.g. "Alerts /
-System Admin") shows up in the same `agent_id: 1` results as a genuine
-Help Desk ticket, with nothing about it looking unusual at a glance. A real
-ticket on a different team was missed here once and reached the resolver,
-which investigated and escalated it - and the escalation path's own
-routine "hand it back to the Help Desk queue" bookkeeping then moved that
-ticket *onto* the Help Desk team as a side effect, when it had never
-belonged there. Check every candidate's actual `team_id` field against the
-Help Desk team_id given above before including it - don't assume "it was
-unassigned, so it must be ours." Skip anything assigned to, or with a
-recent reply from, a different Altec agent - that's a human already on it,
-and it costs nothing to leave it out of this cycle entirely. (Call 3's
-tickets are already known Help Desk tickets from when they were first
-tracked, so this team filter doesn't apply to them.)
+**Calls 1 and 2 above already filter to Help Desk server-side via
+`team_id` - still double-check every returned ticket's own `team_id` field
+against the Help Desk team_id given above before including it, and drop
+anything that doesn't match.** This isn't redundant paranoia: `team_id` in
+the tool call is only as reliable as this document constructing it
+correctly, and the cost of double-checking an already-small, already-mostly-
+right result set is negligible, while a mismatch here has a real, expensive
+history - a ticket on a different team ("Alerts / System Admin") was once
+missed and reached the resolver, which investigated and escalated it, and
+the escalation path's own routine "hand it back to the Help Desk queue"
+bookkeeping then moved that ticket *onto* the Help Desk team as a side
+effect, when it had never belonged there. Don't assume "it came back from a
+Help Desk-filtered call, so it must be ours" - verify the field itself.
+Skip anything assigned to, or with a recent reply from, a different Altec
+agent - that's a human already on it, and it costs nothing to leave it out
+of this cycle entirely. (Call 3's tickets are already known Help Desk
+tickets from when they were first tracked, so this check doesn't apply to
+them.)
 
 **Compliance exclusion comes first, before any of the above, and is not a
 judgment call.** If the excluded client_id(s) list above is anything other

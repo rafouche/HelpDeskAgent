@@ -73,6 +73,24 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.17 - real incident: two overnight log files showed ~$20+
+    in cost concentrated in cycles finding zero tickets - "tickets_found":0
+    cycles costing $0.10-$2.49 each, dozens of times a day. Root cause,
+    visible directly in the logs: the classifier's Unassigned/Stuck-claimed
+    list_tickets calls had no team_id filter, so every cycle fetched every
+    team's tickets account-wide (82 full ticket bodies in one cycle, almost
+    all irrelevant) just to manually discard everything outside Help Desk -
+    real cost every 15 minutes regardless of findings, plus repeated denied
+    PowerShell tool attempts and subagent spawns trying to cope with the
+    oversized results. Fixed at the source: halopsa-mcp's list_tickets
+    gained a team_id parameter (HaloPSA's own /Tickets filter), and
+    classifier-prompt.md's Unassigned/Stuck-claimed calls now pass
+    team_id: {{TEAM_ID}} alongside agent_id - the existing "keep only Help
+    Desk team_id" check stays as a backstop, not the primary filter. This
+    is the biggest cost lever available: it fires on every cycle, not just
+    ones with findings, which config.json's effort/model settings can't
+    touch at all since this bloat happens during candidate search, before
+    any tier or model is chosen.
     Version: 2.10.16 - v2.10.15's include_inactive fix was itself
     incomplete, two more real corrections found by testing live rather
     than trusting the fix worked: (1) include_inactive was sending
