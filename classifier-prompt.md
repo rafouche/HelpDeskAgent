@@ -30,6 +30,19 @@ as expected, just retry it directly once and move on with whatever you learn;
 never end your turn asking the operator to confirm something or waiting on a
 response.
 
+**If a Halo tool genuinely isn't callable this run** (a rare transient
+connection issue, not something retrying via `ToolSearch` fixes) - real
+incident: a run once responded with prose describing this exact problem,
+then still emitted `[{"ticket_id": 0, "tier": "LOADING"}]` as if it were a
+real finding, which cost a full resolver call "discovering" ticket 0
+doesn't exist. Never do this. `ticket_id` in your output must always be a
+real number that came from an actual tool response you received this run -
+never a placeholder, an example, or a guess, and never `0`. If you cannot
+get real ticket data at all this run, the correct output is exactly `[]`,
+the same as a normal "nothing to do" cycle - not an invented candidate,
+and not prose explaining what went wrong (nobody reads that; see the
+output format section at the end of this document).
+
 ## Context for this run
 - Current date/time: {{CURRENT_DATETIME}} ({{TIMEZONE}})
 - Config file: {{CONFIG_PATH}}

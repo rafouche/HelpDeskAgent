@@ -987,6 +987,40 @@ a cleanup Roger asked for while looking at this:
    a working cache with `null` just because this particular cycle didn't get
    that far.
 
+**A fabricated `ticket_id: 0` cost a real resolver call - real incident,
+unrelated to v2.10.18 (v2.10.19).** A classifier call hit a transient MCP
+connection issue and genuinely couldn't invoke any Halo tool that cycle -
+confirmed directly from its own raw result text, not inferred: *"I don't
+have direct invocation capability for these MCP tools in my current
+session's tool set."* Rather than reporting that cleanly (or just emitting
+`[]`), it wrote several paragraphs explaining the problem and, in the
+middle of that prose, a fabricated `[{"ticket_id": 0, "tier": "LOADING"}]`
+- syntactically valid JSON that `Get-CleanJsonText`/`ConvertFrom-Json`
+extracted and accepted without complaint, since nothing had ever validated
+*content*, only JSON syntax. The resolver then spent $0.16 confirming
+ticket 0 doesn't exist (a 404) before self-correcting with `[CACHE:
+UNTRACK]` - the pipeline recovered on its own, but not before paying for a
+call that should never have happened.
+
+Fixed with the same "don't guess, verify before trusting" principle this
+project already applies to Halo ID resolution: Halo ticket IDs are always
+positive integers, so `Invoke-HaloResponseAgent.ps1` now validates every
+classified `ticket_id` right after parsing the classifier's output -
+anything that doesn't parse as a positive integer (`[long]::TryParse`,
+version-agnostic across how `ConvertFrom-Json` happens to type a given
+number) is discarded with a logged warning before it's ever handed to the
+resolver, falling through to the normal zero-candidate path if that empties
+the list entirely (exactly what should have happened here, at $0 instead of
+$0.16). `classifier-prompt.md` also gained an explicit instruction for this
+failure mode - if Halo tools genuinely aren't callable this run, the
+correct output is plain `[]`, never a fabricated `ticket_id` or
+explanatory prose - since a model that already knows something is wrong
+clearly can be told what the *correct* response to that is, even if it
+can't be guaranteed to always notice the problem in the first place. This
+is a real gap independent of anything v2.10.18 changed - the same
+fabrication could have happened (and gone unnoticed) at any point since the
+classifier/resolver split was first introduced.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

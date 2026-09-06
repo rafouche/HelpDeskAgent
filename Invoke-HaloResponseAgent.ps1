@@ -73,6 +73,24 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.19 - real incident, unrelated to v2.10.18's changes: a
+    classifier call hit a transient MCP connection issue and genuinely
+    could not invoke any Halo tool that cycle - its own raw result said so
+    directly ("I don't have direct invocation capability for these MCP
+    tools in my current session's tool set") - but instead of reporting
+    that cleanly, it fabricated a placeholder result alongside the prose:
+    {"ticket_id": 0, "tier": "LOADING"}. This script accepted that as a
+    real candidate (it's syntactically valid JSON) and spent a full
+    resolver call - $0.16 - "discovering" that ticket 0 doesn't exist in
+    Halo (404). Halo ticket IDs are always positive integers, so added a
+    validation pass right after classifier parsing: any ticket whose
+    ticket_id doesn't parse as a positive integer is discarded with a
+    logged warning before it ever reaches the resolver, falling through to
+    the normal "no candidates" path if that empties the list. classifier-
+    prompt.md also gained an explicit instruction for this failure mode:
+    if Halo tools genuinely aren't callable this run, the correct output is
+    plain [] - the same as a normal quiet cycle - never a fabricated
+    ticket_id or explanatory prose.
     Version: 2.10.18 - v2.10.17's team_id filter was not enough by itself:
     another ~$20 accrued overnight even after that deploy, because every
     single 15-minute cycle - including the vast majority that find nothing
@@ -2139,6 +2157,30 @@ try {
         Write-Host "Untracking $($untrackedIds.Count) ticket(s) no longer worth watching: $($untrackedIds -join ', ')"
     }
     $tickets = @($tickets | Where-Object { $_.tier -ne 'UNTRACK' })
+
+    # A ticket_id must be a real, positive Halo ticket ID - never 0,
+    # negative, null, or non-numeric. Real incident: a classifier call that
+    # couldn't actually invoke its Halo tools this cycle (a transient MCP
+    # connection issue, not a prompt problem - its own raw result said so
+    # directly: "I don't have direct invocation capability for these MCP
+    # tools in my current session's tool set") fabricated a placeholder
+    # result instead of reporting the failure - {"ticket_id": 0, "tier":
+    # "LOADING"} - which this script accepted as real data and spent a full
+    # resolver call "discovering" ticket 0 doesn't exist ($0.16 for
+    # nothing). Halo ticket IDs are always positive integers, so reject
+    # anything else here, before it ever reaches the resolver, rather than
+    # paying to find out it was never real.
+    $validTickets = @()
+    foreach ($t in $tickets) {
+        $parsedId = 0L
+        if ([long]::TryParse([string]$t.ticket_id, [ref]$parsedId) -and $parsedId -gt 0) {
+            $validTickets += $t
+        }
+        else {
+            Write-Host "WARNING: classifier returned an invalid ticket_id ($($t.ticket_id), tier '$($t.tier)') - discarding without spending a resolver call. This usually means the classifier couldn't actually reach its Halo tools this cycle (check the CLASSIFIER section's raw result in the log for why), not a real candidate."
+        }
+    }
+    $tickets = $validTickets
 
     # $idResolutionCost was already set in Stage 0 above (0 on a cache hit, the
     # real cost on a fresh resolution) - not recomputed here.
