@@ -654,25 +654,27 @@ Two more levers, both structural rather than config-driven:
   directly into every downstream prompt - `list_teams`/`list_statuses`/
   `list_priorities`/`list_agents` were removed from the classifier's and
   resolver's tool allowlists entirely so the savings are guaranteed, not just
-  hoped-for. As of v2.2.0 this resolution itself is cached to
-  `resolved-ids-cache.json`, so most cycles skip even that one call: the cache
-  is keyed on the exact `halo.*` names in `config.json` right now, so editing
-  any of them (renaming the team, switching `agent_username`, etc.) invalidates
-  it automatically, and `claude.id_cache_max_age_hours` (default 24) forces a
-  fresh resolution periodically anyway, as a backstop for the rarer case where
-  Halo itself changes (a team renamed, an agent account recreated) without
-  `config.json`'s text changing at all. If any name fails to resolve (cached or
-  fresh), the whole cycle aborts with a clear error rather than silently using
-  a wrong ID on every ticket - a cache read problem of any kind (missing,
-  corrupted) is always treated as a harmless cache miss, never a failure.
+  hoped-for. As of v2.2.0 this resolution itself is cached (in `agent-cache.json`
+  as of v2.10.18 - see "Local cache file" below), so most cycles skip even
+  that one call: the cache is keyed on the exact `halo.*` names in
+  `config.json` right now, so editing any of them (renaming the team,
+  switching `agent_username`, etc.) invalidates it automatically, and
+  `claude.id_cache_max_age_hours` (default 24) forces a fresh resolution
+  periodically anyway, as a backstop for the rarer case where Halo itself
+  changes (a team renamed, an agent account recreated) without
+  `config.json`'s text changing at all. If any name fails to resolve (cached
+  or fresh), the whole cycle aborts with a clear error rather than silently
+  using a wrong ID on every ticket - a cache read problem of any kind
+  (missing, corrupted) is always treated as a harmless cache miss, never a
+  failure.
 - **Skipping unchanged tickets.** A ticket already waiting on a client reply
   would get a full re-investigation and a full-price resolver call every
-  cycle if nothing changed. `tracked-tickets.json` (gitignored, next to
-  `resolved-ids-cache.json`) is a small local cache of ticket IDs still
-  worth watching - the resolver adds one whenever it ends a ticket still
-  expecting a reply, and the classifier checks only that small list each
-  cycle (not the whole open-ticket backlog) for a new client reply, dropping
-  a ticket from the cache once it's resolved or a human has taken it over.
+  cycle if nothing changed. The tracked-ticket list (also in `agent-cache.json`
+  as of v2.10.18) is a small local cache of ticket IDs still worth watching -
+  the resolver adds one whenever it ends a ticket still expecting a reply,
+  and the classifier checks only that small list each cycle (not the whole
+  open-ticket backlog) for a new client reply, dropping a ticket from the
+  cache once it's resolved or a human has taken it over.
 - **Server-side team filtering on the classifier's own candidate search.**
   A real incident found the "Unassigned"/"Stuck-claimed" `list_tickets`
   calls had no `team_id` filter, so they fetched every team's tickets
@@ -687,6 +689,35 @@ Two more levers, both structural rather than config-driven:
   never writes to this cache - a `-WhatIf` test will keep re-showing the
   same backlog every time regardless of this fix, because nothing ever
   really got marked handled.
+- **Off-hours throttle (v2.10.18).** This lever alone wasn't enough: a real
+  overnight run still cost real money even with the team filter above,
+  because every 15-minute cycle - the vast majority of which find nothing -
+  still ran the full pipeline. `business_hours.off_hours_check_interval_minutes`
+  (default 60) makes a scheduled firing outside business hours a near-instant
+  no-op (no ID resolution, no classifier, nothing) unless that many minutes
+  have passed since the last real check. Business hours only account for
+  roughly a third of a day's scheduled cycles, so most of the savings land
+  exactly where the overnight cost was concentrated. Never applies during
+  business hours, and never applies to a manual `-WhatIf`/`-DryRun` run.
+- **Pre-flight gate (v2.10.18).** Even during business hours, most cycles
+  still find nothing - so before ever invoking the classifier, the script
+  calls `halopsa-mcp`'s new `GET /helpdesk-gate` route directly over plain
+  HTTP (no Claude CLI, no LLM, essentially free) to ask whether there's
+  plausibly anything to find: any new unassigned Help Desk ticket, any
+  stuck-claimed ticket, or any tracked ticket whose `last_update` has changed
+  since it was last seen. If none of those are true, the classifier call is
+  skipped entirely for that cycle. This fails open on any problem (the Worker
+  URL isn't configured, a network error, a malformed response) - it always
+  falls back to running the classifier normally rather than risk silently
+  skipping a cycle that needed it, and it never applies to a manual
+  `-WhatIf`/`-DryRun` run either.
+- **One local cache file (v2.10.18).** What used to be two separate files
+  (`resolved-ids-cache.json`, `tracked-tickets.json`) are now one -
+  `agent-cache.json` - which also holds the small bit of state the two
+  levers above need (each tracked ticket's last-seen `last_update`, and the
+  timestamp of the last real check). An existing deployment's old files are
+  migrated into it automatically on the first run after upgrading, then
+  removed - nothing to do by hand.
 
 `Show-AgentLog.ps1`'s CYCLE SUMMARY section shows ID resolution cost,
 classifier cost, resolver cost, and a per-ticket cost/tier/model breakdown

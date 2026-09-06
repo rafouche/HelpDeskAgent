@@ -920,6 +920,73 @@ config.json's `effort`/model settings, previously the only cost lever
 documented, can't touch this at all, since the bloat happens during
 candidate search, before any tier or model is even chosen.
 
+**v2.10.17 wasn't enough by itself - off-hours throttle, pre-flight gate,
+and one consolidated cache file (v2.10.18).** Another ~$20 accrued
+overnight even after the `team_id` deploy above, because the fix only
+shrank each cycle's cost - it never addressed *how often* a cycle runs
+regardless of whether anything changed. Every 15-minute firing, day and
+night, still ran the full ID-resolution + classifier pipeline even on the
+vast majority of cycles that find nothing at all. Three changes, the third
+a cleanup Roger asked for while looking at this:
+
+1. **Off-hours throttle.** `business_hours.off_hours_check_interval_minutes`
+   (default 60) makes a scheduled firing outside business hours skip
+   everything - no ID resolution, no gate, no classifier, just a one-line
+   log entry - unless that many minutes have passed since the last real
+   check. Business hours are roughly a third of a day's scheduled cycles,
+   so most of the waste (and most of the potential savings) sit outside
+   them. A genuine emergency is still caught within this interval, since the
+   resolver's own emergency handling depends on a cycle running at all, not
+   on cadence - a bounded delay outside business hours, not a design
+   regression. Implemented as a plain local-timestamp check (`last_real_cycle_at`
+   in the cache below) with an early `return` *before* the `try` block even
+   starts, so nothing needs to be persisted on a throttled cycle - there's
+   nothing to persist, since nothing happened. Never applies under
+   `-WhatIf`/`-DryRun` - those are a human asking to see the real thing on
+   purpose, not a candidate for a cost-saving skip.
+2. **Pre-flight gate.** Even during business hours, most cycles still find
+   nothing - so a new `GET /helpdesk-gate` route on `halopsa-mcp` (separate
+   repo, `rafouche/MCPs`) answers "is there plausibly anything to find"
+   using only cheap, count-only (`page_size: 1` with `pageinate`, still
+   reads an accurate `record_count`) or single-ticket Halo calls - never the
+   full ticket bodies the classifier itself would fetch. `Invoke-HaloResponseAgent.ps1`
+   calls this directly over plain HTTP via `Invoke-RestMethod` -
+   no Claude CLI process, no LLM call, essentially free - right after Stage
+   0 resolves `team_id`/`agent_id` and right before the classifier would
+   otherwise run. The gate's base URL is found from `.mcp.json`'s own
+   `"Halo"` entry (`Get-HelpDeskGateBaseUrl`) rather than hardcoded a second
+   place that could drift out of sync with the real registration. If the
+   gate reports zero new unassigned Help Desk tickets, zero stuck-claimed
+   tickets, and no tracked ticket's `last_update` has changed since it was
+   last recorded, the classifier call is skipped entirely and the cycle logs
+   a normal zero-ticket summary at near-zero cost. Fails open on any problem
+   - missing/unregistered Worker URL, a network error, a malformed response
+   - by leaving `$shouldRunClassifier = $true` and falling through to a
+   normal classifier call, exactly the same "never let an optimization
+   become a new failure mode" principle as every cache in this project.
+   Never applies under `-WhatIf`/`-DryRun` either.
+   One correctness note worth being explicit about: the gate only ever
+   decides whether to *invoke* the classifier - it never feeds data into it.
+   The classifier still independently fetches live Halo data exactly as it
+   always has, so there's no risk of the classifier acting on a stale
+   snapshot the gate happened to see slightly earlier in the same cycle.
+3. **One local cache file.** `resolved-ids-cache.json` and
+   `tracked-tickets.json` are now one file, `agent-cache.json`, also holding
+   `tracked_last_seen` (per-ticket state the gate above needs) and
+   `last_real_cycle_at` (the throttle above needs) - a single atomic write
+   per cycle instead of up to three separate ones for different concerns. An
+   existing deployment's old two files are migrated into the new one
+   automatically on the first run after upgrading (nothing lost - a
+   previously-resolved ID set and tracked-ticket list both carry over), then
+   deleted; a brand-new deployment just starts the new file fresh. The
+   `resolved_ids` field is carried through initialized to whatever was
+   already cached *before* Stage 0 runs (not left `$null` until Stage 0
+   finishes) specifically so an early failure - a name that fails to
+   resolve, a thrown exception - still persists the cache's existing good
+   value in the `finally` block, rather than that block silently overwriting
+   a working cache with `null` just because this particular cycle didn't get
+   that far.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

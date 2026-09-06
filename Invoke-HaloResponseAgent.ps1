@@ -73,6 +73,36 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.18 - v2.10.17's team_id filter was not enough by itself:
+    another ~$20 accrued overnight even after that deploy, because every
+    single 15-minute cycle - including the vast majority that find nothing
+    - still ran the full classifier LLM call. Two structural changes, plus a
+    third, unrelated cleanup Roger asked for while looking at this:
+    1. Off-hours throttle: outside business hours, skip a scheduled firing
+    entirely (no ID resolution, no gate, no classifier - just a log line)
+    unless config.json's business_hours.off_hours_check_interval_minutes
+    (default 60) has passed since the last real check. Business hours are
+    roughly a third of a day's scheduled cycles, so most of the waste was
+    happening outside them; a genuine emergency is still caught within this
+    interval since the resolver's emergency handling doesn't depend on
+    cadence, just on a cycle running at all.
+    2. Pre-flight gate: added a new GET /helpdesk-gate route to halopsa-mcp
+    (separate repo, rafouche/MCPs) that answers "is there plausibly anything
+    to find" using only cheap, count-only or single-ticket Halo calls - no
+    Claude CLI, no LLM, called directly over plain HTTP via Invoke-RestMethod
+    (its base URL found from .mcp.json's own "Halo" entry, not a second
+    hardcoded place). If the gate reports zero new unassigned tickets, zero
+    stuck-claimed tickets, and no tracked ticket's last_update has changed
+    since it was last seen, the classifier call is skipped entirely for that
+    cycle. Fails open on any problem (missing Worker URL, network error,
+    malformed response) - always runs the classifier normally rather than
+    risk silently skipping a cycle that needed it. Neither this nor the
+    throttle above ever applies under -WhatIf/-DryRun.
+    3. Consolidated resolved-ids-cache.json and tracked-tickets.json into one
+    agent-cache.json (also now holding tracked_last_seen for the gate and
+    last_real_cycle_at for the throttle) - one local cache file instead of
+    several scattered ones, migrating existing content from the old two
+    files on first run rather than discarding it, then removing them.
     Version: 2.10.17 - real incident: two overnight log files showed ~$20+
     in cost concentrated in cycles finding zero tickets - "tickets_found":0
     cycles costing $0.10-$2.49 each, dozens of times a day. Root cause,
@@ -949,8 +979,9 @@ $ErrorActionPreference = "Stop"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $configPath           = Join-Path $RootPath "config.json"
-$idCachePath          = Join-Path $RootPath "resolved-ids-cache.json"
-$trackedTicketsPath   = Join-Path $RootPath "tracked-tickets.json"
+$agentCachePath       = Join-Path $RootPath "agent-cache.json"
+$legacyIdCachePath    = Join-Path $RootPath "resolved-ids-cache.json"
+$legacyTrackedPath    = Join-Path $RootPath "tracked-tickets.json"
 $idResolverPromptPath = Join-Path $RootPath "id-resolver-prompt.md"
 $classifierPromptPath = Join-Path $RootPath "classifier-prompt.md"
 $resolverPromptPath   = Join-Path $RootPath "resolver-prompt.md"
@@ -973,29 +1004,77 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out
 # hitting a data file read at runtime instead of a script being parsed.
 $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
-# --- Load the tracked-tickets cache: ticket IDs the resolver is already
-#     waiting on a client reply for, from a prior cycle. This is what lets
-#     the classifier skip a full get_ticket_time_entries check against every
-#     unassigned ticket every cycle (v2.10.5's approach) and instead only
-#     re-check this small, known set - the resolver always unassigns itself
-#     now (v2.10.5), so Halo's own agent_id can no longer double as that
-#     memory the way it used to pre-v2.10.5. A missing or corrupt file just
-#     means an empty list - this cache is a cost optimization, not a
-#     correctness requirement, so losing it costs a slightly pricier cycle,
+# --- Load the unified local cache: resolved Halo IDs, the tracked-ticket
+#     list (ticket IDs the resolver is already waiting on a client reply
+#     for), per-ticket "last seen" state (the pre-flight gate below uses
+#     this to notice when a tracked ticket actually changed), and the
+#     timestamp of the last cycle that ran a real check (the off-hours
+#     throttle below uses this). v2.10.18 consolidated what used to be two
+#     separate files (resolved-ids-cache.json, tracked-tickets.json) into
+#     this one, migrating their content on first run rather than discarding
+#     it - Roger asked for one cache file instead of several scattered ones.
+#     A missing or corrupt file just means starting fresh on every part of
+#     it - every one of these is a cost optimization, never a correctness
+#     requirement, so losing all of it costs at most one pricier cycle,
 #     never a broken one. -WhatIf still reads it for an accurate simulation;
 #     only the write-back later is skipped so nothing real persists.
-$trackedTicketIds = @()
-if (Test-Path $trackedTicketsPath) {
+$agentCache = $null
+if (Test-Path $agentCachePath) {
     try {
-        $loadedIds = Get-Content $trackedTicketsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $trackedTicketIds = @($loadedIds | ForEach-Object { [int]$_ })
+        $agentCache = Get-Content $agentCachePath -Raw -Encoding UTF8 | ConvertFrom-Json
     }
     catch {
         $earlyTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        Add-Content -Path $logFile -Value "[$earlyTimestamp] WARNING: could not read $trackedTicketsPath ($($_.Exception.Message)) - starting this cycle with an empty tracked-tickets list." -Encoding UTF8
-        $trackedTicketIds = @()
+        Add-Content -Path $logFile -Value "[$earlyTimestamp] WARNING: could not read $agentCachePath ($($_.Exception.Message)) - starting this cycle with a fresh cache." -Encoding UTF8
+        $agentCache = $null
     }
 }
+elseif ((Test-Path $legacyIdCachePath) -or (Test-Path $legacyTrackedPath)) {
+    $migratedIds = $null
+    if (Test-Path $legacyIdCachePath) {
+        try { $migratedIds = Get-Content $legacyIdCachePath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $migratedIds = $null }
+    }
+    $migratedTracked = @()
+    if (Test-Path $legacyTrackedPath) {
+        try { $migratedTracked = @(Get-Content $legacyTrackedPath -Raw -Encoding UTF8 | ConvertFrom-Json | ForEach-Object { [int]$_ }) } catch { $migratedTracked = @() }
+    }
+    $agentCache = [PSCustomObject]@{
+        resolved_ids       = $migratedIds
+        tracked_tickets    = $migratedTracked
+        tracked_last_seen  = [PSCustomObject]@{}
+        last_real_cycle_at = $null
+    }
+    foreach ($legacyPath in @($legacyIdCachePath, $legacyTrackedPath, "$legacyIdCachePath.tmp", "$legacyTrackedPath.tmp")) {
+        if (Test-Path $legacyPath) { Remove-Item -Path $legacyPath -Force -ErrorAction SilentlyContinue }
+    }
+    $earlyTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $logFile -Value "[$earlyTimestamp] Migrated resolved-ids-cache.json/tracked-tickets.json into agent-cache.json and removed the old files." -Encoding UTF8
+}
+if (-not $agentCache) {
+    $agentCache = [PSCustomObject]@{
+        resolved_ids       = $null
+        tracked_tickets    = @()
+        tracked_last_seen  = [PSCustomObject]@{}
+        last_real_cycle_at = $null
+    }
+}
+
+$trackedTicketIds = @()
+if ($agentCache.tracked_tickets) { $trackedTicketIds = @($agentCache.tracked_tickets | ForEach-Object { [int]$_ }) }
+
+# PSCustomObject -> Hashtable so per-ticket lookups/updates below (the
+# pre-flight gate) are plain key access instead of PSObject.Properties
+# gymnastics every time.
+$trackedLastSeen = @{}
+if ($agentCache.tracked_last_seen) {
+    foreach ($prop in $agentCache.tracked_last_seen.PSObject.Properties) { $trackedLastSeen[$prop.Name] = $prop.Value }
+}
+
+# Carried through untouched unless Stage 0 below actually re-resolves fresh
+# IDs - initialized here (not just inside the try block) so an early
+# failure before Stage 0 finishes still persists the cache's existing value
+# instead of the finally block silently wiping it back to null.
+$resolvedIdsForCache = $agentCache.resolved_ids
 
 # --- Determine business-hours context ---
 $now = Get-Date
@@ -1004,6 +1083,29 @@ $startTod = [TimeSpan]::Parse($config.business_hours.start)
 $endTod   = [TimeSpan]::Parse($config.business_hours.end)
 $isBusinessHours = $isBusinessDay -and ($now.TimeOfDay -ge $startTod) -and ($now.TimeOfDay -le $endTod)
 $nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
+
+# --- Off-hours throttle: outside business hours, skip most cycles entirely
+#     rather than paying for a real check every 15 minutes overnight/on
+#     weekends when the vast majority find nothing. Real incident: two
+#     overnight log files showed cost concentrated in cycles that found
+#     zero tickets, dozens of times a night - business hours only account
+#     for roughly a third of a day's scheduled cycles, so most of that
+#     waste was happening outside them. A genuine emergency is still caught
+#     within this interval (the resolver's own emergency handling doesn't
+#     depend on cadence, just on a cycle running at all) - a bounded delay
+#     outside business hours, not a design regression. Never throttles
+#     -WhatIf/-DryRun - a human asked for those on purpose and should always
+#     see the real thing, not a skip.
+$offHoursIntervalMinutes = 60
+if ($config.business_hours.off_hours_check_interval_minutes) { $offHoursIntervalMinutes = $config.business_hours.off_hours_check_interval_minutes }
+if (-not $isBusinessHours -and -not $WhatIf -and -not $DryRun -and $agentCache.last_real_cycle_at) {
+    $minutesSinceLastRealCycle = ((Get-Date) - [datetime]$agentCache.last_real_cycle_at).TotalMinutes
+    if ($minutesSinceLastRealCycle -lt $offHoursIntervalMinutes) {
+        $throttleTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Add-Content -Path $logFile -Value "[$throttleTimestamp] SKIPPED (off-hours throttle) - last real check $([math]::Round($minutesSinceLastRealCycle,1))m ago, threshold ${offHoursIntervalMinutes}m." -Encoding UTF8
+        return
+    }
+}
 
 #region STATIC TOOL ALLOWLISTS - rarely edited
 # IMPORTANT: Claude Code matches MCP tools as "mcp__<ServerName>__<tool>" - the
@@ -1352,6 +1454,34 @@ function Format-EffortDisplay {
     if ($effortCapableModels -contains $Model) { return $Effort }
     return "$Effort (NOT sent - $Model doesn't support --effort)"
 }
+
+# Finds halopsa-mcp's own base URL from .mcp.json (the same file that already
+# holds this MCP server's real registration - see README's "Register each
+# MCP server" section) rather than hardcoding it a second place that could
+# drift out of sync. Used only by the pre-flight gate below, which calls the
+# Worker's /helpdesk-gate route directly over plain HTTP (no Claude CLI, no
+# LLM call) - returns $null on any problem (missing .mcp.json, no "Halo"
+# entry, malformed URL) so the caller can fail open and just run the
+# classifier normally instead of guessing.
+function Get-HelpDeskGateBaseUrl {
+    param([string]$RootPath)
+    $mcpJsonPath = Join-Path $RootPath ".mcp.json"
+    if (-not (Test-Path $mcpJsonPath)) { return $null }
+    try {
+        $mcpConfig = Get-Content $mcpJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $mcpConfig.mcpServers) { return $null }
+        $haloEntry = $null
+        foreach ($prop in $mcpConfig.mcpServers.PSObject.Properties) {
+            if ($prop.Name -eq "Halo") { $haloEntry = $prop.Value; break }
+        }
+        if (-not $haloEntry -or -not $haloEntry.url) { return $null }
+        $uri = [Uri]$haloEntry.url
+        return $uri.GetLeftPart([UriPartial]::Authority)
+    }
+    catch {
+        return $null
+    }
+}
 $classifierEffort = Get-EffortForConfig -PerTierValue $config.claude.classifier_effort
 $effortForTier = @{
     "TRIVIAL"           = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
@@ -1508,6 +1638,11 @@ $resolverPromptTemplate = $resolverPromptTemplate `
 if ($DryRun) {
     Write-Host "=== DRY RUN ==="
     Write-Host "Business hours: $isBusinessHours"
+    $dryRunOffHoursMinutes = 60
+    if ($config.business_hours.off_hours_check_interval_minutes) { $dryRunOffHoursMinutes = $config.business_hours.off_hours_check_interval_minutes }
+    Write-Host "Off-hours throttle: skip real checks more often than every $dryRunOffHoursMinutes minute(s) outside business hours (never applies under -WhatIf/-DryRun)"
+    $dryRunGateUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
+    Write-Host "Pre-flight gate: $(if ($dryRunGateUrl) { "$dryRunGateUrl/helpdesk-gate (found via .mcp.json)" } else { 'NOT CONFIGURED - .mcp.json missing or has no "Halo" entry, so every real cycle always runs the classifier (fails open, same as a live gate-check failure would)' })"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
     if ($RequireApproval) {
@@ -1521,7 +1656,7 @@ if ($DryRun) {
     Write-Host "Model: $($config.claude.classifier_model)"
     Write-Host "Effort: $(Format-EffortDisplay -Effort $classifierEffort -Model $config.claude.classifier_model)"
     Write-Host "Allowed tools: $($idResolverTools -join ',')"
-    Write-Host "Cache file: $idCachePath"
+    Write-Host "Cache file: $agentCachePath"
     Write-Host "Cache max age (hours): $(if ($config.claude.id_cache_max_age_hours) { $config.claude.id_cache_max_age_hours } else { '24 (default)' })"
     Write-Host "--- ID resolver prompt ---"
     Write-Host $idResolverPrompt
@@ -1587,9 +1722,9 @@ try {
     $cachedResolvedAt = $null
     $cachedAgeHours = $null
 
-    if (Test-Path $idCachePath) {
+    if ($agentCache.resolved_ids) {
         try {
-            $cached = Get-Content $idCachePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $cached = $agentCache.resolved_ids
             $cachedInputJson = $cached.input | ConvertTo-Json -Compress
             $cachedAgeHours = ((Get-Date) - [datetime]$cached.resolved_at).TotalHours
             if ($cachedInputJson -eq $currentHaloIdentityJson -and $cachedAgeHours -le $idCacheMaxAgeHours) {
@@ -1599,9 +1734,9 @@ try {
             }
         }
         catch {
-            # Any problem reading/parsing the cache (missing, corrupted, hand-
-            # edited into something unexpected) - just treat it as a cache miss
-            # and resolve fresh below. Caching is purely an optimization; it
+            # Any problem reading the cached value (corrupted, hand-edited
+            # into something unexpected) - just treat it as a cache miss and
+            # resolve fresh below. Caching is purely an optimization; it
             # must never become a new way for this script to fail.
         }
     }
@@ -1644,7 +1779,7 @@ try {
 
     if ($missingIdFields.Count -gt 0) {
         if ($usedCachedIds) {
-            throw "Cached ID resolution data failed validation: $($missingIdFields -join ', ') - delete $idCachePath to force a fresh resolution, or check config.json's halo section against Halo."
+            throw "Cached ID resolution data failed validation: $($missingIdFields -join ', ') - delete $agentCachePath to force a fresh resolution, or check config.json's halo section against Halo."
         }
         throw "ID resolution failed to match: $($missingIdFields -join ', ') - check these names in config.json's halo section against what actually exists in Halo (team/status/priority/agent names are case-insensitive but must otherwise match exactly)."
     }
@@ -1724,25 +1859,21 @@ try {
             result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ai_waiting_approval_status_id=$($ids.ai_waiting_approval_status_id), ai_approved_status_id=$($ids.ai_approved_status_id), excluded_client_ids=[$excludedClientIdsText], ticket_type_names_count=$ticketTypeCount"
         } | ConvertTo-Json -Compress
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
+        # $resolvedIdsForCache already holds this same cached value (set
+        # before Stage 0 began) - nothing to update.
     }
     else {
-        # Save a fresh cache now that these IDs are validated - keyed on the exact
-        # config.json names that produced them, so any future edit to those names
-        # invalidates this automatically.
-        $freshCache = [PSCustomObject]@{
+        # Record the freshly-validated IDs, keyed on the exact config.json
+        # names that produced them so any future edit to those names
+        # invalidates this automatically - $resolvedIdsForCache is what the
+        # finally block at the end of this script actually writes to
+        # agent-cache.json, alongside the tracked-ticket state, as one
+        # combined write for the whole cycle instead of a separate file
+        # write here.
+        $resolvedIdsForCache = [PSCustomObject]@{
             resolved_at = (Get-Date).ToString("o")
             input       = $currentHaloIdentity
             ids         = $ids
-        }
-        try {
-            $tempCachePath = "$idCachePath.tmp"
-            $freshCache | ConvertTo-Json -Depth 5 | Set-Content -Path $tempCachePath -Encoding UTF8
-            Move-Item -Path $tempCachePath -Destination $idCachePath -Force
-        }
-        catch {
-            # Failing to WRITE the cache should never fail the cycle - worst
-            # case, the next cycle just resolves fresh again, same as today.
-            Add-Content -Path $logFile -Value "[$timestamp] WARNING: could not write ID resolution cache to $idCachePath - $($_.Exception.Message)" -Encoding UTF8
         }
     }
 
@@ -1910,6 +2041,53 @@ try {
             "==="
         )
         $approvalBanner = $approvalBannerLines -join "`n"
+    }
+
+    # --- Cheap pre-flight gate: before paying for the classifier LLM call,
+    #     ask halopsa-mcp's own /helpdesk-gate route (a plain HTTP GET, no
+    #     Claude/LLM involved at all) whether there's plausibly anything for
+    #     it to find. Real incident: the vast majority of cycles found
+    #     nothing, yet every one still ran the full classifier at real cost.
+    #     Fails open on any problem (missing Worker URL, network error,
+    #     malformed response) - always run the classifier normally rather
+    #     than risk silently skipping a cycle that needed it. Never runs
+    #     under -WhatIf/-DryRun, same reasoning as the throttle above.
+    $shouldRunClassifier = $true
+    if (-not $WhatIf -and -not $DryRun) {
+        try {
+            $gateBaseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
+            if ($gateBaseUrl) {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                $gateUri = "$gateBaseUrl/helpdesk-gate?team_id=$($ids.team_id)&agent_id=$($ids.agent_id)"
+                if ($trackedTicketIds.Count -gt 0) { $gateUri += "&tracked_ids=$($trackedTicketIds -join ',')" }
+                $gate = Invoke-RestMethod -Uri $gateUri -Method Get -TimeoutSec 20
+                $anyTrackedChanged = $false
+                foreach ($t in @($gate.tracked)) {
+                    $key = [string]$t.id
+                    if (-not $t.found) { $anyTrackedChanged = $true; continue }
+                    $previousSeen = $trackedLastSeen[$key]
+                    if (-not $previousSeen -or $previousSeen -ne $t.last_update) { $anyTrackedChanged = $true }
+                    $trackedLastSeen[$key] = $t.last_update
+                }
+                $shouldRunClassifier = ($gate.unassigned_count -gt 0) -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged
+                if (-not $shouldRunClassifier) {
+                    $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                    Add-Content -Path $logFile -Value "[$gateTimestamp] SKIPPED (gate: nothing changed) - unassigned=0, stuck_claimed=0, $($trackedTicketIds.Count) tracked ticket(s) unchanged." -Encoding UTF8
+                    Write-LogSection -LogFile $logFile -Header "CYCLE SUMMARY" -Content (([PSCustomObject]@{ tickets_found = 0; id_resolution_cost_usd = $idResolutionCost; classifier_cost_usd = 0; resolver_cost_usd = 0; total_cost_usd = $idResolutionCost; tickets = @() }) | ConvertTo-Json -Compress)
+                    Add-Content -Path $logFile -Value "----" -Encoding UTF8
+                    Write-Host "Cycle complete: 0 ticket(s) (gate skipped classifier), total cost `$$idResolutionCost"
+                }
+            }
+        }
+        catch {
+            $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            Add-Content -Path $logFile -Value "[$gateTimestamp] WARNING: pre-flight gate check failed ($($_.Exception.Message)) - running the classifier normally instead of guessing." -Encoding UTF8
+            $shouldRunClassifier = $true
+        }
+    }
+
+    if (-not $shouldRunClassifier) {
+        return
     }
 
     # --- Stage 1: classify ---
@@ -2096,32 +2274,43 @@ catch {
     throw
 }
 finally {
-    # Persist whatever $trackedTicketIds ended up as - covers every exit path
-    # above (normal completion, the early "no candidates" return, and even
-    # the catch block's throw) with one write, instead of needing a write at
-    # each individual exit point. Never under -WhatIf: a simulation run must
-    # leave nothing real behind, and this cache directly changes a future
-    # real cycle's behavior the same way any other persisted state would.
+    # Persist the unified local cache - resolved Halo IDs, the tracked-
+    # ticket list, per-ticket "last seen" state (the pre-flight gate above),
+    # and this cycle's timestamp (the off-hours throttle above) - covers
+    # every exit path (normal completion, an early "nothing changed" return,
+    # and even the catch block's throw) with one write, instead of a
+    # separate write for each concern at each individual exit point. Never
+    # under -WhatIf: a simulation run must leave nothing real behind, and
+    # every part of this cache directly changes a future real cycle's
+    # behavior the same way any other persisted state would.
     if (-not $WhatIf) {
         try {
-            $tempTrackedPath = "$trackedTicketsPath.tmp"
-            # -InputObject, not piped: piping an empty array into Select-Object
-            # produces zero pipeline objects, so ConvertTo-Json/Set-Content never
-            # runs at all and the .tmp file is never created - Move-Item then
-            # fails with "Cannot find path ... because it does not exist." This
-            # hits on the very common case of an empty tracked list (nothing
-            # currently waiting on a client), confirmed by reproducing it
-            # directly. -InputObject always passes exactly one array, even an
-            # empty one, so ConvertTo-Json reliably emits "[]".
-            $uniqueTrackedIds = @($trackedTicketIds | Select-Object -Unique)
-            ConvertTo-Json -InputObject $uniqueTrackedIds | Set-Content -Path $tempTrackedPath -Encoding UTF8
-            Move-Item -Path $tempTrackedPath -Destination $trackedTicketsPath -Force
+            $prunedTrackedLastSeen = @{}
+            foreach ($id in $trackedTicketIds) {
+                $key = [string]$id
+                if ($trackedLastSeen.ContainsKey($key)) { $prunedTrackedLastSeen[$key] = $trackedLastSeen[$key] }
+            }
+            $updatedCache = [PSCustomObject]@{
+                resolved_ids       = $resolvedIdsForCache
+                tracked_tickets    = @($trackedTicketIds | Select-Object -Unique)
+                tracked_last_seen  = $prunedTrackedLastSeen
+                last_real_cycle_at = (Get-Date).ToString("o")
+            }
+            $tempCachePath = "$agentCachePath.tmp"
+            # -InputObject, not piped: piping an empty array into a pipeline
+            # stage produces zero pipeline objects, so a downstream
+            # ConvertTo-Json/Set-Content can silently never run at all - a
+            # real incident on the old tracked-tickets-only file hit exactly
+            # this with an empty tracked list, the common case. -InputObject
+            # on the whole combined object here avoids that class of bug
+            # regardless of which nested array happens to be empty this cycle.
+            ConvertTo-Json -InputObject $updatedCache -Depth 6 | Set-Content -Path $tempCachePath -Encoding UTF8
+            Move-Item -Path $tempCachePath -Destination $agentCachePath -Force
         }
         catch {
-            # Same reasoning as the ID-resolution cache write above: failing to
-            # WRITE this cache should never fail the cycle - worst case, the
-            # next cycle just falls back to treating this file as empty.
-            Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] WARNING: could not write tracked-tickets cache to $trackedTicketsPath - $($_.Exception.Message)" -Encoding UTF8
+            # Failing to WRITE this cache should never fail the cycle - worst
+            # case, the next cycle just falls back to treating it as empty/stale.
+            Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] WARNING: could not write agent-cache.json to $agentCachePath - $($_.Exception.Message)" -Encoding UTF8
         }
     }
 }

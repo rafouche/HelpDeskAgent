@@ -1,5 +1,10 @@
 logs/
 backups/
+agent-cache.json
+agent-cache.json.tmp
+# Superseded by agent-cache.json (v2.10.18) - kept ignored in case an
+# upgraded deployment still has one lying around before its first run
+# migrates and deletes it.
 resolved-ids-cache.json
 resolved-ids-cache.json.tmp
 tracked-tickets.json

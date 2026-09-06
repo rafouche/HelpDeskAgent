@@ -2,10 +2,12 @@
   "_readme": "Everything below uses plain names - exactly what you'd see typing into Halo or NinjaOne. No IDs to look up or manage; the agent finds the technical ID itself each run. To add a remediation action, copy one of the examples in remediation_whitelist and change the wording - nothing else needs to change.",
 
   "business_hours": {
+    "_comment": "off_hours_check_interval_minutes (v2.10.18): outside these hours, the script skips most scheduled firings entirely rather than running a full check every 15 minutes overnight/on weekends when the vast majority find nothing - it only runs a real check once this many minutes have passed since the last one. A genuine emergency is still caught within this window (the resolver's own emergency handling doesn't depend on cadence), just not instantly. Never applies during business hours, and never applies to a manual -WhatIf/-DryRun run.",
     "timezone": "Central Time",
     "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
     "start": "08:00",
-    "end": "17:00"
+    "end": "17:00",
+    "off_hours_check_interval_minutes": 60
   },
 
   "compliance": {
