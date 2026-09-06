@@ -674,6 +674,22 @@ Haiku-backed tier is simply never sent, not an error; `-DryRun`'s preview
 shows exactly what would and wouldn't be sent, including a note when a
 configured value is being silently skipped for this reason.
 
+**Correction: the new effort keys belonged in the tracked config.json all
+along (v2.10.17).** v2.10.10 above left `classifier_effort`/
+`resolver_effort_trivial`/`_medium`/`_complex` undocumented as literal
+keys - described only in `_comment`, on the assumption that "don't make me
+hand-edit config.json" extended to this repo's own tracked copy too. It
+doesn't: that instruction has only ever meant the *live server's*
+`config.json` (deliberately excluded from auto-sync since v2.10.1, exactly
+so edits made there are never overwritten) - the repo's own copy is a
+reference/template and should always reflect every real option that
+exists, same as any other file here. The four keys are now present in
+`config.json`, set to today's `"low"` default (identical to the existing
+`effort` fallback, so this is not a behavior change) - a maintainer
+reviewing the repo now sees the full option set directly instead of having
+to find it in prose, and can copy whichever of them they want into their
+own live file.
+
 **The resolver now independently verifies a ticket is actually on the Help
 Desk team before touching it - a real, serious incident (v2.10.11).** A
 ticket sitting unassigned on a completely different Halo team (Alerts /
