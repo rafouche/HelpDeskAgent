@@ -138,6 +138,17 @@ function Write-UpdateLog {
     Add-Content -Path $logFile -Value "[$timestamp] $Message" -Encoding UTF8
 }
 
+# Windows PowerShell 5.1 on an older Windows Server / .NET Framework build
+# doesn't always default to TLS 1.2, and raw.githubusercontent.com requires
+# it - without this, every Invoke-WebRequest call below can fail with an
+# SSL/TLS trust error, silently (this script has no console output on any
+# path, success or failure - see the header comment - so a run that hits
+# this looks identical to one that just found nothing to update). The main
+# script's own outbound HTTPS call (the pre-flight gate) already sets this
+# for the same reason; this script talks to a different host but needs the
+# same protection.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $changedFiles = @()
 $downloadErrors = @()
 
