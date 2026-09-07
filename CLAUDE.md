@@ -1150,6 +1150,34 @@ which exists specifically to override signals like this one on purpose. Not
 applied to "Stuck-claimed" (call 2) - that bucket's own rule is "never
 silently drop, regardless of status," which this would directly undermine.
 
+**Follow-up, same day (v2.10.23): the ID cache's invalidation design had a
+real, repeated gap - it only knew about config.json text changes, never
+code changes.** v2.10.22's `status_id_names` shipped, but the very first
+cycle after deploying it logged `WARNING: status_id_names is missing/empty
+this cycle` and the classifier fell back to judging each status by hand at
+real cost - the ID cache was still serving an object resolved *before*
+`status_id_names` existed in `id-resolver-prompt.md`'s output, because
+nothing about that field lives in `config.json` for a text edit to ever
+invalidate. This was the second time the same underlying gap bit -
+`ready_for_ai_status_id` (v2.10.21) hit it too, just masked because
+`ready_for_ai_status_name` *is* a config.json field, so the value actually
+being renamed/added there happened to also trip the existing invalidation
+path. A field with no config.json name behind it - like `status_id_names`,
+which is a Halo-derived lookup table, not a per-tenant setting - had no
+such luck.
+
+Fixed structurally rather than telling Roger to remember to clear the cache
+after every future code deploy that changes what gets resolved:
+`$idSchemaVersion`, a plain literal in `Invoke-HaloResponseAgent.ps1`,
+included in the same cache-identity object `config.json`'s halo/compliance
+names already are. Bump it by hand any time `id-resolver-prompt.md`'s
+*output schema* changes - a field added, removed, or resolved differently -
+independent of whether any config.json name is involved. A schema-changing
+deploy now invalidates old caches the same automatic way a name edit always
+has. This one deploy carries it from unset to `"2"`, which self-heals this
+exact incident the moment the file lands - unlike the two before it, no
+manual `agent-cache.json` deletion was needed for this specific fix.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

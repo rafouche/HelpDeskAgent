@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.23 - real incident, same day as v2.10.22: that exact fix
+    ran for a full cycle at real cost with status_id_names entirely missing
+    (a logged warning said so directly), because the ID cache's
+    invalidation logic only ever compared config.json's own halo.*/
+    compliance.* text - a code deploy that changes what
+    id-resolver-prompt.md resolves, with no config.json name behind the new
+    field, left old cached IDs looking "still valid" and silently missing
+    it for up to id_cache_max_age_hours. Not the first time this exact
+    class of surprise hit this session (the Ready for AI status rename hit
+    the same underlying gap, just masked because a config-side name
+    happened to also change alongside it that time). Added
+    $idSchemaVersion, a plain literal bumped by hand any time
+    id-resolver-prompt.md's OUTPUT schema changes - a field added, removed,
+    or resolved differently - even when no config.json name is involved at
+    all; it's now part of the same cache-identity object config.json's
+    names already are, so a schema-changing deploy invalidates old caches
+    exactly like a name edit always has, with no separate "remember to
+    clear the cache after this specific kind of change" step for a human
+    to forget. This one deploy bumps it from unset to "2," which
+    self-heals this exact incident the moment the file is on disk - no
+    manual cache-clear needed for this fix specifically, unlike the two
+    before it.
     Version: 2.10.22 - real incident, same day as v2.10.21: ticket 20910 sat
     in "Dispatch Needed" and cost a full classifier+resolver cycle
     (~$0.42) every time it was rescanned, each one correctly concluding a
@@ -1820,7 +1842,29 @@ try {
     # (claude.id_cache_max_age_hours) as a backstop for the rarer case where Halo
     # itself changes (a team gets renamed, an agent account gets recreated) without
     # config.json's text changing at all.
+    #
+    # $idSchemaVersion closes a real, repeated gap in that design: it only
+    # ever compared config.json's OWN text, so a code deploy that changes
+    # what id-resolver-prompt.md itself resolves - a new field added to its
+    # output, with no config.json name behind it - left old cached IDs
+    # looking "still valid" and silently missing the new field for up to
+    # id_cache_max_age_hours. Real incident: status_id_names (v2.10.22)
+    # shipped, but a config.json-unrelated field has nothing in it to
+    # invalidate the cache, so the classifier ran for a full cycle at real
+    # cost with status_id_names entirely missing, silently falling back to
+    # judging each status by hand instead of the free lookup table - not
+    # the first time this exact class of surprise hit (the Ready for AI
+    # status rename hit the same gap, just with a config-side field that
+    # happened to also change, masking the real cause). Bump this any time
+    # id-resolver-prompt.md's OUTPUT schema changes - a field added,
+    # removed, or resolved differently - even when no config.json name is
+    # involved at all. This one deploy carries it from unset to "2" so this
+    # exact incident also self-heals the moment this file is on disk,
+    # without anyone needing to remember to clear the cache by hand.
+    $idSchemaVersion = "2"
+
     $currentHaloIdentity = [PSCustomObject]@{
+        id_schema_version                = $idSchemaVersion
         help_desk_team_name              = $config.halo.help_desk_team_name
         agent_username                   = $config.halo.agent_username
         resolved_status_name             = $config.halo.resolved_status_name
