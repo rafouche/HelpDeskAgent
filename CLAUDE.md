@@ -1021,6 +1021,53 @@ is a real gap independent of anything v2.10.18 changed - the same
 fabrication could have happened (and gone unnoticed) at any point since the
 classifier/resolver split was first introduced.
 
+**A stderr warning silently killed every COMPLEX-tier resolver call, real
+incident (v2.10.20).** A live `config.json` typo (`resolver_effort_complex:
+"mediumx"`, not a value in this repo's own copy) made the `claude` CLI log
+a soft, self-recovering stderr warning - by its own wording, it ignored the
+bad value and continued with the default effort. But `Invoke-ClaudeCLI`
+merges stderr via `2>&1`, and with this script's global
+`$ErrorActionPreference = "Stop"` plus PowerShell 7.3+'s default
+`$PSNativeCommandUseErrorActionPreference`, any stderr line from a native
+command gets promoted to a terminating exception the instant it's written -
+even one the CLI itself already recovered from. That fired before
+`$rawOutput` was ever assigned, so the ticket was never actually worked:
+`$0` cost, zero action, logged as if the whole call had failed. This
+affected every COMPLEX-tier ticket while the typo stood (real tickets:
+20910, and a genuine Entra Connect sync-error alert, 21798, sat untouched
+across many consecutive cycles despite the classifier correctly finding
+them every time) and would recur for any future stderr chatter from
+`claude`, not just this one value. Fixed by scoping
+`$PSNativeCommandUseErrorActionPreference = $false` around just the native
+`claude` invocation - stderr is still captured and logged, just no longer
+treated as fatal on its own.
+
+**Note/reply attribution to a named agent is not fixable via the Halo API -
+confirmed dead end, v2.10.15/16's `note_agent_id` fix reverted.** The
+`who_agentid` fix from item 2 above (and a follow-up attempt that also sent
+plain `agentid`, in case `who_agentid` was a read-only display field and
+`agentid` the real writable column - the same GET-vs-POST naming mismatch
+already found once in this codebase's `list_agents`) were both live-tested
+by writing a real note to a real ticket (20910, 2026-09-07) and checking
+Halo's returned action directly: `who`/`who_agentid`/`actionby_agent_id`
+all still showed the generic integration identity (`halointegrator`, agent
+17), never the resolved agent (Cynthia Hicks, agent 31), regardless of
+which field(s) the payload set. This reconfirms the *original* root cause
+noted back in v2.10.15 - HaloPSA attributes every `/Actions` write to
+whichever agent the OAuth `client_credentials` application itself is bound
+to in Halo's own admin config ("Login Type: Agent"), and nothing in the
+request payload can override that per-action. There is no code fix for
+this. `note_agent_id` has been removed from `halopsa-mcp`'s `update_ticket`
+tool entirely (it did nothing), and `resolver-prompt.md`'s "Every note must
+say who wrote it" section was replaced with a plain statement of this
+limitation - don't re-add a payload-based override without new evidence it
+actually works. The two real fixes are both outside this pipeline and are
+Roger's call, not something to implement unilaterally: rebind the OAuth
+application to a different Halo agent in Halo's own admin settings (every
+API action from this integration, not just HelpDeskAgent's, would then show
+under that identity), or rename the bound `halointegrator` account to
+something self-explanatory instead of trying to impersonate a named tech.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

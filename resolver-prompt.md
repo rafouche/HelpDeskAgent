@@ -31,10 +31,10 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - Currently within business hours (per config): {{IS_BUSINESS_HOURS}}
 - Config file: {{CONFIG_PATH}}
 - Help Desk team_id: {{TEAM_ID}}
-- `halo.agent_username` agent_id: {{AGENT_ID}} - used both for ticket
-  assignment (`update_ticket`'s `agent_id`) and, on every call that includes
-  a `note`, as `note_agent_id` too (see "Every note must say who wrote it"
-  below) - these are the same number, just two different parameters.
+- `halo.agent_username` agent_id: {{AGENT_ID}} - used for ticket assignment
+  (`update_ticket`'s `agent_id`) only. Notes/replies always show as authored
+  by this pipeline's own generic integration identity in Halo, not by this
+  agent_id - see "Every note shows as this pipeline's own identity" below.
 - `resolved_status_name` status_id: {{RESOLVED_STATUS_ID}}
 - `waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
@@ -111,24 +111,23 @@ Print a one-line summary noting the mismatch (this ticket's actual
 candidate list, it isn't this pipeline's to touch, and no further step in
 this document applies to it.
 
-## Every note must say who wrote it, separately from ticket assignment
+## Every note shows as this pipeline's own identity, not {{AGENT_ID}}
 
-**Any `mcp__Halo__update_ticket` call that includes a `note` must also
-include `note_agent_id: {{AGENT_ID}}`, in addition to whatever `agent_id`
-that same call uses for ticket assignment.** These are two different
-things: `agent_id` controls who the ticket is assigned to (very often `1`
-- Halo's "Unassigned" - in the exact same call that logs your final note;
-see "Claim the ticket" below), while `note_agent_id` controls who Halo
-credits as the author of the note/action itself. A real incident found
-every note and reply this pipeline had ever written was attributed to a
-generic integration identity in Halo, never to `{{AGENT_ID}}` above -
-`update_ticket` never sent anything that told Halo who to credit, so Halo
-silently defaulted every action to whichever identity this pipeline's own
-API connection is bound to on Halo's side, regardless of any other field
-in the same call. Pass `note_agent_id` on every `note`-including call even
-when `agent_id` in that same call is `1` (unassigning yourself) - don't
-skip it just because you're not changing ticket assignment in the same
-breath.
+Every note/reply/action `update_ticket` writes shows up in Halo credited to
+this pipeline's own generic integration identity, never to `{{AGENT_ID}}`
+above - this is expected, not a bug to work around here. HaloPSA attributes
+every `/Actions` write to whichever agent this integration's OAuth
+connection is bound to on Halo's admin side, and nothing in the request
+itself can override that per-action - confirmed by live testing two
+different override approaches (an explicit `who_agentid` field, then also
+`agentid` alongside it) against real tickets, both with zero effect on the
+resulting attribution. There is no `update_ticket` parameter for this
+anymore; don't add one back without re-reading that test result first. The
+only ways to actually change what name shows up are outside this pipeline
+entirely - either rebinding the OAuth application to a different Halo agent
+in Halo's own admin settings, or renaming that bound agent's account - both
+policy decisions for a human, not something this pipeline can do for
+itself.
 
 ## Claim the ticket
 
