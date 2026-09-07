@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.20 - real incident: ticket 20910 (and separately, a genuine
+    Entra Connect sync-error alert, ticket 21798) sat untouched across many
+    consecutive cycles despite the classifier correctly finding them as
+    candidates every time (team_id filter from v2.10.17 confirmed working via
+    the classifier's own logged tool-call params). The resolver call for both
+    kept "failing" with $0 cost and zero action taken, logging: "ERROR:
+    Warning: Unknown --effort value 'mediumx' - ignoring it and using the
+    default effort." That text is the claude CLI's own stderr, and per its
+    own wording the CLI recovered from it and continued normally - the bad
+    value came from a live-config.json typo in resolver_effort_complex (not
+    this repo's config.json, which is unaffected). The real bug is in this
+    script, not the config: Invoke-ClaudeCLI's `2>&1` merge, combined with
+    this script's global $ErrorActionPreference = "Stop" and PowerShell
+    7.3+'s $PSNativeCommandUseErrorActionPreference defaulting to $true,
+    promotes ANY stderr line from the claude process into a terminating
+    exception the instant it's written - even one the CLI itself explicitly
+    logged as non-fatal and moved past. That exception fired before
+    $rawOutput was ever assigned, so Invoke-ClaudeCLI never returned, the
+    ticket was never actually worked, and the outer catch block logged the
+    CLI's own recovered-from warning as if the whole call had failed. This
+    would have happened for any stderr chatter from claude, not just this
+    specific typo. Fixed by scoping $PSNativeCommandUseErrorActionPreference
+    = $false around just the native `claude` invocation in Invoke-ClaudeCLI,
+    restoring the pre-7.3 behavior where native stderr is still captured
+    (still visible in the log via the 2>&1 merge) but no longer treated as a
+    terminating error on its own.
     Version: 2.10.19 - real incident, unrelated to v2.10.18's changes: a
     classifier call hit a transient MCP connection issue and genuinely
     could not invoke any Halo tool that cycle - its own raw result said so
@@ -1605,7 +1631,30 @@ function Invoke-ClaudeCLI {
     # problem (already ruled out: BOM, hash, and length all verified intact
     # on disk). Stdin has no argument-parsing step, so this is no longer a
     # hazard no matter how many quotes a prompt contains.
-    $rawOutput = $Prompt | & claude @claudeArgs 2>&1
+    #
+    # $PSNativeCommandUseErrorActionPreference must be off around this specific
+    # call. With the script's global $ErrorActionPreference = "Stop" (above),
+    # PowerShell 7.3+'s default of $true promotes every stderr LINE from a
+    # native command into a terminating exception once merged via 2>&1 - even
+    # a soft, self-recovering CLI warning the claude process itself logged and
+    # continued past (real incident: "Unknown --effort value 'mediumx' -
+    # ignoring it and using the default effort", from a bad live config.json
+    # value - the CLI printed that, then finished normally, but this line
+    # threw before $rawOutput was ever assigned, so Invoke-ClaudeCLI never
+    # returned, the ticket was never actually worked, and the catch block at
+    # the call site logged the warning text as if the whole call had failed -
+    # $0 cost, zero action taken, every single cycle, for as long as that
+    # tier's effort value stayed invalid). Scoped to just this call so it
+    # doesn't mask real preference-driven behavior anywhere else in the
+    # script.
+    $prevNativeErrorPref = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+    try {
+        $rawOutput = $Prompt | & claude @claudeArgs 2>&1
+    }
+    finally {
+        $PSNativeCommandUseErrorActionPreference = $prevNativeErrorPref
+    }
     $rawText = $rawOutput | Out-String
 
     $parsed = $null
