@@ -73,6 +73,31 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.22 - real incident, same day as v2.10.21: ticket 20910 sat
+    in "Dispatch Needed" and cost a full classifier+resolver cycle
+    (~$0.42) every time it was rescanned, each one correctly concluding a
+    human agent already owned it via v2.10.21's own bright-line rule -
+    reaching the same true answer the expensive way, every 15 minutes,
+    because nothing recognized the status itself. Added status_id_names
+    (every Halo status id -> name) to id-resolver-prompt.md's output,
+    built from the exact same list_statuses call already made for the
+    other status fields - zero extra API cost, same pattern as the
+    existing ticket_type_names lookup. classifier-prompt.md's "Unassigned"
+    bucket now drops a candidate before it's even a candidate if its
+    status name clearly signals an already-active non-Help-Desk-AI
+    workflow (Dispatch Needed, Scheduled, Waiting on vendor, Quote*,
+    Scoped for review, Awaiting Deployment, With CAB, On Hold, Awaiting
+    Approval/Approved), using data list_tickets already returns - no new
+    tool call, no resolver call at all for these going forward. This is a
+    judgment call on the status name, deliberately not a hardcoded list,
+    and deliberately not the safety backstop - v2.10.21's human-touch rule
+    still runs on everything that gets through, so a status this filter
+    misjudges still can't result in acting on a human-owned ticket, only
+    in one avoidable resolver call, same as before this fix. Never applied
+    to a ticket carrying the Ready for AI status (v2.10.21), which exists
+    specifically to override signals like this one, or to the
+    "Stuck-claimed" bucket, whose own rule is "never silently drop
+    regardless of status."
     Version: 2.10.21 - real incident: the resolver claimed and drafted work
     on tickets a human colleague was actively coordinating (Dispatch Needed,
     Waiting on client), requiring the status reverted and notes deleted by
@@ -1928,6 +1953,27 @@ try {
     # something this script controls, so this is cheap insurance.
     $ticketTypeNamesText = $ticketTypeNamesText.Replace('$', '$$')
 
+    # status_id_names - same pattern as ticket_type_names above, same reason
+    # (a readability/judgment aid, not an API-call value - missing here is a
+    # warning, not an aborted cycle). Lets the classifier recognize a status
+    # like "Dispatch Needed"/"Scheduled"/"Waiting on vendor" by name and skip
+    # it as an obviously-already-active-elsewhere workflow before ever
+    # spending a resolver call finding the same thing the hard way (real
+    # incident: v2.10.21).
+    $statusIdNamesText = "(unavailable - status lookup returned nothing usable this cycle)"
+    $statusIdCount = 0
+    if ($ids.status_id_names) {
+        $statusIdProps = @($ids.status_id_names.PSObject.Properties)
+        $statusIdCount = $statusIdProps.Count
+        if ($statusIdCount -gt 0) {
+            $statusIdNamesText = ($statusIdProps | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ", "
+        }
+    }
+    if ($statusIdCount -eq 0) {
+        Add-Content -Path $logFile -Value "[$timestamp] WARNING: status_id_names is missing/empty this cycle - classifier will see raw status_id numbers without names, and can't apply the non-Help-Desk-AI-workflow status pre-filter." -Encoding UTF8
+    }
+    $statusIdNamesText = $statusIdNamesText.Replace('$', '$$')
+
     # excluded_client_ids was already validated non-null above - [] (nothing
     # configured, the common case) renders as a plain "none" so the classifier/
     # resolver aren't left comparing against literal empty-array text.
@@ -1987,6 +2033,7 @@ try {
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
         -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
+        -replace '\{\{STATUS_ID_NAMES\}\}', $statusIdNamesText `
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText `
         -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText

@@ -77,14 +77,22 @@ plain names - resolve each to its Halo ID:
   to match, so the caller aborts the cycle rather than run with an
   incomplete/wrong exclusion list.
 
-You also need to build a lookup table the classifier and resolver both use to
-make sense of a ticket's `tickettype_id` field (a bare number in the ticket
-data, meaningless without a name):
+You also need to build two lookup tables the classifier and resolver both use
+to make sense of a ticket's bare numeric fields:
 
 - Call `mcp__Halo__list_ticket_types` once. Build `ticket_type_names` as a JSON
   object mapping every returned type's `id` (as a string key, e.g. `"21"`) to
   its `name` (e.g. `"Alert"`). Include every type returned, not just ones you
   recognize - this is a lookup table, not a filtered list.
+- Build `status_id_names` the same way, but from the SAME `list_statuses`
+  response you already called above for `resolved_status_name` etc. - no
+  extra tool call. Map every returned status's `id` (as a string key) to its
+  `name`, every one, not just the ones matched by name above. The classifier
+  uses this to recognize statuses that mean "already in an active non-Help-
+  Desk-AI workflow" (Dispatch Needed, Scheduled, Waiting on vendor, a Quote/
+  CAB/deployment status, etc.) purely by name, without you needing to
+  identify or flag any of them here - this is a lookup table, not a judgment
+  call, same as `ticket_type_names`.
 
 That's 4 tool calls (one per list_* tool) normally, or 5 if `agent_username`
 doesn't match the first `list_agents` call and you need the
@@ -99,8 +107,9 @@ you have no need for ticket data here.
 If a name doesn't match anything in the corresponding list, don't guess and don't
 omit it - set that specific field to `null` so the caller can see exactly which
 name failed to resolve and stop the run rather than silently using a wrong ID.
-(This doesn't apply to `ticket_type_names` - there's nothing to "match" there,
-just include everything `list_ticket_types` returns.)
+(This doesn't apply to `ticket_type_names` or `status_id_names` - there's
+nothing to "match" for either, just include everything `list_ticket_types`/
+`list_statuses` returns.)
 
 ## Output format - this is the only thing that matters
 
@@ -109,12 +118,13 @@ markdown code fence, no explanation, no headers, no bulleted list. Exactly these
 keys:
 
 ```
-{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "ready_for_ai_status_id": null, "excluded_client_ids": [], "ticket_type_names": {"1": "Incident", "21": "Alert"}}
+{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "ready_for_ai_status_id": null, "excluded_client_ids": [], "ticket_type_names": {"1": "Incident", "21": "Alert"}, "status_id_names": {"1": "New", "4": "Waiting on client", "32": "Dispatch Needed"}}
 ```
 
-Every key must be present even if its value is `null` (except `ticket_type_names`,
-which should always be a full object, never null or empty, since
-`list_ticket_types` always returns something, and except `excluded_client_ids`,
+Every key must be present even if its value is `null` (except `ticket_type_names`
+and `status_id_names`, which should always be a full object, never null or
+empty, since `list_ticket_types`/`list_statuses` always return something, and
+except `excluded_client_ids`,
 which should be `[]` rather than `null` when `compliance.excluded_client_names`
 is itself empty - `null` there specifically means "one or more configured names
 failed to resolve," not "nothing configured"). Whatever reasoning led you to each

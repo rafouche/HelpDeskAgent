@@ -49,6 +49,7 @@ output format section at the end of this document).
 - Help Desk team_id: {{TEAM_ID}}
 - `halo.agent_username` agent_id: {{AGENT_ID}}
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
+- Halo status id -> name: {{STATUS_ID_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
 - `halo.ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
@@ -76,16 +77,43 @@ version history for the real case this was fixed from):
    team's unassigned tickets account-wide (82 full ticket bodies in one
    case, almost all irrelevant) just to manually discard everything outside
    Help Desk, at real per-cycle cost, every 15 minutes, whether or not
-   anything is actually found. **Every ticket here is a genuinely fresh,
-   first-pass candidate** except one thing: drop any ticket whose ID is in
-   the tracked list above - that ticket is unassigned because the resolver
-   already handled it and correctly unassigned itself (see
-   resolver-prompt.md), not because it's new, and the tracked-list check
-   below is what re-examines it, not this bucket. This is page 1 only (most
-   recent 15 unassigned Help Desk tickets) - one that's been sitting
-   untouched long enough to fall past page 1 is a real but slower-moving
-   gap than the one this fix targets; not worth a full paged sweep every 15
-   minutes.
+   anything is actually found. **Most tickets here are genuinely fresh,
+   first-pass candidates**, with two exceptions:
+   - Drop any ticket whose ID is in the tracked list above - that ticket is
+     unassigned because the resolver already handled it and correctly
+     unassigned itself (see resolver-prompt.md), not because it's new, and
+     the tracked-list check below is what re-examines it, not this bucket.
+   - **Drop any ticket whose `status_id`, looked up in {{STATUS_ID_NAMES}}
+     above, clearly names an already-active workflow this pipeline has no
+     tool or whitelisted action for** - real examples seen on this tenant:
+     "Dispatch Needed" (an on-site visit is already being coordinated),
+     "Scheduled," "Waiting on vendor," any "Quote..." status, "Scoped for
+     review," "Awaiting Deployment," "With CAB," "On Hold," "Awaiting
+     Approval"/"Approved" (this tenant's generic change-approval statuses,
+     not this pipeline's own `ai_waiting_approval_status_name`/
+     `ai_approved_status_name`, handled separately below). `agent_id: 1` on
+     a ticket like this doesn't mean it's unowned - Halo clears assignment
+     as a side effect of some status changes regardless of who's actually
+     working it (real incident: the same ticket cost a full resolver call
+     every single cycle it sat in "Dispatch Needed," each one correctly
+     concluding a human agent already owned it - concluding that the hard,
+     expensive way every time instead of the classifier just recognizing
+     the status name for free). This is a judgment call on the status
+     *name*, not a hardcoded ID list, so use your own reading of what a
+     status name implies - when genuinely unsure whether a status counts,
+     leave the ticket in as a candidate rather than drop it; the resolver's
+     own ownership check (see resolver-prompt.md) is the real backstop
+     either way, this is purely a cost optimization on top of it, never a
+     substitute for it. Never apply this to a ticket carrying
+     {{READY_FOR_AI_STATUS_ID}} - that status means a human is deliberately
+     overriding exactly this kind of signal (see call 4 below). "New," "In
+     Progress," and "Updated" are never dropped by this rule - real Help
+     Desk work legitimately sits in all three.
+
+   This is page 1 only (most recent 15 unassigned Help Desk tickets) - one
+   that's been sitting untouched long enough to fall past page 1 is a real
+   but slower-moving gap than the one this fix targets; not worth a full
+   paged sweep every 15 minutes.
 2. **Stuck-claimed (recovery only):** `{ open_only: true,
    agent_id: {{AGENT_ID}}, team_id: {{TEAM_ID}}, pageinate: true,
    page_no: 1, page_size: 15 }`.

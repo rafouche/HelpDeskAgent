@@ -1121,14 +1121,34 @@ reply/remediation. Never set a ticket back to Ready for AI from within this
 pipeline - it's a one-way human-to-pipeline signal, not a state this code
 ever produces itself, and doing so would create a re-trigger loop.
 
-**Deferred, not done:** a cheap, deterministic status-based pre-filter at the
-classifier stage (dropping obviously-never-ours statuses like Scheduled,
-Waiting on vendor, the Quote\* statuses, With CAB, On Hold, before ever
-spending a resolver call) was discussed but not implemented this round - the
-bright-line human-touch rule above already fully closes the reported gap at
-the resolver, just at the cost of one resolver call per stale candidate
-rather than zero. Worth revisiting if that cost becomes noticeable in
-practice.
+**Follow-up, same day (v2.10.22): the deferred status pre-filter above turned
+out to be needed immediately, not eventually.** Real incident: ticket 20910
+sat in "Dispatch Needed" and cost a full classifier+resolver cycle
+(~$0.42) every single time it was rescanned, each one correctly concluding
+Erick Gonzales already owned it - reaching the same true answer the
+expensive way, repeatedly, because nothing remembered or recognized the
+status. Rather than build per-tenant configuration for this (a list of
+status *names* to exclude, which every new custom status would need adding
+to by hand), reused the same free lookup-table pattern `ticket_type_names`
+already established: `id-resolver-prompt.md` now also builds
+`status_id_names` (every status id -> name) from the exact same
+`list_statuses` call it already makes for the other status fields - zero
+extra API calls. The classifier's "Unassigned" bucket now drops any
+candidate whose status name clearly signals an already-active, non-Help-
+Desk-AI workflow (Dispatch Needed, Scheduled, Waiting on vendor, Quote\*,
+Scoped for review, Awaiting Deployment, With CAB, On Hold, Awaiting
+Approval/Approved) before it ever becomes a candidate, using data the
+classifier's own `list_tickets` call already returns - no new tool call,
+no resolver call at all for these. Deliberately a judgment call on the
+status *name*, not a hardcoded ID list or enumerated config, and
+deliberately **not** the correctness backstop - the resolver's bright-line
+human-touch rule (above) still runs on every ticket that does get through,
+so a status this judgment call misses (or misjudges) still can't result in
+the pipeline acting on a human-owned ticket, only in one avoidable
+resolver call. Never applied to a ticket carrying the Ready for AI status,
+which exists specifically to override signals like this one on purpose. Not
+applied to "Stuck-claimed" (call 2) - that bucket's own rule is "never
+silently drop, regardless of status," which this would directly undermine.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
