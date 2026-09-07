@@ -1068,6 +1068,68 @@ API action from this integration, not just HelpDeskAgent's, would then show
 under that identity), or rename the bound `halointegrator` account to
 something self-explanatory instead of trying to impersonate a named tech.
 
+**Real incident: the resolver claimed and drafted work on tickets a human was
+actively coordinating in "Dispatch Needed"/"Waiting on client," requiring
+manual cleanup - the "is this really unassigned" judgment call was too soft
+(v2.10.21).** The prior check (v2.10.15, above) asked whether a human's
+activity on an `agent_id: 1` ticket looked "recent" or "stale" before
+deciding whether it was still theirs to leave alone. That's exactly the gap
+that let real tickets through - Roger found several where a human agent had
+set a workflow status (Dispatch Needed, Waiting on client) that the resolver
+judged as old/inactive enough to proceed past, claimed the ticket, drafted a
+reply, and moved it to AI Waiting Approval, requiring the status reverted and
+the notes deleted by hand. Root problem: "recent enough to count" is a
+judgment call with no clean answer, and status alone can't substitute for it
+either - Roger uses New/In Progress/Updated for real work too, so a human can
+own a ticket in any status the pipeline also uses for genuinely fresh ones.
+
+Fixed by replacing the judgment with a bright-line rule and adding the one
+explicit override it needs:
+1. **`resolver-prompt.md`'s ownership check is now binary, not a "how recent"
+   judgment**: if the action history contains even one entry from a real
+   human agent - ever, regardless of age - the ticket is not available,
+   full stop, same treatment as "assigned to a different agent." Only a
+   completely untouched-by-any-human action history (System/HaloAI/
+   Automation/this pipeline's own entries only) counts as genuinely free.
+2. **A new Halo status, `ready_for_ai_status_name` (Roger created "Ready for
+   AI" in Halo Admin)**, is the one deliberate override: a human sets this
+   status on any ticket - regardless of current assignment or history - to
+   force the pipeline to take it over as if it were genuinely fresh. This is
+   the *only* thing that overrides rule 1 or the "assigned to a different
+   agent" check; nothing else does. The classifier finds these via a new
+   4th candidate-finding bucket (`list_tickets` filtered by `team_id` +
+   `status_id`, added as a new optional `status_id` filter on `halopsa-mcp`'s
+   `list_tickets` - same pattern as the existing `team_id`/`agent_id`
+   filters), included unconditionally regardless of current assignment.
+   Resolved via the same optional, nullable pattern as
+   `ai_waiting_approval_status_id`/`ai_approved_status_id` - blank config
+   value means the feature is simply off, not an error.
+3. **Escalating (Follow Up Needed, AI Waiting Approval, AI Approved) already
+   drops a ticket out of the tracked cache** (`[CACHE: UNTRACK]`, per "When
+   you finish" above) - once the pipeline hands a ticket to a human, it stays
+   out of consideration on its own, and the only way back in is the same
+   Ready for AI status, not a special case.
+
+**This status is orthogonal to `-RequireApproval`, deliberately, not a
+special case:** Ready for AI only affects *candidacy* (should the pipeline
+look at this ticket at all) - it has zero effect on tiering or on the
+approval-gating FLOW A/FLOW B logic. A Ready-for-AI ticket gets normally
+tiered and normally investigated, and under `-RequireApproval` still drafts
+and holds in AI Waiting Approval for sign-off exactly like any other ticket -
+nothing about the hand-back status bypasses human review of the actual
+reply/remediation. Never set a ticket back to Ready for AI from within this
+pipeline - it's a one-way human-to-pipeline signal, not a state this code
+ever produces itself, and doing so would create a re-trigger loop.
+
+**Deferred, not done:** a cheap, deterministic status-based pre-filter at the
+classifier stage (dropping obviously-never-ours statuses like Scheduled,
+Waiting on vendor, the Quote\* statuses, With CAB, On Hold, before ever
+spending a resolver call) was discussed but not implemented this round - the
+bright-line human-touch rule above already fully closes the reported gap at
+the resolver, just at the cost of one resolver call per stale candidate
+rather than zero. Worth revisiting if that cost becomes noticeable in
+practice.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

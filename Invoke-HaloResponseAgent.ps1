@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.21 - real incident: the resolver claimed and drafted work
+    on tickets a human colleague was actively coordinating (Dispatch Needed,
+    Waiting on client), requiring the status reverted and notes deleted by
+    hand. The prior "is this really unassigned" check (v2.10.15) judged
+    whether a human's activity looked "recent" or "stale" before treating
+    agent_id: 1 as free - that judgment call is exactly what let this
+    through, since a status change or note from weeks ago is not evidence a
+    ticket is free, it's evidence a human still owns it. Hardened into a
+    bright-line rule in resolver-prompt.md: any real human agent action in
+    the history, ever, means the ticket isn't available - no "how recent"
+    judgment left. Added the one deliberate override this needs: a new
+    config.json field, halo.ready_for_ai_status_name (optional/nullable,
+    same pattern as ai_waiting_approval_status_name/ai_approved_status_name),
+    resolved the same way, that a human sets on any ticket to force this
+    pipeline to take it over regardless of current assignment or history.
+    classifier-prompt.md gained a 4th candidate-finding bucket for it
+    (list_tickets filtered by team_id + the new status_id, added as an
+    optional filter on halopsa-mcp's list_tickets alongside the existing
+    team_id/agent_id ones), included unconditionally. This status is
+    orthogonal to -RequireApproval by design - it only overrides candidacy,
+    never the FLOW A/FLOW B approval-gating logic, so a Ready-for-AI ticket
+    under -RequireApproval still drafts and holds for human sign-off like
+    any other. See CLAUDE.md for the full design writeup, including a
+    deliberately deferred cheap status-based pre-filter at the classifier
+    stage that would catch obviously-never-ours statuses (Scheduled,
+    Waiting on vendor, etc.) before spending a resolver call at all.
     Version: 2.10.20 - real incident: ticket 20910 (and separately, a genuine
     Entra Connect sync-error alert, ticket 21798) sat untouched across many
     consecutive cycles despite the classifier correctly finding them as
@@ -1712,6 +1738,7 @@ if ($DryRun) {
     Write-Host "Pre-flight gate: $(if ($dryRunGateUrl) { "$dryRunGateUrl/helpdesk-gate (found via .mcp.json)" } else { 'NOT CONFIGURED - .mcp.json missing or has no "Halo" entry, so every real cycle always runs the classifier (fails open, same as a live gate-check failure would)' })"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
+    Write-Host "Ready-for-AI hand-back status: $(if ($config.halo.ready_for_ai_status_name) { "'$($config.halo.ready_for_ai_status_name)' (resolved to an ID at Stage 0, not shown here)" } else { 'NOT CONFIGURED - halo.ready_for_ai_status_name is blank, so this feature is off' })"
     if ($RequireApproval) {
         Write-Host "  NOTE: the approval banner (FLOW A/FLOW B, per-ticket tool selection)" -ForegroundColor Yellow
         Write-Host "  is built from Stage 0's resolved IDs and isn't shown below - it doesn't" -ForegroundColor Yellow
@@ -1776,6 +1803,7 @@ try {
         follow_up_status_name            = $config.halo.follow_up_status_name
         ai_waiting_approval_status_name  = $config.halo.ai_waiting_approval_status_name
         ai_approved_status_name          = $config.halo.ai_approved_status_name
+        ready_for_ai_status_name         = $config.halo.ready_for_ai_status_name
         excluded_client_names            = $config.compliance.excluded_client_names
     }
     $currentHaloIdentityJson = $currentHaloIdentity | ConvertTo-Json -Compress
@@ -1923,7 +1951,7 @@ try {
         # Show-AgentLog.ps1 renders it the same way as every other section instead
         # of hitting its "couldn't parse" fallback.
         $cacheNoteContent = [PSCustomObject]@{
-            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ai_waiting_approval_status_id=$($ids.ai_waiting_approval_status_id), ai_approved_status_id=$($ids.ai_approved_status_id), excluded_client_ids=[$excludedClientIdsText], ticket_type_names_count=$ticketTypeCount"
+            result = "Using cached IDs from $cachedResolvedAt (age $([math]::Round($cachedAgeHours,1))h, cache max age ${idCacheMaxAgeHours}h): team_id=$($ids.team_id), agent_id=$($ids.agent_id), resolved_status_id=$($ids.resolved_status_id), waiting_status_id=$($ids.waiting_status_id), followup_status_id=$($ids.followup_status_id), ai_waiting_approval_status_id=$($ids.ai_waiting_approval_status_id), ai_approved_status_id=$($ids.ai_approved_status_id), ready_for_ai_status_id=$($ids.ready_for_ai_status_id), excluded_client_ids=[$excludedClientIdsText], ticket_type_names_count=$ticketTypeCount"
         } | ConvertTo-Json -Compress
         Write-LogSection -LogFile $logFile -Header "ID RESOLUTION" -Content $cacheNoteContent
         # $resolvedIdsForCache already holds this same cached value (set
@@ -1946,12 +1974,22 @@ try {
 
     # Inject the resolved IDs into both the classifier and resolver prompts - from
     # here on, neither needs to look any of these up itself.
+    # ready_for_ai_status_id is optional (null when the config name is blank
+    # or unset) - render it as the literal text "none" rather than the
+    # PowerShell $null->"" empty-string substitution, so classifier-prompt.md/
+    # resolver-prompt.md's {{READY_FOR_AI_STATUS_ID}} placeholder always reads
+    # as an explicit, human-legible value instead of silently vanishing into
+    # blank text that could be misread as "status 0" or a stray space.
+    $readyForAiStatusIdText = "none"
+    if ($null -ne $ids.ready_for_ai_status_id) { $readyForAiStatusIdText = $ids.ready_for_ai_status_id }
+
     $classifierPrompt = $classifierPrompt `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
         -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
-        -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText
+        -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText `
+        -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
@@ -1959,7 +1997,8 @@ try {
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
-        -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id
+        -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
+        -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText
 
     # --- Approval-mode banners (-RequireApproval only) - built here, not up with
     #     $simulationBanner, because they need $ids.ai_waiting_approval_status_id/

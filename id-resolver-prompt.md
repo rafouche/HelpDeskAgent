@@ -55,6 +55,11 @@ plain names - resolve each to its Halo ID:
   `null` directly without attempting a match. Only if the config value is
   non-blank and still doesn't match anything in `list_statuses` does the
   "don't guess, set null" rule below apply to it the same as any other field.
+- `halo.ready_for_ai_status_name` -> match against that SAME `list_statuses`
+  response (no extra call) -> `ready_for_ai_status_id`. **Optional**, same
+  rule as the two fields above: blank config value -> `null` directly, no
+  match attempted, no flag - this feature is simply off. Non-blank and still
+  unmatched -> the "don't guess, set null" rule below applies.
 - `compliance.excluded_client_names` -> a JSON array of client names, possibly
   empty. If it's empty, skip this entirely - output `excluded_client_ids` as
   `[]` and don't call anything. If it has one or more names in it, call
@@ -104,7 +109,7 @@ markdown code fence, no explanation, no headers, no bulleted list. Exactly these
 keys:
 
 ```
-{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "excluded_client_ids": [], "ticket_type_names": {"1": "Incident", "21": "Alert"}}
+{"team_id": 1, "agent_id": 31, "resolved_status_id": 5, "waiting_status_id": 4, "followup_status_id": 33, "ai_waiting_approval_status_id": null, "ai_approved_status_id": null, "ready_for_ai_status_id": null, "excluded_client_ids": [], "ticket_type_names": {"1": "Incident", "21": "Alert"}}
 ```
 
 Every key must be present even if its value is `null` (except `ticket_type_names`,

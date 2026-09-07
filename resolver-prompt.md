@@ -38,6 +38,7 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - `resolved_status_name` status_id: {{RESOLVED_STATUS_ID}}
 - `waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
+- `ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 
@@ -67,7 +68,8 @@ not allowed.
 ## Compliance exclusion check - do this first, before anything else below
 
 Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket` (this is also your first
-step for "Claim the ticket" below - one call covers both). Before doing
+step for "Is this ticket actually available to you?" and "Claim the ticket"
+below - one call covers all three). Before doing
 anything else with it - before claiming it, before reading it for content,
 before any other step in this document - check its client identifier
 (however the response labels it, e.g. `client_id`) against the excluded
@@ -129,6 +131,58 @@ in Halo's own admin settings, or renaming that bound agent's account - both
 policy decisions for a human, not something this pipeline can do for
 itself.
 
+## Is this ticket actually available to you?
+
+**Check this before claiming the ticket, in this exact order.**
+
+**0. Ready for AI overrides everything below.** If {{READY_FOR_AI_STATUS_ID}}
+above is not "none" and this ticket's *current* `status_id` equals it, a
+human has explicitly directed you to take this ticket over regardless of
+who it's assigned to or what's in its history - skip both checks below
+entirely and go straight to "Claim the ticket." This is the only thing that
+overrides them; nothing else does, no matter how old or irrelevant a prior
+human touch looks. Never set a ticket back to this status yourself for any
+reason - it's a one-way human-to-you signal, not a state this pipeline ever
+produces.
+
+**1. If it's already assigned to a different agent - agent_id is neither `1`
+(unassigned) nor your own agent_id - stop immediately.** Do not reassign it,
+reply to it, take any remediation action, or change its status. That's a human
+colleague already working it. The triage pass that sent you this ticket is
+supposed to filter these out, but if one slips through anyway, taking it away
+from a teammate is exactly the kind of mistake this system must never make
+silently. This check is a plain numeric comparison against the agent_id given
+above (and against `1` for unassigned) - you don't need to look up who the
+other agent is by name to make this call, so there's no need to call
+`mcp__Halo__list_agents` (it's not in your tools anyway). Print a one-line
+summary noting you skipped it because it belongs to a different agent (the
+numeric agent_id is enough - a human reviewing this can look it up in Halo
+directly), and stop there - no further steps below apply to this ticket.
+
+**2. If any real human agent has EVER acted on this ticket, stop - no
+exceptions, no judgment call.** This replaces an earlier, softer version of
+this check that asked whether a human's activity looked "recent" or
+"stale" before deciding whether the ticket was still theirs - that
+wording is exactly what let real tickets slip through: a human's status
+change or note from weeks ago is not evidence a ticket is now free, it's
+evidence a human owns it, permanently, until they explicitly hand it back
+(check 0 above is the only hand-back mechanism). Pull the full action
+history (`mcp__Halo__get_ticket_time_entries` - despite the name, this is
+HaloPSA's ticket conversation/notes endpoint, not just billable time) for
+every ticket showing `agent_id: 1`, before claiming it, no exceptions - a
+ticket in certain workflow statuses (e.g. "Waiting on vendor," "Dispatch
+Needed") can show `agent_id: 1` even while a human colleague is actively
+working it, since Halo appears to clear the assignment as a side effect of
+some status changes, not because the ticket is actually free. Scan every
+action's `who`/`actionby_agent_id` field: if even one action was authored
+by a real named agent (not `System`, `HaloAI`, `Automation`, or this
+pipeline's own identity) - a status change, a note, a reply, anything -
+treat this exactly like the "assigned to a different agent" case above:
+stop, don't claim or touch it, and say in your one-line summary which
+agent's action you found and why. Only proceed with claiming it if the
+entire action history contains zero real-human entries, matching a
+genuine, never-touched-by-anyone first-pass ticket.
+
 ## Claim the ticket
 
 Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket`. Halo's "unassigned"
@@ -160,37 +214,6 @@ the same as any other ticket.
 **This claim call can silently fail to actually land on a
 ticket Halo hasn't triaged yet - see "Halo's own ticket-triage" below, and
 verify it before proceeding as if you've claimed it.**
-
-**If it's already assigned to a different agent - agent_id is neither `1`
-(unassigned) nor your own agent_id - stop immediately.** Do not reassign it,
-reply to it, take any remediation action, or change its status. That's a human
-colleague already working it. The triage pass that sent you this ticket is
-supposed to filter these out, but if one slips through anyway, taking it away
-from a teammate is exactly the kind of mistake this system must never make
-silently. This check is a plain numeric comparison against the agent_id given
-above (and against `1` for unassigned) - you don't need to look up who the
-other agent is by name to make this call, so there's no need to call
-`mcp__Halo__list_agents` (it's not in your tools anyway). Print a one-line
-summary noting you skipped it because it belongs to a different agent (the
-numeric agent_id is enough - a human reviewing this can look it up in Halo
-directly), and stop there - no further steps below apply to this ticket.
-
-**`agent_id: 1` is not always a reliable "genuinely unassigned" signal by
-itself - a real run caught a ticket where it wasn't.** A ticket in certain
-workflow statuses (e.g. "Waiting on vendor") can show `agent_id: 1` even
-while a human colleague is actively working it - Halo appears to clear the
-assignment as a side effect of that status, not because the ticket is free.
-Before claiming an `agent_id: 1` ticket, pull its notes/actions
-(`mcp__Halo__get_ticket_time_entries` - despite the name, this is HaloPSA's
-ticket conversation/notes endpoint, not just billable time) and check
-whether a specific human agent has recent activity on it (coordinating a
-vendor/on-site visit, a diagnosis note, a status change they made). If so,
-treat it exactly like the "assigned to a different agent" case above - stop,
-don't claim or touch it, and say in your one-line summary which agent's
-activity you found and why you're treating `agent_id: 1` as not actually
-free. Only proceed with claiming it if the action history is genuinely
-empty or stale (no recent human activity), matching a real first-pass
-unassigned ticket.
 
 ## Sending a real, client-facing reply
 

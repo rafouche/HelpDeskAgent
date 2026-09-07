@@ -51,6 +51,7 @@ output format section at the end of this document).
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
+- `halo.ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
 and `halo.agent_username` - the two names behind the team_id/agent_id above. A
@@ -60,7 +61,7 @@ Halo, so just use the numbers given above directly - no need to call
 
 ## Find candidate tickets
 
-Make three `mcp__Halo__list_tickets`/`mcp__Halo__get_ticket` calls (the
+Make four `mcp__Halo__list_tickets`/`mcp__Halo__get_ticket` calls (the
 third is really N small calls, one per tracked ticket - see below), all
 filtered server-side rather than pulling the whole account and sorting it
 out yourself (a real ticket has been silently missed for cycles at a time
@@ -127,8 +128,26 @@ version history for the real case this was fixed from):
    marks a public/client-facing entry), or the note we left was a
    before-hours draft nobody's reviewed or replied to yet - it's a real
    candidate: tier it normally like anything else.
+4. **Ready for AI (explicit human hand-back):** skip this call entirely if
+   {{READY_FOR_AI_STATUS_ID}} above is "none" - the feature is off. Otherwise
+   `{ team_id: {{TEAM_ID}}, status_id: {{READY_FOR_AI_STATUS_ID}}, open_only: true,
+   pageinate: true, page_no: 1, page_size: 15 }`, paging through every page
+   the same way call 2 does (this bucket must never silently truncate - a
+   human deliberately set this status on a ticket precisely so it gets
+   picked up, so missing one here defeats the entire point of the status
+   existing). This status means a human is explicitly overriding every
+   other signal - who the ticket is currently assigned to, what its history
+   looks like, everything - and directing this pipeline to take it over
+   regardless. **Every ticket found here is an unconditional candidate,
+   full stop - do not apply the "skip anything with a recent reply from a
+   different Altec agent" rule below to this bucket, and do not skip it for
+   being currently assigned to a real agent.** Tier it normally based on its
+   actual content, exactly like a genuine first-pass unassigned ticket -
+   this status doesn't pre-decide the tier, only candidacy. Skip any ticket
+   ID here that's already present in calls 1-3's results, so it isn't
+   listed twice.
 
-**Calls 1 and 2 above already filter to Help Desk server-side via
+**Calls 1, 2, and 4 above already filter to Help Desk server-side via
 `team_id` - still double-check every returned ticket's own `team_id` field
 against the Help Desk team_id given above before including it, and drop
 anything that doesn't match.** This isn't redundant paranoia: `team_id` in
@@ -143,9 +162,11 @@ effect, when it had never belonged there. Don't assume "it came back from a
 Help Desk-filtered call, so it must be ours" - verify the field itself.
 Skip anything assigned to, or with a recent reply from, a different Altec
 agent - that's a human already on it, and it costs nothing to leave it out
-of this cycle entirely. (Call 3's tickets are already known Help Desk
+of this cycle entirely - **except call 4's results, which are included
+unconditionally regardless of current assignment or activity, per call 4's
+own instructions above.** (Call 3's tickets are already known Help Desk
 tickets from when they were first tracked, so this check doesn't apply to
-them.)
+them either.)
 
 **Compliance exclusion comes first, before any of the above, and is not a
 judgment call.** If the excluded client_id(s) list above is anything other
