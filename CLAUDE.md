@@ -1178,6 +1178,35 @@ has. This one deploy carries it from unset to `"2"`, which self-heals this
 exact incident the moment the file lands - unlike the two before it, no
 manual `agent-cache.json` deletion was needed for this specific fix.
 
+**Follow-up, same day (v2.10.24): the gate's `unassigned_count` was a bare
+count, not a change check - the actual structural version of "why does this
+still cost money every cycle."** Roger reported the classifier running (and
+costing real money) cycle after cycle with, in his words, "no updates, no
+status changes, nothing." v2.10.22's status-name pre-filter had already
+stopped the *resolver* from being called on tickets like 20910 sitting in
+"Dispatch Needed" - but did nothing to stop the *classifier itself* from
+running every 15 minutes regardless, because the pre-flight gate
+(`/helpdesk-gate`, v2.10.18) only ever checked whether `unassigned_count`
+was greater than zero. A queue that always has a few non-actionable tickets
+sitting at `agent_id: 1` (AI Waiting Approval and Dispatch Needed both
+clear assignment as a side effect - see "Is this ticket actually available
+to you?" above) will *always* report a nonzero count, so the gate could
+never go quiet, no matter how static those specific tickets stayed.
+
+Fixed by extending `halopsa-mcp`'s gate to return the unassigned bucket's
+actual tickets (`id`/`last_update`/`status_id`, page_size 15 - the same
+window `classifier-prompt.md`'s own unassigned scan uses) instead of just a
+count, and fingerprinting it in `Invoke-HaloResponseAgent.ps1` exactly the
+way tracked tickets already were: a new `unassigned_last_seen` map in
+`agent-cache.json`, only counted as "changed" when a ticket ID wasn't seen
+last cycle (genuinely new) or an already-seen one's `last_update` moved
+(something happened to it). A ticket simply leaving the bucket - claimed
+for real, resolved - isn't itself a signal (nothing left for the classifier
+to do about it), so that alone just prunes the cache entry rather than
+triggering a run. A cycle where the same static set of tickets sits there
+unchanged now correctly logs `SKIPPED (gate: nothing changed)` for the cost
+of one HTTP call, the way the gate was originally supposed to work.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

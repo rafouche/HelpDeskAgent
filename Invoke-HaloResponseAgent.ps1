@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.24 - real incident, same day as v2.10.20-23: the classifier
+    ran (and paid real cost) every single cycle despite Roger reporting
+    "no updates, no status changes, nothing" - the pre-flight gate's
+    unassigned_count was a bare count, not a change check, so a queue that
+    always has a few non-actionable tickets sitting at agent_id: 1 (AI
+    Waiting Approval, Dispatch Needed - Halo clears assignment as a side
+    effect of these statuses, see resolver-prompt.md) reported count > 0
+    and forced a classifier run every 15 minutes, forever, even when none
+    of those specific tickets had changed at all since the last check. This
+    was the actual, structural version of the cost complaint the status
+    pre-filter (v2.10.22) only partially addressed - that fix stopped the
+    RESOLVER from being called on a known non-candidate, but did nothing to
+    stop the CLASSIFIER itself from running every cycle regardless.
+    Extended halopsa-mcp's /helpdesk-gate to return the unassigned bucket's
+    actual tickets (id/last_update/status_id), not just a count - same
+    page_size (15) classifier-prompt.md's own unassigned scan already uses,
+    so this fingerprint covers the same window. Invoke-HaloResponseAgent.ps1
+    now fingerprints this bucket exactly the way it already did for tracked
+    tickets: only counts it as changed if a ticket ID wasn't in
+    unassigned_last_seen (agent-cache.json) last cycle, or an already-seen
+    one's last_update moved - a ticket merely leaving the bucket isn't
+    itself a signal, so that alone doesn't trigger a run, only prunes it
+    from the cache. A cycle where the same static set of tickets is still
+    sitting there, unchanged, now correctly logs "SKIPPED (gate: nothing
+    changed)" at the cost of one cheap HTTP call, same as it always should
+    have.
     Version: 2.10.23 - real incident, same day as v2.10.22: that exact fix
     ran for a full cycle at real cost with status_id_names entirely missing
     (a logged warning said so directly), because the ID cache's
@@ -1156,10 +1182,11 @@ elseif ((Test-Path $legacyIdCachePath) -or (Test-Path $legacyTrackedPath)) {
         try { $migratedTracked = @(Get-Content $legacyTrackedPath -Raw -Encoding UTF8 | ConvertFrom-Json | ForEach-Object { [int]$_ }) } catch { $migratedTracked = @() }
     }
     $agentCache = [PSCustomObject]@{
-        resolved_ids       = $migratedIds
-        tracked_tickets    = $migratedTracked
-        tracked_last_seen  = [PSCustomObject]@{}
-        last_real_cycle_at = $null
+        resolved_ids         = $migratedIds
+        tracked_tickets      = $migratedTracked
+        tracked_last_seen    = [PSCustomObject]@{}
+        unassigned_last_seen = [PSCustomObject]@{}
+        last_real_cycle_at   = $null
     }
     foreach ($legacyPath in @($legacyIdCachePath, $legacyTrackedPath, "$legacyIdCachePath.tmp", "$legacyTrackedPath.tmp")) {
         if (Test-Path $legacyPath) { Remove-Item -Path $legacyPath -Force -ErrorAction SilentlyContinue }
@@ -1169,10 +1196,11 @@ elseif ((Test-Path $legacyIdCachePath) -or (Test-Path $legacyTrackedPath)) {
 }
 if (-not $agentCache) {
     $agentCache = [PSCustomObject]@{
-        resolved_ids       = $null
-        tracked_tickets    = @()
-        tracked_last_seen  = [PSCustomObject]@{}
-        last_real_cycle_at = $null
+        resolved_ids         = $null
+        tracked_tickets      = @()
+        tracked_last_seen    = [PSCustomObject]@{}
+        unassigned_last_seen = [PSCustomObject]@{}
+        last_real_cycle_at   = $null
     }
 }
 
@@ -1185,6 +1213,14 @@ if ($agentCache.tracked_tickets) { $trackedTicketIds = @($agentCache.tracked_tic
 $trackedLastSeen = @{}
 if ($agentCache.tracked_last_seen) {
     foreach ($prop in $agentCache.tracked_last_seen.PSObject.Properties) { $trackedLastSeen[$prop.Name] = $prop.Value }
+}
+
+# Same pattern, for the unassigned-bucket fingerprint the gate check uses
+# below - absent entirely on a cache file from before this existed, which
+# just means "nothing seen yet," not an error.
+$unassignedLastSeen = @{}
+if ($agentCache.unassigned_last_seen) {
+    foreach ($prop in $agentCache.unassigned_last_seen.PSObject.Properties) { $unassignedLastSeen[$prop.Name] = $prop.Value }
 }
 
 # Carried through untouched unless Stage 0 below actually re-resolves fresh
@@ -2266,10 +2302,38 @@ try {
                     if (-not $previousSeen -or $previousSeen -ne $t.last_update) { $anyTrackedChanged = $true }
                     $trackedLastSeen[$key] = $t.last_update
                 }
-                $shouldRunClassifier = ($gate.unassigned_count -gt 0) -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged
+                # Real incident: unassigned_count alone can never go quiet on
+                # a queue that always has a few non-actionable tickets
+                # sitting at agent_id: 1 (AI Waiting Approval, Dispatch
+                # Needed - see resolver-prompt.md) - the classifier ran and
+                # paid real cost every 15 minutes reaching the identical
+                # "nothing to do" conclusion about the exact same tickets,
+                # because a bare count > 0 can't distinguish "still the same
+                # three tickets" from "something genuinely new." Fingerprint
+                # this bucket the same way tracked tickets already are: only
+                # count it as changed if a ticket ID here wasn't seen last
+                # cycle (genuinely new), or an already-seen one's last_update
+                # moved (something happened to it). A ticket simply leaving
+                # this bucket (claimed for real, resolved) isn't itself a
+                # signal - there's nothing left for the classifier to do
+                # about it - so that alone doesn't trigger a run, only prunes
+                # it from $unassignedLastSeen below.
+                $anyUnassignedChanged = $false
+                $seenUnassignedIds = @{}
+                foreach ($u in @($gate.unassigned)) {
+                    $key = [string]$u.id
+                    $seenUnassignedIds[$key] = $true
+                    $previousSeen = $unassignedLastSeen[$key]
+                    if (-not $previousSeen -or $previousSeen -ne $u.last_update) { $anyUnassignedChanged = $true }
+                    $unassignedLastSeen[$key] = $u.last_update
+                }
+                foreach ($key in @($unassignedLastSeen.Keys)) {
+                    if (-not $seenUnassignedIds.ContainsKey($key)) { $unassignedLastSeen.Remove($key) }
+                }
+                $shouldRunClassifier = $anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged
                 if (-not $shouldRunClassifier) {
                     $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                    Add-Content -Path $logFile -Value "[$gateTimestamp] SKIPPED (gate: nothing changed) - unassigned=0, stuck_claimed=0, $($trackedTicketIds.Count) tracked ticket(s) unchanged." -Encoding UTF8
+                    Add-Content -Path $logFile -Value "[$gateTimestamp] SKIPPED (gate: nothing changed) - unassigned unchanged ($($seenUnassignedIds.Count) known, none new), stuck_claimed=0, $($trackedTicketIds.Count) tracked ticket(s) unchanged." -Encoding UTF8
                     Write-LogSection -LogFile $logFile -Header "CYCLE SUMMARY" -Content (([PSCustomObject]@{ tickets_found = 0; id_resolution_cost_usd = $idResolutionCost; classifier_cost_usd = 0; resolver_cost_usd = 0; total_cost_usd = $idResolutionCost; tickets = @() }) | ConvertTo-Json -Compress)
                     Add-Content -Path $logFile -Value "----" -Encoding UTF8
                     Write-Host "Cycle complete: 0 ticket(s) (gate skipped classifier), total cost `$$idResolutionCost"
@@ -2512,10 +2576,11 @@ finally {
                 if ($trackedLastSeen.ContainsKey($key)) { $prunedTrackedLastSeen[$key] = $trackedLastSeen[$key] }
             }
             $updatedCache = [PSCustomObject]@{
-                resolved_ids       = $resolvedIdsForCache
-                tracked_tickets    = @($trackedTicketIds | Select-Object -Unique)
-                tracked_last_seen  = $prunedTrackedLastSeen
-                last_real_cycle_at = (Get-Date).ToString("o")
+                resolved_ids         = $resolvedIdsForCache
+                tracked_tickets      = @($trackedTicketIds | Select-Object -Unique)
+                tracked_last_seen    = $prunedTrackedLastSeen
+                unassigned_last_seen = $unassignedLastSeen
+                last_real_cycle_at   = (Get-Date).ToString("o")
             }
             $tempCachePath = "$agentCachePath.tmp"
             # -InputObject, not piped: piping an empty array into a pipeline
