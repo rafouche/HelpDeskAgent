@@ -136,26 +136,41 @@ version history for the real case this was fixed from):
 3. **Tracked (already waiting on you to notice something changed):** if the
    tracked ticket_id list above is "none", skip this step entirely -
    nothing to check. Otherwise, for each ID listed, call
-   `mcp__Halo__get_ticket` first (cheap, tells you whether it's still open
-   and who it's currently assigned to). If it's no longer open, or it's now
-   assigned to a real human agent (`agent_id` is neither `1`/Unassigned nor
-   `{{AGENT_ID}}`) - someone else is already on it, or it's done, either
-   way it's no longer our concern - emit `{"ticket_id": <id>, "tier":
-   "UNTRACK"}` for it and move on, no further investigation needed.
-   `UNTRACK` is not a real tier - it never reaches the resolver, it's purely
-   how you tell the process that maintains this list to drop that ID.
-   Otherwise (still open, still unassigned), call
-   `mcp__Halo__get_ticket_time_entries` and check the action log the same
-   way you would for any re-check: if the most recent substantive entry is
-   already a note/reply from us with nothing after it, nothing has changed
-   - do nothing at all for this ticket_id, don't include it in your output
-   array in any form. Saying nothing is what keeps it tracked and
-   unbothered until something actually changes; there is no "still waiting,
-   no update" tier to emit. Otherwise - the client has posted something
-   since (an entry from them, not from an agent - `hiddenfromuser: false`
-   marks a public/client-facing entry), or the note we left was a
-   before-hours draft nobody's reviewed or replied to yet - it's a real
-   candidate: tier it normally like anything else.
+   `mcp__Halo__get_ticket` first (cheap, tells you whether it's still open,
+   its `status_id`, and who it's currently assigned to), then branch:
+
+   - **Its status name (look up `status_id` in {{STATUS_ID_NAMES}} above) is
+     a terminal/closed one - "Resolved," "Closed," "Completed," "Closed
+     Order," "Closed Item," or similar - regardless of who it's currently
+     assigned to:** this ticket got closed since you last looked. Emit
+     `{"ticket_id": <id>, "tier": "LEARN_FIX"}` instead of `UNTRACK` - a
+     real tech may have closed it out with a documented fix worth capturing
+     for next time, even though this pipeline isn't the one who resolved
+     it. Unlike `UNTRACK`, **`LEARN_FIX` is a real tier and does reach the
+     resolver** - see resolver-prompt.md's "Learning from a fix you didn't
+     make" section for what happens next. Don't try to judge here whether a
+     real fix is actually documented - that's the resolver's job once it
+     reads the ticket; your only job is noticing the status changed to a
+     closed one.
+   - **Still open, but now assigned to a real human agent (`agent_id` is
+     neither `1`/Unassigned nor `{{AGENT_ID}}`):** someone else is actively
+     working it and it isn't resolved yet, nothing to learn - emit
+     `{"ticket_id": <id>, "tier": "UNTRACK"}` and move on, no further
+     investigation needed. `UNTRACK` is not a real tier - it never reaches
+     the resolver, it's purely how you tell the process that maintains this
+     list to drop that ID.
+   - **Otherwise (still open, still unassigned):** call
+     `mcp__Halo__get_ticket_time_entries` and check the action log the same
+     way you would for any re-check: if the most recent substantive entry is
+     already a note/reply from us with nothing after it, nothing has changed
+     - do nothing at all for this ticket_id, don't include it in your output
+     array in any form. Saying nothing is what keeps it tracked and
+     unbothered until something actually changes; there is no "still waiting,
+     no update" tier to emit. Otherwise - the client has posted something
+     since (an entry from them, not from an agent - `hiddenfromuser: false`
+     marks a public/client-facing entry), or the note we left was a
+     before-hours draft nobody's reviewed or replied to yet - it's a real
+     candidate: tier it normally like anything else.
 4. **Ready for AI (explicit human hand-back):** skip this call entirely if
    {{READY_FOR_AI_STATUS_ID}} above is "none" - the feature is off. Otherwise
    `{ team_id: {{TEAM_ID}}, status_id: {{READY_FOR_AI_STATUS_ID}}, open_only: true,
@@ -213,11 +228,15 @@ deeper investigation and every downstream tool) never sees it at all.
 
 ## Classify each candidate into exactly one tier
 
-This section is for real candidates from calls 1 and 2, and from call 3
+This section is for real candidates from calls 1, 2, and 4, and from call 3
 when the client has actually replied. `UNTRACK` (call 3's "no longer worth
 watching" signal - see "Find candidate tickets" above) isn't a complexity
 judgment and doesn't belong to this list; it's a separate, pseudo-tier
-outcome that skips this whole section.
+outcome that skips this whole section. Neither does `LEARN_FIX` (call 3's
+"closed by someone else, go see what they did" signal) - it's a real tier
+that does reach the resolver, but its routing is already fully decided in
+"Find candidate tickets" above; don't also assign it a TRIVIAL/MEDIUM/
+COMPLEX judgment.
 
 - **TRIVIAL** - single known action, low risk, clearly matches a pattern like a
   password reset, account unlock, workstation reboot, a whitelisted print-script

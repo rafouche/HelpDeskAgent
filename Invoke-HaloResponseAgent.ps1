@@ -73,6 +73,42 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.26 - design change, requested by Roger: a tracked ticket
+    a real tech resolves before this pipeline gets back to it used to be a
+    dead end - classifier-prompt.md's tracked-ticket check just emitted
+    UNTRACK the moment it saw the ticket closed or reassigned, and whatever
+    fix the human actually applied was never captured anywhere this
+    pipeline could learn from later. Added a new real tier, LEARN_FIX:
+    classifier-prompt.md now distinguishes "closed" (by status name, via
+    the same status_id_names lookup added in v2.10.22) from "still open but
+    reassigned" - only the former routes to LEARN_FIX instead of bare
+    UNTRACK. resolver-prompt.md's new "If the assigned tier is LEARN_FIX"
+    section is a read-only pass, skipping every claim/reply/status section
+    entirely: read the closing tech's own notes, and if they documented a
+    real fix, write it to Hudu via the existing "Documenting a fix that
+    worked" process - using the TECH'S account, explicitly superseding
+    anything this pipeline itself guessed on that same ticket in an earlier
+    cycle, never blending the two. Gets a fixed, minimal tool allowlist
+    (get_ticket/get_ticket_time_entries plus Hudu read/write only - no
+    mcp__Halo__update_ticket at all, so -RequireApproval/-WhatIf's
+    mutating-tool filtering doesn't need to consider this tier) and the
+    cheap trivial-tier model, since it's a read-and-summarize task, not a
+    fresh investigation.
+    Version: 2.10.25 - design change, requested by Roger: this account is
+    API-only and invisible in Halo's own agent-picker UI, so the resolver's
+    temporary self-claim while working a ticket ("Claim the ticket")
+    signals nothing to a human colleague - it's just an extra write with no
+    real benefit today, though it would if this account is ever upgraded to
+    a real licensed Halo user later. Added halo.agent_can_self_assign
+    (config.json) - a plain boolean, not a Halo name, so it needs no Stage
+    0 resolution. false ("do not assign me" mode, this account's actual
+    current state) skips the mid-processing self-claim entirely in both
+    resolver-prompt.md's "Claim the ticket" section and the -RequireApproval
+    FLOW A banner's own claim step; true preserves the original always-
+    self-claim behavior. Either setting still ends every path with the
+    same unconditional "return to a neutral agent_id" step - this only
+    ever affects the interim claim, never the final handoff. Missing/absent
+    defaults to true, so an older config.json sees no behavior change.
     Version: 2.10.24 - real incident, same day as v2.10.20-23: the classifier
     ran (and paid real cost) every single cycle despite Roger reporting
     "no updates, no status changes, nothing" - the pre-flight gate's
@@ -1545,6 +1581,20 @@ $remediationMutatingTools = @(
 # applies uniformly regardless of tier - no per-ticket variant needed for it.
 $resolverToolsFull = $resolverTools
 $resolverToolsApprovalStripped = $resolverToolsFull | Where-Object { $remediationMutatingTools -notcontains $_ }
+
+# LEARN_FIX (see resolver-prompt.md's "If the assigned tier is LEARN_FIX"
+# section) never claims, assigns, replies to, or mutates the ticket at all -
+# it's a read-the-notes-and-maybe-write-a-Hudu-article pass on a ticket
+# that's already closed. A fixed, minimal allowlist rather than reusing
+# $resolverToolsFull/stripped variants: smaller tool-schema overhead every
+# call, and no mcp__Halo__update_ticket present at all means there's
+# nothing here for -RequireApproval/-WhatIf's mutating-tool filtering to
+# even need to consider for this tier.
+$resolverToolsLearnFix = @(
+    "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
+    "mcp__HUDU__article_folder_index_tool", "mcp__HUDU__article_index_tool", "mcp__HUDU__article_show_tool",
+    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
+)
 #endregion STATIC TOOL ALLOWLISTS
 
 $simulationBannerLines = @(
@@ -1582,6 +1632,12 @@ $modelForTier = @{
     # so it gets the cheap model like TRIVIAL does, regardless of how complex the
     # original ticket was.
     "APPROVED"          = $config.claude.resolver_model_trivial
+    # LEARN_FIX: a tracked ticket got closed by a real human, not this
+    # pipeline - read what they actually did and document it in Hudu if
+    # it's worth remembering. A read-and-summarize task, not a fresh
+    # investigation, so it gets the cheap model like TRIVIAL/APPROVED do
+    # regardless of how complex the original ticket was.
+    "LEARN_FIX"         = $config.claude.resolver_model_trivial
 }
 
 # --- Effort selection per tier - optional per-tier overrides, each falling back
@@ -1642,6 +1698,7 @@ $effortForTier = @{
     "MEDIUM"            = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_medium
     "COMPLEX"           = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_complex
     "APPROVED"          = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
+    "LEARN_FIX"         = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
 }
 
 # Models confirmed to accept an effort parameter at all - Claude Haiku 4.5
@@ -1846,8 +1903,8 @@ if ($DryRun) {
     Write-Host $classifierPrompt
     Write-Host ""
     Write-Host "--- Resolver (per classified ticket) ---"
-    Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX']), APPROVED=$($modelForTier['APPROVED'])"
-    Write-Host "Effort by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$(Format-EffortDisplay -Effort $effortForTier['TRIVIAL'] -Model $modelForTier['TRIVIAL']), MEDIUM=$(Format-EffortDisplay -Effort $effortForTier['MEDIUM'] -Model $modelForTier['MEDIUM']), COMPLEX=$(Format-EffortDisplay -Effort $effortForTier['COMPLEX'] -Model $modelForTier['COMPLEX']), APPROVED=$(Format-EffortDisplay -Effort $effortForTier['APPROVED'] -Model $modelForTier['APPROVED'])"
+    Write-Host "Model by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$($modelForTier['TRIVIAL']), MEDIUM=$($modelForTier['MEDIUM']), COMPLEX=$($modelForTier['COMPLEX']), APPROVED=$($modelForTier['APPROVED']), LEARN_FIX=$($modelForTier['LEARN_FIX'])"
+    Write-Host "Effort by tier: TRIVIAL/TRIVIAL_UNCERTAIN=$(Format-EffortDisplay -Effort $effortForTier['TRIVIAL'] -Model $modelForTier['TRIVIAL']), MEDIUM=$(Format-EffortDisplay -Effort $effortForTier['MEDIUM'] -Model $modelForTier['MEDIUM']), COMPLEX=$(Format-EffortDisplay -Effort $effortForTier['COMPLEX'] -Model $modelForTier['COMPLEX']), APPROVED=$(Format-EffortDisplay -Effort $effortForTier['APPROVED'] -Model $modelForTier['APPROVED']), LEARN_FIX=$(Format-EffortDisplay -Effort $effortForTier['LEARN_FIX'] -Model $modelForTier['LEARN_FIX'])"
     Write-Host "Allowed tools: $($resolverTools -join ',')"
     Write-Host "--- Resolver prompt template (ticket ID/tier and resolved Halo IDs shown as placeholders - only resolved on an actual run) ---"
     Write-Host $resolverPromptTemplate
@@ -2109,6 +2166,16 @@ try {
     $readyForAiStatusIdText = "none"
     if ($null -ne $ids.ready_for_ai_status_id) { $readyForAiStatusIdText = $ids.ready_for_ai_status_id }
 
+    # agent_can_self_assign (v2.10.25): a plain boolean, not a Halo name to
+    # resolve, so it comes straight from config.json - no Stage 0 lookup
+    # needed. Missing/absent (an older config.json, or a value that isn't
+    # literally JSON false) defaults to $true - the pre-v2.10.25 behavior
+    # (always self-assign while working a ticket) - so a deployment that
+    # hasn't added this field yet sees no behavior change at all.
+    $agentCanSelfAssign = $true
+    if ($null -ne $config.halo.agent_can_self_assign) { $agentCanSelfAssign = [bool]$config.halo.agent_can_self_assign }
+    $agentCanSelfAssignText = if ($agentCanSelfAssign) { "true" } else { "false" }
+
     $classifierPrompt = $classifierPrompt `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
@@ -2125,7 +2192,8 @@ try {
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
-        -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText
+        -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText `
+        -replace '\{\{AGENT_CAN_SELF_ASSIGN\}\}', $agentCanSelfAssignText
 
     # --- Approval-mode banners (-RequireApproval only) - built here, not up with
     #     $simulationBanner, because they need $ids.ai_waiting_approval_status_id/
@@ -2159,6 +2227,24 @@ try {
         )
         $classifierPrompt = ($classifierApprovalBannerLines -join "`n") + "`n`n" + $classifierPrompt
 
+        # FLOW A step 3's content depends on agent_can_self_assign (v2.10.25,
+        # see config.json) - computed as a single string (embedded `n, not
+        # separate array elements) so it can drop into the array literal
+        # below as one item without needing to restructure the whole
+        # $approvalBannerLines array around a conditional splice.
+        $flowAStep3Lines = if ($agentCanSelfAssign) {
+            "3. Assign yourself to the ticket (mcp__Halo__update_ticket, your resolved`n" +
+            "   agent_id) - its own call, before anything else below. Verify it landed`n" +
+            "   per resolver-prompt.md's untriaged-ticket section before proceeding - the`n" +
+            "   fact you found a draft note at all means a PRIOR write landed, but that`n" +
+            "   doesn't guarantee THIS one will."
+        }
+        else {
+            "3. Skip assigning yourself to the ticket - config's agent_can_self_assign is`n" +
+            "   false (this account operates in `"do not assign me`" mode - see`n" +
+            "   resolver-prompt.md's `"Claim the ticket`" section), so there is nothing to`n" +
+            "   do for this step. Proceed directly to step 4."
+        }
         $approvalBannerLines = @(
             "=== APPROVAL MODE (-RequireApproval) ===",
             "This run requires a human to sign off before any client-facing reply or",
@@ -2182,11 +2268,7 @@ try {
             "   ticket, with enough detail (target device/account) to actually perform it",
             "   now. There is no assignment line to read - step 7 below always unassigns",
             "   regardless of which status this lands on.",
-            "3. Assign yourself to the ticket (mcp__Halo__update_ticket, your resolved",
-            "   agent_id) - its own call, before anything else below. Verify it landed",
-            "   per resolver-prompt.md's untriaged-ticket section before proceeding - the",
-            "   fact you found a draft note at all means a PRIOR write landed, but that",
-            "   doesn't guarantee THIS one will.",
+            $flowAStep3Lines,
             "4. If [INTENDED REMEDIATION] isn't `"none`": perform EXACTLY that action now,",
             "   matching the remediation whitelist the same way you always would. Can't",
             "   tell exactly what it meant (which device, which account)? Stop and flag it",
@@ -2481,13 +2563,20 @@ try {
         # -RequireApproval gets the remediation-mutating tools physically removed
         # (see $resolverToolsApprovalStripped above). -WhatIf's full strip always
         # applies on top, regardless of tier, since nothing should touch anything
-        # real in a simulation run.
-        $ticketTools = $resolverToolsFull
-        if ($RequireApproval -and $tier -ne 'APPROVED') {
-            $ticketTools = $resolverToolsApprovalStripped
+        # real in a simulation run. LEARN_FIX is its own fixed minimal allowlist
+        # (see $resolverToolsLearnFix above) - it has no mutating Halo tools to
+        # strip either way, so -RequireApproval/-WhatIf don't apply to it at all.
+        if ($tier -eq 'LEARN_FIX') {
+            $ticketTools = $resolverToolsLearnFix
         }
-        if ($WhatIf) {
-            $ticketTools = $ticketTools | Where-Object { $mutatingTools -notcontains $_ }
+        else {
+            $ticketTools = $resolverToolsFull
+            if ($RequireApproval -and $tier -ne 'APPROVED') {
+                $ticketTools = $resolverToolsApprovalStripped
+            }
+            if ($WhatIf) {
+                $ticketTools = $ticketTools | Where-Object { $mutatingTools -notcontains $_ }
+            }
         }
 
         try {

@@ -1207,6 +1207,62 @@ triggering a run. A cycle where the same static set of tickets sits there
 unchanged now correctly logs `SKIPPED (gate: nothing changed)` for the cost
 of one HTTP call, the way the gate was originally supposed to work.
 
+**`agent_can_self_assign` — "do not assign me" mode (v2.10.25).** Roger's
+framing: "since we can't 'assign' users to the an API Integrator user, I'd
+need to have some way to say this is a 'do not assign me' mode, but have the
+option to still work as an independent user and assign itself if it's not an
+API only." `agent_username` is currently bound to an API-only integration
+account (per `halo._comment`'s `list_agents` behavior, above) — it doesn't
+show up in Halo's own agent-picker UI at all, so the resolver's mid-processing
+"Claim the ticket" step (temporarily setting `agent_id` to itself while
+working a ticket, then returning it to neutral at the end) was signaling
+nothing to a human colleague; a tech looking at the ticket in Halo would never
+see it as "claimed." Added `halo.agent_can_self_assign` (plain boolean, no
+Stage-0 ID resolution needed — unlike every other `halo.*` field, this isn't a
+name to resolve), read in `Invoke-HaloResponseAgent.ps1` and substituted into
+`resolver-prompt.md` as `{{AGENT_CAN_SELF_ASSIGN}}`. `false` (the current,
+correct setting for this account) skips the claim step entirely, in both the
+base resolver flow and FLOW A's approval banner — the resolver goes straight
+to work rather than performing a self-assign call that would be invisible
+anyway. `true` preserves the original claim/unclaim/recovery behavior
+verbatim, for if this account is ever upgraded to a real licensed Halo user
+where self-assigning actually means something. Either setting still
+unconditionally ends every path by returning the ticket to `agent_id: 1` —
+only the interim claim is affected, never the final handoff (see resolver-
+prompt.md's "Is this ticket actually available to you?" section, which
+depends on that final neutral state regardless of this setting). Missing/
+absent (an older config.json) defaults to `true`, preserving pre-v2.10.25
+behavior exactly.
+
+**`LEARN_FIX` tier — learning from a human tech's documented fix (v2.10.26).**
+Roger's framing: "ticket that you have worked/watched, if a real tech
+determines a fix and documents it, go ahead and forget your recommendations
+and use the tech's fix to write up the Hudu fixes so you can remember this
+next time." Previously, once a tracked ticket left the pipeline's hands (a
+human reassigned it, or closed it), the classifier just dropped it via the
+bare `UNTRACK` pseudo-tier — no memory was ever captured from what actually
+fixed it, even though `status_id_names` (v2.10.22) already gives the
+classifier everything it needs to recognize a genuinely-closed/resolved
+status by name. `classifier-prompt.md`'s tracked-ticket branch (call 3) now
+distinguishes that case specifically: a tracked ticket whose status has moved
+to a terminal/closed name gets tagged `LEARN_FIX` (a real tier that reaches
+the resolver, unlike `UNTRACK`) instead of just being dropped; still-open-but-
+reassigned tickets keep the old bare-`UNTRACK` behavior. `resolver-prompt.md`
+gets a new "If the assigned tier is LEARN_FIX, this is your entire job this
+pass" section: read-only, pulls the ticket's notes/time entries, identifies
+the closing note written by a real human tech (explicitly excluding
+System/HaloAI/Automation and the pipeline's own identity — same "real human"
+bar as the ownership-check rule above), and if one exists, writes or updates
+a Hudu KB article under `knowledge.hudu_fix_folder_name` with the tech's
+actual documented fix — explicitly discarding/superseding any theory the bot
+itself logged on that same ticket earlier, since the human's real-world fix
+is by definition better evidence than the bot's own prior guess. Gets a fixed
+minimal tool allowlist (`$resolverToolsLearnFix`: ticket/time-entry read plus
+Hudu article read/write only — no remediation tools, no client-facing reply
+tools, since this pass never touches the ticket or the client) and runs on
+`resolver_model_trivial` (cheap tier — this is a read-and-file-away pass, not
+an investigation).
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

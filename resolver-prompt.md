@@ -39,6 +39,7 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - `waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
 - `ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
+- `halo.agent_can_self_assign`: {{AGENT_CAN_SELF_ASSIGN}} - see "Claim the ticket" below
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 
@@ -112,6 +113,58 @@ Print a one-line summary noting the mismatch (this ticket's actual
 "When you finish" below) - whatever got this ticket into this cycle's
 candidate list, it isn't this pipeline's to touch, and no further step in
 this document applies to it.
+
+## If the assigned tier is LEARN_FIX, this is your entire job this pass
+
+**Skip every other section in this document** - "Is this ticket actually
+available to you?", "Claim the ticket," the emergency/business-hours
+sections, all of it. This tier never claims, assigns, replies to, or
+changes anything about the ticket - it's a read-only pass over a ticket
+that's already closed, to see whether it's worth remembering. The
+compliance and Help Desk team checks above still applied before you got
+here; nothing else does.
+
+Get this ticket's notes/actions (`mcp__Halo__get_ticket_time_entries`).
+Find whoever actually closed it out and what they said:
+
+- **If the closing action (or the substantive notes right before it) came
+  from a real human agent, not this pipeline's own identity or
+  `System`/`HaloAI`/`Automation`** - a tech genuinely resolved this and
+  presumably knows what fixed it. Read their notes for what they actually
+  found and did. **This supersedes anything this pipeline itself
+  guessed on this same ticket in an earlier cycle** - if you (or a prior
+  run) left an internal note here theorizing a cause or a fix, and the
+  tech's own resolution says something different (or the tech never
+  confirmed your theory was even right), the tech's account is what you
+  document, full stop. Don't blend the two, and don't preserve your own
+  earlier guess in the write-up "just in case" - a wrong or unconfirmed
+  theory sitting in the knowledge base is worse than not documenting
+  anything, since a future run (or a human) would trust it as verified
+  when it never was.
+
+  If what the tech documented is worth remembering - genuinely explains
+  root cause and fix, not just "resolved" with no detail - follow
+  "Documenting a fix that worked" below exactly as written, using the
+  tech's own account as your source instead of something you diagnosed
+  yourself this pass. Same folder, same format, same "skip genuinely
+  trivial fixes" judgment call, same "check for a close existing match
+  before creating a duplicate" step. If the tech's notes don't actually
+  explain what fixed it (closed with no detail, or "resolved per client"
+  with nothing technical), there's nothing to document - that's a normal
+  outcome, not a gap to fill in with your own guess.
+- **If this pipeline's own identity closed it** (you're looking at your
+  own resolution from an earlier cycle that never got untracked properly)
+  - nothing to learn here that you don't already know; whatever you
+  documented at the time (per "Documenting a fix that worked," if it
+  applied) already happened. Do nothing further.
+- **If it's closed with no real explanation from anyone** (a duplicate, the
+  client withdrew the request, closed by an automated rule) - nothing to
+  document. This is a normal, expected outcome, not an error.
+
+Print a one-line summary of what you found (documented a fix from
+\<agent name\>, nothing to document, or already yours) and end with exactly
+`[CACHE: UNTRACK]` - this ticket is closed and there is nothing left to
+watch for on it regardless of which case applied above.
 
 ## Every note shows as this pipeline's own identity, not {{AGENT_ID}}
 
@@ -187,16 +240,30 @@ genuine, never-touched-by-anyone first-pass ticket.
 
 Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket`. Halo's "unassigned"
 sentinel is `agent_id: 1`, not `0` or blank - Halo has a real agent record
-named "Unassigned" (`is_agent: false`) whose id is `1`. If the ticket's
-`agent_id` is `1`, it's unassigned: assign it to yourself
-(`mcp__Halo__update_ticket` with your resolved `agent_id`) before doing
-anything else, so it's visibly claimed while you're actually working it.
-This assignment is deliberately temporary - every path below ends by
-unassigning yourself again (`agent_id: 1`), because Halo's API-user account
-doesn't appear in a normal licensed-user list, so a ticket left assigned to
-it is effectively invisible in the Help Desk ticket list a human looks at.
-Stay assigned to yourself only for the duration of this one pass, never
-across cycles.
+named "Unassigned" (`is_agent: false`) whose id is `1`.
+
+**If {{AGENT_CAN_SELF_ASSIGN}} is `false` - "do not assign me" mode - skip
+claiming entirely.** Don't call `update_ticket` to change `agent_id` to
+yourself here or anywhere else in this document except the final
+"return to neutral" step every path below already ends with. This account
+is API-only and doesn't appear in Halo's own agent-picker UI regardless of
+what `agent_id` says on a ticket, so a temporary self-claim signals nothing
+to a human colleague - it would just be an extra write with no real
+benefit. Proceed straight to investigating/working the ticket below with
+whatever `agent_id` it currently has (already confirmed available to you by
+"Is this ticket actually available to you?" above). There is no "already
+assigned to you" recovery case to worry about in this mode - you never
+assign yourself, so a ticket could only show as yours here through some
+other, unrelated cause, not a leftover claim from a prior cycle.
+
+**If {{AGENT_CAN_SELF_ASSIGN}} is `true`** (this account is a real,
+licensed Halo user, not API-only) - if the ticket's `agent_id` is `1`,
+it's unassigned: assign it to yourself (`mcp__Halo__update_ticket` with
+your resolved `agent_id`) before doing anything else, so it's visibly
+claimed while you're actually working it. This assignment is deliberately
+temporary - every path below ends by unassigning yourself again
+(`agent_id: 1`). Stay assigned to yourself only for the duration of this
+one pass, never across cycles.
 
 **If it's already assigned to you when you fetch it, something went wrong
 last time - treat this as a recovery, not a normal continuation.** Every
@@ -211,9 +278,15 @@ then finish whatever's missing (a reply that never went out, a status that
 never changed) and make sure this pass still ends with a proper unassign,
 the same as any other ticket.
 
-**This claim call can silently fail to actually land on a
-ticket Halo hasn't triaged yet - see "Halo's own ticket-triage" below, and
-verify it before proceeding as if you've claimed it.**
+**Either way, every path below still ends by leaving the ticket at a
+neutral `agent_id` (usually `1`) once this pass is done** - that part is
+unconditional and doesn't depend on this setting; only the *mid-processing*
+claim above is what {{AGENT_CAN_SELF_ASSIGN}} controls.
+
+**Any `update_ticket` write here (the claim itself, if `{{AGENT_CAN_SELF_ASSIGN}}`
+is `true`; the final "return to neutral" unassign either way) can silently
+fail to actually land on a ticket Halo hasn't triaged yet - see "Halo's own
+ticket-triage" below, and verify it before assuming it took effect.**
 
 ## Sending a real, client-facing reply
 
