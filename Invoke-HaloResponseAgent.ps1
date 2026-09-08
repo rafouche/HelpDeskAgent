@@ -73,6 +73,46 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.32 - follow-up to v2.10.30 (BLOCKED) and the ownership
+    check, after Roger pushed back on the BLOCKED diagnosis and asked why
+    the ownership check itself wasn't more reliable, rather than accepting
+    a workaround. Live investigation of the exact ticket behind v2.10.30
+    (real Halo timestamps, not the log's own summarized text) found the
+    original "Halo permanently swallows the write" theory was wrong: the
+    note that ticket's resolver believed never landed actually did land,
+    a few minutes after its own immediate verification check had already
+    given up. The real mechanism is Halo's own eventual consistency, not a
+    permanent block. Separately, the exact same live investigation found a
+    genuine ownership-check miss on a different ticket: a human's status
+    change was already five minutes old in Halo's own action log by the
+    time a resolver pass ran, and that pass still concluded "untriaged, no
+    human touch found" - the very next pass, five minutes later, correctly
+    caught the same evidence. Same rule, same data, inconsistent outcome -
+    a reliability gap, not a design gap.
+    Fixed both at the layer where the underlying fact is genuinely
+    mechanical rather than judgment, per Roger's own steer ("if the MCP
+    can offload some of that, fine, as long as it doesn't affect other
+    functions of the MCP"). Confirmed halopsa-mcp's /status route (the
+    only thing anything outside this pipeline depends on - the NOC
+    wallboard in the separate Dashboard repo) shares no code with either
+    change: (1) mcp__Halo__update_ticket_draft_only now always verifies
+    its own write with built-in retries against real wall-clock delay
+    (something this resolver has no tool to do itself) before returning,
+    and mcp__Halo__update_ticket gained an opt-in verify parameter (default
+    false - existing callers of that tool, including any outside this
+    pipeline, see byte-for-byte the same response/timing unless they
+    explicitly ask for the new behavior); (2) mcp__Halo__get_ticket_time_entries
+    now returns a computed human_touch field ({found, actions}) alongside
+    its unchanged raw actions list - the exact same mechanical rule
+    resolver-prompt.md's ownership check already used (who_type: 1, not
+    this pipeline's own identity), just computed once, reliably, instead
+    of re-derived by the model scanning a list that can run past a dozen
+    entries. Both changes are purely additive to existing tool responses
+    or gated behind a new opt-in parameter - no existing behavior for any
+    other caller changed. resolver-prompt.md's "Halo's own ticket-triage"
+    section (renamed "A write can report success and not be immediately
+    readable back") and its ownership check were both rewritten to use
+    these directly instead of doing their own manual re-fetch-and-scan.
     Version: 2.10.31 - real incident, reported by Roger from a live day's
     log: several tickets under -RequireApproval got a real, emailed
     client-facing reply sent directly, bypassing the approval hold
@@ -1381,14 +1421,15 @@ if ($agentCache.unassigned_last_seen) {
 }
 
 # Real incident (v2.10.30): a ticket stuck in one of Halo's own structural
-# dead ends - most often the "untriaged ticket" write-swallow bug (see
-# resolver-prompt.md's "Halo's own ticket-triage" section), sometimes a
-# genuine agent-permissions gap - got fully reprocessed by the resolver
-# every single cycle, each time correctly re-discovering "I can't act on
-# this, a human needs to fix something in Halo first" and stopping, at
-# real cost (confirmed live: one ticket cost over a dollar across three
-# consecutive cycles in about ten minutes, with no sign it would ever stop
-# on its own). [CACHE: TRACK] doesn't help here because the underlying
+# dead ends - a genuine agent-permissions gap, or a write that's still not
+# confirmable even after halopsa-mcp's own built-in verify retries (see
+# resolver-prompt.md's "A write can report success and not be immediately
+# readable back" section) - got fully reprocessed by the resolver every
+# single cycle, each time correctly re-discovering "I can't act on this, a
+# human needs to fix something in Halo first" and stopping, at real cost
+# (confirmed live: one ticket cost over a dollar across three consecutive
+# cycles in about ten minutes, with no sign it would ever stop on its
+# own). [CACHE: TRACK] doesn't help here because the underlying
 # problem is that NO write ever lands - not even the tracking note itself -
 # so a future cycle's tracked-ticket recheck sees no evidence anything was
 # ever tried and treats it as a brand-new candidate again, forever.
@@ -2413,11 +2454,11 @@ try {
         # below as one item without needing to restructure the whole
         # $approvalBannerLines array around a conditional splice.
         $flowAStep3Lines = if ($agentCanSelfAssign) {
-            "3. Assign yourself to the ticket (mcp__Halo__update_ticket, your resolved`n" +
-            "   agent_id) - its own call, before anything else below. Verify it landed`n" +
-            "   per resolver-prompt.md's untriaged-ticket section before proceeding - the`n" +
-            "   fact you found a draft note at all means a PRIOR write landed, but that`n" +
-            "   doesn't guarantee THIS one will."
+            "3. Assign yourself to the ticket (mcp__Halo__update_ticket with verify: true,`n" +
+            "   your resolved agent_id) - its own call, before anything else below. Check`n" +
+            "   the response's verified.confirmed before proceeding - the fact you found a`n" +
+            "   draft note at all means a PRIOR write landed, but that doesn't guarantee`n" +
+            "   THIS one will."
         }
         else {
             "3. Skip assigning yourself to the ticket - config's agent_can_self_assign is`n" +
@@ -2457,8 +2498,8 @@ try {
             "   action is still safe to run as recorded? Say so in an internal note and",
             "   stop rather than run stale intent blindly.",
             "5. Post the approved text from step 2 as a real, public, client-facing reply",
-            "   (mcp__Halo__update_ticket, note_is_private: false AND send_email: true -",
-            "   note_is_private alone does not email the client, see",
+            "   (mcp__Halo__update_ticket, note_is_private: false AND send_email: true AND",
+            "   verify: true - note_is_private alone does not email the client, see",
             "   resolver-prompt.md's `"Sending a real, client-facing reply`" section) - its",
             "   own call, unchanged from what was drafted.",
             "6. There is no tool that can delete or edit an existing Halo note -",
@@ -2471,10 +2512,9 @@ try {
             "   unassign yourself, whatever status this landed on - Halo's API-user",
             "   account doesn't show up in a normal licensed-user list, so a ticket left",
             "   assigned to it is invisible in the Help Desk ticket list a human looks",
-            "   at), and team_id back to help_desk_team_name. Verify steps 5-7 all",
-            "   actually landed per resolver-prompt.md's untriaged-ticket section before",
-            "   your summary below - don't report `"sent`" if the reply never actually",
-            "   posted.",
+            "   at), team_id back to help_desk_team_name, and verify: true. Check the",
+            "   response's verified.confirmed before your summary below - don't report",
+            "   `"sent`" if the reply never actually posted.",
             "8. Print your one-line summary, then as the very last line of your response",
             "   print exactly `"[CACHE: TRACK]`" if [INTENDED STATUS] was",
             "   waiting_on_client_status_name, or `"[CACHE: UNTRACK]`" for any other",
@@ -2509,12 +2549,15 @@ try {
             "update_ticket_draft_only always writes the note above as private and",
             "unemailed regardless of any other argument, so there is no note_is_private",
             "or send_email field to set here - it isn't capable of sending a real reply",
-            "no matter what you pass it. Verify this call actually landed per",
-            "resolver-prompt.md's untriaged-ticket section - an untriaged ticket can",
-            "silently drop the note/agent_id part of this exact call while still applying",
-            "the status_id part, which would leave the ticket looking like it's waiting",
-            "for approval with nothing to actually approve. Do not actually take the",
-            "remediation action this cycle - only the private draft note above.",
+            "no matter what you pass it. It also always verifies its own write before",
+            "returning - check the response's verified.confirmed rather than assuming",
+            "success. An untriaged ticket can still leave the note/agent_id part of this",
+            "exact call unconfirmed while the status_id part lands fine, which would leave",
+            "the ticket looking like it's waiting for approval with nothing to actually",
+            "approve - see resolver-prompt.md's `"A write can report success and not be",
+            "immediately readable back`" section for what to do if verified.confirmed is",
+            "false. Do not actually take the remediation action this cycle - only the",
+            "private draft note above.",
             "",
             "ONE EXCEPTION: the brief EMERGENCY acknowledgment (`"We've identified this as",
             "a priority issue and are notifying our on-call engineer now`") still sends",

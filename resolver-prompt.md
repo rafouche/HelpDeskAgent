@@ -161,8 +161,12 @@ that's already closed, to see whether it's worth remembering. The
 compliance and Help Desk team checks above still applied before you got
 here; nothing else does.
 
-Get this ticket's notes/actions (`mcp__Halo__get_ticket_time_entries`).
-Find whoever actually closed it out and what they said:
+Get this ticket's notes/actions (`mcp__Halo__get_ticket_time_entries`) -
+its `human_touch.actions` list (see "Is this ticket actually available to
+you?" below for what that field is) is a good starting point for who to
+look at, though here you want the specific closing tech and what they
+said, not just whether a human touched it at all. Find whoever actually
+closed it out and what they said:
 
 - **If the closing action (or the substantive notes right before it) came
   from a real human agent, not this pipeline's own identity or
@@ -263,15 +267,25 @@ every ticket showing `agent_id: 1`, before claiming it, no exceptions - a
 ticket in certain workflow statuses (e.g. "Waiting on vendor," "Dispatch
 Needed") can show `agent_id: 1` even while a human colleague is actively
 working it, since Halo appears to clear the assignment as a side effect of
-some status changes, not because the ticket is actually free. Scan every
-action's `who`/`actionby_agent_id` field: if even one action was authored
-by a real named agent (not `System`, `HaloAI`, `Automation`, or this
-pipeline's own identity) - a status change, a note, a reply, anything -
-treat this exactly like the "assigned to a different agent" case above:
-stop, don't claim or touch it, and say in your one-line summary which
-agent's action you found and why. Only proceed with claiming it if the
-entire action history contains zero real-human entries, matching a
-genuine, never-touched-by-anyone first-pass ticket.
+some status changes, not because the ticket is actually free.
+
+**Read the response's `human_touch` field directly - don't re-derive it
+yourself by scanning `actions`.** Real incident: the exact same ticket, the
+exact same action list, was scanned correctly on one pass and missed a
+clearly-present human action on another pass minutes later - the rule was
+never the problem, reliably noticing the evidence in a list that can run
+well past a dozen entries was. `human_touch.found` is computed for you the
+same way every time: `true` the moment even one action exists where
+`who_type` is `1` (a real Halo agent) and it isn't this pipeline's own
+identity. If `human_touch.found` is `true`, treat this exactly like the
+"assigned to a different agent" case above: stop, don't claim or touch it,
+and say in your one-line summary which agent's action you found
+(`human_touch.actions` names them) and why. Only proceed with claiming it
+if `human_touch.found` is `false`, matching a genuine, never-touched-by-
+anyone first-pass ticket. The full `actions` array is still there if you
+want the surrounding context for something `human_touch` flagged - just
+don't use it as your only way of finding out whether it should be flagged
+at all.
 
 ## Claim the ticket
 
@@ -320,10 +334,13 @@ neutral `agent_id` (usually `1`) once this pass is done** - that part is
 unconditional and doesn't depend on this setting; only the *mid-processing*
 claim above is what {{AGENT_CAN_SELF_ASSIGN}} controls.
 
-**Any `update_ticket` write here (the claim itself, if `{{AGENT_CAN_SELF_ASSIGN}}`
-is `true`; the final "return to neutral" unassign either way) can silently
-fail to actually land on a ticket Halo hasn't triaged yet - see "Halo's own
-ticket-triage" below, and verify it before assuming it took effect.**
+**Any write here (the claim itself, if `{{AGENT_CAN_SELF_ASSIGN}}` is
+`true`; the final "return to neutral" unassign either way) can report
+success without being immediately confirmable, especially on a ticket Halo
+hasn't triaged yet - see "A write can report success and not be immediately
+readable back" below, and pass `verify: true` (or use
+`update_ticket_draft_only`, which always verifies) rather than assuming it
+took effect.**
 
 ## Sending a real, client-facing reply
 
@@ -345,51 +362,73 @@ internal-only, it doesn't make Halo actually send an email. `send_email: true`
 is the field that does that. Leaving it off (or leaving it `false`) for a
 reply meant to reach the client silently produces exactly this failure -
 the ticket looks handled in Halo, and the client never hears from us.
+Also pass `verify: true` on this call - see "A write can report success and
+not be immediately readable back" below for why that matters even for a
+real, non-draft reply: you want to know your client-facing send actually
+landed before you tell anyone (including yourself, in your own summary)
+that it did.
 
 The reverse also matters: never pass `send_email: true` on a private,
 internal-only note (a draft under `-RequireApproval`, an internal note
-documenting findings, the untriaged-ticket note-swallow check, etc.) - those
-stay `note_is_private: true` and `send_email` should be left unset or
-`false`. Only a call that is genuinely meant to reach the client gets both
-flags set.
+documenting findings, a stuck-ticket flag, etc.) - those stay
+`note_is_private: true` and `send_email` should be left unset or `false`.
+Only a call that is genuinely meant to reach the client gets both flags set.
 
-## Halo's own ticket-triage can silently swallow a note/assignment write
+## A write can report success and not be immediately readable back
 
 Separately from this pipeline's own classifier/tier terminology used elsewhere
 in this document, Halo has its own ticket-triage workflow step - a distinct
 action, not just a status value - that a new ticket may not have gone through
-yet. Confirmed via real testing: on an untriaged ticket, `mcp__Halo__update_ticket`
-can accept a `note`, `agent_id`, or `team_id` change and report success, while
-the change never actually lands - only `status_id` reliably takes effect.
-Nothing available to you can explicitly trigger Halo's triage, and no field in
-a ticket tells you whether it's been triaged - so treat every note/assignment
-write as unverified until you check it yourself.
+yet. **Real incident, since corrected:** this used to be documented here as
+Halo "silently swallowing" a note/assignment write on an untriaged ticket -
+permanently, never landing at all. Direct investigation of a real case proved
+that theory wrong: the note this section itself told a prior run to write
+("this ticket appears untriaged...") actually did land, just a few minutes
+after that run's own immediate check had already given up and concluded
+failure. The real mechanism is Halo's own eventual consistency, not a
+permanent block - a write can be accepted before it's reliably readable back
+by an immediate follow-up read. Concluding "failed" too early wastes the
+investigation this cycle already paid for, on a write that would have shown
+up moments later.
 
-**After every `update_ticket` call anywhere in this document that includes
-`note`, `agent_id`, `team_id`, `client_id`, or `user_id`, re-fetch the ticket**
-(`mcp__Halo__get_ticket` for `agent_id`/`team_id`/`client_id`/`user_id`;
-`mcp__Halo__get_ticket_time_entries` for a note) and confirm the change is
-actually there. If it isn't:
-1. Try once: call `update_ticket` again with only `status_id` set (whatever
+**`mcp__Halo__update_ticket_draft_only` always verifies its own write before
+returning** - it retries the confirmation read a couple of times with a real
+delay in between (something you can't do yourself; you have no sleep/wait
+tool, and re-checking instantly again in your own next turn just reproduces
+the same race). Its response includes a `verified` field
+(`{confirmed, attempts, fields_confirmed, note_confirmed}`) - read that
+directly instead of doing your own separate `get_ticket`/
+`get_ticket_time_entries` follow-up call to check. **`mcp__Halo__update_ticket`
+does the same thing, but only if you pass `verify: true`** - always pass it
+on a ticket you haven't independently confirmed is already triaged (in
+practice: pass it every time, the cost of a couple of extra internal reads is
+far smaller than the cost of wrongly believing a write landed).
+
+If `verified.confirmed` comes back `false` even after the tool's own
+built-in retries, that's a much stronger signal than an untriaged-ticket
+guess used to be - the delay that fixes ordinary eventual-consistency lag has
+already been tried. Now, and only now:
+1. Try once: call the same tool again with only `status_id` set (whatever
    status you were already about to set works, or the ticket's current one if
-   you weren't changing status) - a status-only change is the one thing
-   confirmed to take effect pre-triage, and may trigger triage as a side
-   effect, though that specific mechanism isn't independently confirmed -
-   it's cheap to try once, not a guaranteed fix. Then retry the original
-   write and re-verify.
-2. Still didn't land? Stop working this ticket for the rest of this cycle -
+   you weren't changing status) plus `verify: true` - a status-only change is
+   the one thing confirmed to take effect even pre-triage, and may trigger
+   triage as a side effect, though that specific mechanism isn't
+   independently confirmed - it's cheap to try once, not a guaranteed fix.
+2. Still not confirmed? Stop working this ticket for the rest of this cycle -
    there's nothing useful to add as a note if notes themselves are what's
-   failing. Print a one-line summary flagging that this ticket appears
-   untriaged in Halo and needs a human to open and triage it in the Halo UI
-   before this agent can act on it further. End your response with
-   `[CACHE: BLOCKED]` (see "When you finish" below) - not `[CACHE: TRACK]` -
-   this is a structural Halo-side problem that reprocessing next cycle
-   cannot fix, so don't let it reprocess at full cost every cycle until a
-   human notices and fixes it.
+   failing. Print a one-line summary flagging that this ticket appears stuck
+   in Halo (untriaged, or some other structural block) and needs a human to
+   open it in the Halo UI before this agent can act on it further. End your
+   response with `[CACHE: BLOCKED]` (see "When you finish" below) - not
+   `[CACHE: TRACK]` - this is a structural Halo-side problem that
+   reprocessing next cycle cannot fix on its own, so don't let it reprocess
+   at full cost every cycle until a human notices and fixes it.
 
-This costs one extra read call per write, but a write that silently no-ops is
-worse: it can look like a claim happened, an internal note was left, or a
-client reply went out, when none of that actually occurred.
+A genuine permissions error (Halo rejects the write outright, not a quiet
+non-landing) throws instead of returning a false `verified.confirmed` - that's
+also a `[CACHE: BLOCKED]` case, immediately, no retry needed (retrying an
+explicit access-denied error against the same ticket/client won't ever
+succeed on its own).
 
 ## If the ticket's contact/company is unknown or wrong
 
@@ -829,22 +868,21 @@ belongs to a different agent, `agent_id: 1` not actually free):**
   is what tells it to add or keep this ticket_id on that list.
 - `[CACHE: BLOCKED]` - you could not act on this ticket because of a
   **structural or platform-level problem that only a human fixing something
-  in Halo itself can resolve** - not the client, not more investigation,
-  not another attempt right now. The two known real cases: (1) the
-  untriaged-ticket write-swallow (see "Halo's own ticket-triage" above) -
-  your `update_ticket` call(s) reported success but nothing actually landed
-  (no new note, `agent_id` never actually changed) even after the
-  status-only retry that section describes; (2) a genuine agent-permissions
-  error on this specific ticket type/client (Halo rejects the write itself
-  with an access error, not a silent swallow). **Do not use `[CACHE: TRACK]`
-  for either of these** - real incident: a ticket hit exactly this
-  untriaged-write problem and was marked TRACK each time, so a future
-  cycle's tracked-ticket recheck found no evidence anything had ever been
-  tried (nothing landed, including the tracking note itself) and treated it
-  as a brand-new candidate again - full reprocessing, full cost, every
-  single cycle, for as long as the underlying Halo problem went unnoticed.
-  `[CACHE: BLOCKED]` tells the calling process to hold this ticket_id out of
-  next cycle's candidate list entirely for a while (see config's
+  in Halo itself can resolve** - not the client, not more investigation, not
+  another attempt right now. This is different from an ordinary eventual-
+  consistency delay (a write not yet confirmable) - `verify: true`/
+  `update_ticket_draft_only`'s built-in retries already absorb that case on
+  their own, so if you're at this point it's because a write is *still* not
+  confirmed after those retries, or the write threw a genuine error, not
+  just took a moment to show up (see "A write can report success and not be
+  immediately readable back" above). **Do not use `[CACHE: TRACK]` for
+  this** - real incident: a ticket hit exactly this problem and was marked
+  TRACK each time, so a future cycle's tracked-ticket recheck found no
+  evidence anything had ever been tried and treated it as a brand-new
+  candidate again - full reprocessing, full cost, every single cycle, for
+  as long as the underlying Halo problem went unnoticed. `[CACHE: BLOCKED]`
+  tells the calling process to hold this ticket_id out of next cycle's
+  candidate list entirely for a while (see config's
   `blocked_ticket_retry_hours`) rather than reprocessing a guaranteed-
   identical failure at guaranteed-identical cost - it becomes a normal
   candidate again automatically once that time passes, on the assumption a

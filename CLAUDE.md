@@ -1459,6 +1459,70 @@ through. Chose "check which tool you actually have" as the framing over
 fact about the run that can't be gotten wrong the way a memorized
 instruction can.
 
+**Follow-up, same investigation (v2.10.32): the BLOCKED diagnosis and the
+ownership check both had a real bug underneath them — pushed to find by
+Roger, and fixed at the MCP layer where the underlying fact turned out to
+be mechanical, not a judgment call.** Roger's exact challenge: "why are
+you restricting tools instead of stopping the model from [not] following
+the rules... something fell through the cracks" — a fair objection to
+treating a symptom as the fix. Direct investigation of real Halo
+timestamps (not the log's own summarized text) on the two tickets behind
+v2.10.30 found two separate, concrete bugs:
+
+1. **The "Halo permanently swallows the write" theory was wrong.** The
+   note one ticket's resolver believed had failed to land (the exact note
+   this document's own "untriaged ticket" flag writes) was confirmed
+   present in Halo's real action log a few minutes after that resolver's
+   own immediate verification check had already given up. The real
+   mechanism is eventual consistency — a write accepted before it's
+   reliably readable back — not a permanent block. Concluding failure
+   after one immediate check wastes the investigation cost already spent,
+   on a write that would have shown up moments later.
+2. **The ownership check missed evidence that was already there.** A
+   human's status change on a different ticket was five minutes old in
+   Halo's real action log by the time a resolver pass ran — and that pass
+   still concluded "no human touch found." The very next pass, five
+   minutes later, correctly caught the identical evidence. Same rule
+   (`resolver-prompt.md`'s "if any real human agent has EVER acted on this
+   ticket, stop"), same data, inconsistent outcome — this is a reliability
+   gap in scanning a list that can run past a dozen entries, not a missing
+   or wrong rule.
+
+Both were fixed by moving the **mechanical** part of each check into
+`halopsa-mcp` — computed once, reliably, every time — while leaving the
+**judgment** (what to do about it) exactly where it already was, in the
+Agent/prompt. This is the same split this project has used from the
+start (the Worker is a stateless data-access layer; decisions live in
+`Invoke-HaloResponseAgent.ps1`/the prompts) — what changed is recognizing
+that "does this action list contain a real human's action" and "did this
+write actually land" are themselves mechanical facts, not policy, even
+though the LLM had been computing them by eye. Before touching either
+tool, checked (and told Roger) that neither change shares any code with
+`halopsa-mcp`'s `/status` route — the only thing outside this pipeline
+that depends on the Worker, polled read-only by the separate `Dashboard`
+repo's NOC wallboard:
+- `mcp__Halo__get_ticket_time_entries` now returns a computed `human_touch`
+  field (`{found, actions}`) alongside its completely unchanged raw
+  `actions` array — purely additive, same shape otherwise.
+- `mcp__Halo__update_ticket_draft_only` (new in v2.10.31, so it has zero
+  existing callers to break) now always verifies its own write with a
+  couple of built-in retries against a real delay before returning,
+  something the resolver has no sleep/wait tool to do itself.
+  `mcp__Halo__update_ticket` gained the same capability behind a new
+  **opt-in** `verify` parameter, defaulting to `false` — any existing
+  caller that doesn't pass it sees byte-for-byte the same response and
+  timing as before this existed, so nothing outside this pipeline that
+  might call `update_ticket` directly is affected either.
+
+`resolver-prompt.md`'s ownership check and its "Halo's own ticket-triage"
+section (renamed "A write can report success and not be immediately
+readable back," since that's what it now is) were rewritten to read these
+computed fields directly instead of re-deriving them, and the BLOCKED
+criteria were narrowed accordingly: BLOCKED is now for a write still
+unconfirmed *after* the tool's own built-in retries, or a genuine thrown
+permissions error — not the first sign of a delay, since that case is now
+handled automatically before the resolver ever sees it as a problem.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
