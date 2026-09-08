@@ -1530,17 +1530,41 @@ plausible generic advice from the model's own training, and wrong for this
 business, since Altec resells/partners with Keeper. Nothing in
 resolver-prompt.md had ever told it otherwise, so it fell back to whatever
 a password manager recommendation "normally" looks like. Same gap existed
-for business VPN recommendations (the personal/consumer-VPN section already
-said "Altec will set up a proper... real business VPN" without naming one).
-Added an explicit "Recommending a password manager or a business VPN"
-section: Keeper by name, always, for the former; NordLayer by name, always,
-for the latter (kept distinct from the per-client NinjaOne VPN
-configuration scripts in "Company VPN access requested," which cover a
-client that already has a VPN set up, not a fresh business-VPN
-recommendation). Explicitly carved out of the "no vendor/tool names"
-client-facing rule, which exists to keep Altec's internal monitoring/
-management tooling (Huntress, NinjaOne) out of client conversations, not to
-block naming a product the client would actually go use.
+for VPN recommendations. Added an explicit "Recommending a password
+manager or a business VPN" section, carved out of the "no vendor/tool
+names" client-facing rule (which exists to keep Altec's internal
+monitoring/management tooling - Huntress, NinjaOne - out of client
+conversations, not to block naming a product the client would actually go
+use): Keeper by name, always, for a password manager.
+
+**Follow-up, same day (v2.10.35): NordLayer and the per-client NinjaOne
+VPN scripts are two unrelated products, not a hierarchy - the first pass
+above got this wrong.** v2.10.33 described NordLayer as covering a
+business VPN need "beyond what a single client's existing NinjaOne VPN
+script covers," implying NordLayer was a more-capable escalation of the
+same underlying problem the NinjaOne scripts solve. Roger corrected this
+directly: they are two different VPN *applications* solving two unrelated
+problems. NordLayer is exclusively the sanctioned replacement for a
+personal/consumer VPN application (NordVPN, ExpressVPN, and similar
+privacy/proxy-style apps someone installed themselves) - it has nothing to
+do with connecting to a company's own internal network. That second need -
+a client's own remote-access VPN into their internal resources - is
+exactly what "Company VPN access requested" and its per-client NinjaOne
+script already solve, via the Windows built-in VPN client, and NordLayer
+was never meant to appear anywhere near it. Fixed both the general
+"Recommending a password manager or a business VPN" section (removed the
+"beyond what NinjaOne covers" framing entirely) and the personal/
+consumer-VPN section's own internal-resource-access branch, which had
+inherited the same conflation - recommending NordLayer to someone whose
+actual need was internal network access. That branch now points at the
+"Company VPN access requested" flow instead, naming no product from the
+wrong category. General lesson worth naming: a plausible-sounding
+generalization ("NordLayer covers VPN needs the other mechanism doesn't")
+is exactly the kind of error this project's whole verification discipline
+exists to catch, but self-invented framing in a prompt edit doesn't get
+the same "verify against real data" scrutiny a diagnosis does - worth
+treating a new prompt section's own internal claims with the same
+skepticism.
 
 **Cost investigation (v2.10.34): a "cheap" TRIVIAL ticket cost 3-8x normal
 because it spawned subagents on its own.** Roger asked directly whether the

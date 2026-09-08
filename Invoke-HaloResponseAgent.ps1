@@ -73,6 +73,23 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.35 - correction, same day as v2.10.33: NordLayer and the
+    per-client NinjaOne VPN configuration scripts are two completely
+    unrelated products solving two unrelated problems, not a hierarchy -
+    v2.10.33 wrongly described NordLayer as covering business VPN needs
+    "beyond what a NinjaOne script covers," implying overlap. Corrected
+    per Roger: NordLayer is exclusively the sanctioned replacement for a
+    personal/consumer VPN application (NordVPN, ExpressVPN, etc. - privacy/
+    proxy-style apps someone installed themselves) - it has nothing to do
+    with a client connecting to their own company's internal network,
+    which is a different need entirely, solved by the Windows built-in VPN
+    client via that client's own NinjaOne script ("Company VPN access
+    requested"). Also fixed the "personal/consumer VPN flagged" section's
+    own internal-resource-access branch, which had inherited the same
+    conflation (recommending NordLayer for someone who needed internal
+    network access, not a consumer-VPN replacement) - it now points to the
+    "Company VPN access requested" flow instead, naming no product from
+    the wrong category.
     Version: 2.10.34 - cost investigation requested by Roger ("is there
     anything else to help reduce costs"): a TRIVIAL-tier ticket (#21880,
     Haiku, the cheapest tier) cost $0.64 in a real log - three to eight
