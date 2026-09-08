@@ -1523,6 +1523,67 @@ unconfirmed *after* the tool's own built-in retries, or a genuine thrown
 permissions error — not the first sign of a delay, since that case is now
 handled automatically before the resolver ever sees it as a problem.
 
+**Product recommendations default to Altec's own partners, not general
+knowledge (v2.10.33).** Real incident: ticket #21730's resolver recommended
+Bitwarden/1Password to a client who'd deleted a flagged password file -
+plausible generic advice from the model's own training, and wrong for this
+business, since Altec resells/partners with Keeper. Nothing in
+resolver-prompt.md had ever told it otherwise, so it fell back to whatever
+a password manager recommendation "normally" looks like. Same gap existed
+for business VPN recommendations (the personal/consumer-VPN section already
+said "Altec will set up a proper... real business VPN" without naming one).
+Added an explicit "Recommending a password manager or a business VPN"
+section: Keeper by name, always, for the former; NordLayer by name, always,
+for the latter (kept distinct from the per-client NinjaOne VPN
+configuration scripts in "Company VPN access requested," which cover a
+client that already has a VPN set up, not a fresh business-VPN
+recommendation). Explicitly carved out of the "no vendor/tool names"
+client-facing rule, which exists to keep Altec's internal monitoring/
+management tooling (Huntress, NinjaOne) out of client conversations, not to
+block naming a product the client would actually go use.
+
+**Cost investigation (v2.10.34): a "cheap" TRIVIAL ticket cost 3-8x normal
+because it spawned subagents on its own.** Roger asked directly whether the
+day's fixes would help cost and whether anything else could - answering
+that honestly meant actually profiling the real log rather than guessing.
+Aggregating every real `usage`/`cost_usd` object in the attached log gave a
+genuine baseline: $20.62 across 72 calls (31 classifier, 14 TRIVIAL-tier
+resolver, 27 MEDIUM/COMPLEX-tier resolver) - reconciling cleanly with
+Roger's own "almost $20" - split 58%/27%/15% by category, with prompt
+caching already healthy (87.7% cache-read ratio, in the range Anthropic's
+own published numbers call the high end of the caching lever's ceiling) -
+so caching itself wasn't a lever left on the table. What was: ticket
+#21880 (TRIVIAL, Haiku, normally the cheapest possible resolver call) cost
+$0.64 against $0.08-0.23 for other TRIVIAL tickets that same day, and its
+own `subagent_stats` showed 7 spawned/completed subagents in the same run
+where separate PowerShell attempts were correctly denied. This is the same
+failure shape as the v2.10.17 incident (documented in `.NOTES` above) -
+Claude reaching for a subagent to cope with something the curated MCP tool
+set didn't hand it cleanly - except this time `--allowedTools` didn't
+catch it, because that flag is built purely from named MCP tools and
+doesn't confirm coverage of Claude Code's built-in subagent-launching
+tool. Fixed defensively in `Invoke-ClaudeCLI`: explicit
+`--disallowedTools "Agent,Task"` plus `CLAUDE_CODE_DISABLE_BUILTIN_AGENTS=1`
+scoped around the native call (Claude Code's own documented headless-mode
+override) - two independent mechanisms since neither was independently
+confirmed sufficient on its own. Flagged as unverified against a live run
+at the time it shipped; the concrete confirmation is `subagent_stats.spawned`
+staying `0` in future logs.
+
+Separately identified, not yet acted on - a genuine prompt-bloat lever
+worth a deliberate pass of its own rather than folding into this
+investigation: `resolver-prompt.md`/`classifier-prompt.md` have grown
+substantially across this project's version history, much of it "real
+incident" narrative that matters for a human reading the repo but re-bills
+as input tokens on every single call forever. The `claude-api` skill's own
+published numbers on this exact pattern: prompts written for an older
+model without an audit cost 36% more per ticket on a newer model for no
+accuracy gain, and an audited prompt ran 14% cheaper *and* more accurate
+on the same benchmark. Proposed to Roger as a next step, not applied here -
+it needs his own review of before/after `-WhatIf` output to gate for
+quality, per this project's usual discipline, since no formal eval exists
+for this pipeline.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

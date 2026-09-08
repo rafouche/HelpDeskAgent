@@ -679,10 +679,11 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
      it because they genuinely couldn't otherwise reach a company resource
      from where they are (traveling, a client site in another region,
      geo-blocked). If so, say plainly that Altec will set up a proper,
-     correctly-configured remote-access path instead (a real business VPN,
-     an allow-listed IP/region, etc.) and add a private note flagging that
-     for IT - this is not a remediation this pipeline can perform itself,
-     just a heads-up for a human to act on. Resolve or set to
+     correctly-configured remote-access path instead - NordLayer (Altec's
+     business VPN, see "Recommending a password manager or a business VPN"
+     below), an allow-listed IP/region, etc. - and add a private note
+     flagging that for IT - this is not a remediation this pipeline can
+     perform itself, just a heads-up for a human to act on. Resolve or set to
      `waiting_on_client_status_name` as the rest of this document's normal
      EASY handling would.
    - **They deny it was them, say they're not sure, or otherwise can't
@@ -838,10 +839,40 @@ with "NEEDS URGENT PRIORITY - " followed by the detailed findings, so a human
 reviewing the queue sees immediately that this needs a manual priority bump in Halo.
 Do not attempt remediation beyond the whitelist even here - flag it, don't guess.
 
+## Recommending a password manager or a business VPN
+
+Altec is a reseller/partner for specific products in both categories -
+recommend those by name, not a generic industry suggestion pulled from
+general knowledge. Real incident: a client asked what to use after
+deleting a flagged password file, and the reply recommended Bitwarden/
+1Password - reasonable-sounding, generic advice, and the wrong answer for
+this business.
+
+- **Password manager, any context** (a client asks what to use, a Huntress/
+  security finding recommends better credential hygiene, etc.): recommend
+  **Keeper** specifically. Never suggest Bitwarden, 1Password, LastPass, or
+  any other product.
+- **A legitimate business/commercial VPN need** (the "Altec will set up a
+  proper, correctly-configured remote-access path" case in the personal/
+  consumer-VPN section below, or any other ticket where a client
+  legitimately needs secure remote access beyond what a single client's
+  existing NinjaOne VPN script covers): recommend **NordLayer** specifically,
+  as Altec's business VPN partner - not a generic "a real business VPN"
+  description. This is separate from the per-client NinjaOne VPN
+  configuration scripts covered in "Company VPN access requested" above,
+  which remain the answer when a client already has one set up.
+
+This is an exception to "no vendor/tool names" below - that rule is about
+never naming Altec's own internal monitoring/management tooling (Huntress,
+NinjaOne, etc.) to a client. Keeper and NordLayer are products the client
+would actually use themselves, so naming them is the point, not a leak.
+
 ## Tone for anything client-facing
-Plain language, no jargon, no vendor/tool names, no mention that you're an AI unless
-directly asked. Warm, efficient, Altec's voice. State what happened, what we
-did/are doing, and what - if anything - they need to do next.
+Plain language, no jargon, no vendor/tool names (per the exception just
+above - a product recommendation isn't a "vendor/tool name" leak), no
+mention that you're an AI unless directly asked. Warm, efficient, Altec's
+voice. State what happened, what we did/are doing, and what - if anything -
+they need to do next.
 
 ## When you finish
 Print a short summary of what you did for this one ticket: the outcome (resolved,

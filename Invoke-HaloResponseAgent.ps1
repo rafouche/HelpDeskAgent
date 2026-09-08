@@ -73,6 +73,39 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.34 - cost investigation requested by Roger ("is there
+    anything else to help reduce costs"): a TRIVIAL-tier ticket (#21880,
+    Haiku, the cheapest tier) cost $0.64 in a real log - three to eight
+    times a typical TRIVIAL ticket's $0.08-0.23 - and its own
+    subagent_stats showed 7 spawned/completed subagents, in the same run
+    where separate PowerShell tool-call attempts were correctly denied.
+    --allowedTools is an inclusion list built only from named MCP tools;
+    none of $resolverTools/$classifierTools/etc. include Claude Code's
+    built-in subagent-launching tool, but that tool isn't confirmed to be
+    gated by the same allowlist a named MCP tool or Bash/PowerShell is -
+    matching the observed denied-vs-spawned split in the same run.
+    Invoke-ClaudeCLI now explicitly adds `--disallowedTools "Agent,Task"`
+    (covering both the tool's current and former name) and sets
+    CLAUDE_CODE_DISABLE_BUILTIN_AGENTS=1 for the duration of the native
+    call (Claude Code's documented headless-mode fallback, restored
+    afterward) - belt-and-suspenders, since this pipeline's per-tier tool
+    sets are already curated to be sufficient; no tier should ever need to
+    delegate its own investigation to a second, separately-billed Claude
+    invocation. Unverified against a live run at time of writing - worth
+    confirming via -WhatIf or a real cycle that subagent_stats.spawned
+    stays 0 going forward.
+    Version: 2.10.33 - policy fix requested by Roger: a real ticket
+    (#21730) showed the resolver recommending Bitwarden/1Password for a
+    password manager - reasonable-sounding generic advice, and the wrong
+    answer, since Altec is a Keeper reseller/partner. resolver-prompt.md
+    gained a "Recommending a password manager or a business VPN" section:
+    always Keeper by name for a password manager, always NordLayer by name
+    for a legitimate business/commercial VPN need (distinct from the
+    per-client NinjaOne VPN configuration scripts, which remain the answer
+    when a client already has one set up) - explicitly exempted from the
+    "no vendor/tool names" client-facing-tone rule, since recommending a
+    product the client would actually use is the point, not an internal-
+    tooling leak like naming Huntress or NinjaOne would be.
     Version: 2.10.32 - follow-up to v2.10.30 (BLOCKED) and the ownership
     check, after Roger pushed back on the BLOCKED diagnosis and asked why
     the ownership check itself wasn't more reliable, rather than accepting
@@ -1982,9 +2015,29 @@ function Invoke-ClaudeCLI {
         [string]$Effort
     )
     $toolsArg = ($Tools -join ",")
+    # Real incident: a TRIVIAL-tier ticket (#21880, Haiku, cheapest tier)
+    # cost $0.64 - three to eight times a typical TRIVIAL ticket's $0.08-0.23
+    # - and its own subagent_stats showed 7 spawned/completed subagents,
+    # while separate PowerShell tool-call attempts in the same run were
+    # correctly denied (present in permission_denials). --allowedTools is an
+    # inclusion list built only from named MCP tools ($resolverTools/
+    # $classifierTools/$resolverToolsLearnFix/etc. above) - none of them
+    # spawn subagents - but Claude Code's built-in subagent-launching tool
+    # (Task/Agent) isn't confirmed to be gated by that same allowlist the
+    # way a named MCP tool or Bash/PowerShell is, matching this observed
+    # behavior (denied vs. spawned in the same run). This pipeline's MCP
+    # tool sets are already curated to be sufficient for every tier - it
+    # should never need to delegate its own investigation to a subagent,
+    # and every subagent spawned is a second, separate Claude invocation
+    # with its own full cost. Belt-and-suspenders: explicitly disallow the
+    # tool by both its current and former name, and disable the
+    # environment-level fallback Claude Code documents for headless runs
+    # (see the try/finally below) in case --disallowedTools alone isn't
+    # sufficient either.
     $claudeArgs = @(
         "-p",
         "--allowedTools", $toolsArg,
+        "--disallowedTools", "Agent,Task",
         "--output-format", "json",
         "--permission-mode", "dontAsk"
     )
@@ -2028,11 +2081,14 @@ function Invoke-ClaudeCLI {
     # script.
     $prevNativeErrorPref = $PSNativeCommandUseErrorActionPreference
     $PSNativeCommandUseErrorActionPreference = $false
+    $prevDisableBuiltinAgents = $env:CLAUDE_CODE_DISABLE_BUILTIN_AGENTS
+    $env:CLAUDE_CODE_DISABLE_BUILTIN_AGENTS = "1"
     try {
         $rawOutput = $Prompt | & claude @claudeArgs 2>&1
     }
     finally {
         $PSNativeCommandUseErrorActionPreference = $prevNativeErrorPref
+        $env:CLAUDE_CODE_DISABLE_BUILTIN_AGENTS = $prevDisableBuiltinAgents
     }
     $rawText = $rawOutput | Out-String
 
