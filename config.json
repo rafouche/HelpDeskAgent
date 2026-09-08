@@ -117,6 +117,10 @@
     {
       "name": "Run NinjaOne script: Enable Remote Desktop Service",
       "requires": "Device belongs to the ticket contact (not a shared/kiosk device) and they've explicitly asked for remote access to their own machine. This is a persistent access change - nothing disables it automatically - so log clearly in the internal note that RDP was enabled and why."
+    },
+    {
+      "name": "Run NinjaOne script: Add <Company Abbreviation> VPN Configuration",
+      "requires": "Windows workstation only, confirmed via a NinjaOne device lookup (hostname or last-logged-in-user match) to belong to the ticket contact - not a shared/kiosk device, not a guess. The script is per-client, always named 'Add <abbreviation> VPN Configuration' (e.g. 'Add Gold VPN Configuration' for Gold Mechanical, Inc.) - find the one whose abbreviation actually matches this ticket's client via mcp__Ninja__list_automation_scripts, don't assume the exact name. VPN client software must not already be present on the device (check first) - don't re-run it if it's already installed. Not OpenVPN in any form; Altec is moving away from it."
     }
   ]
 }

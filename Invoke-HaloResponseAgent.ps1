@@ -73,6 +73,52 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.28 - real incident: a VPN-access ticket (Gold Mechanical,
+    #21866) got a draft reply asking the client what device they'd be
+    using, without the resolver ever calling a NinjaOne tool first - the
+    action log showed no device lookup at all. resolver-prompt.md's
+    "investigate" step only ever said "NinjaOne for device health/patches/
+    software" in general terms, with no instruction to actually try
+    mapping the ticket's contact to a NinjaOne device before falling back
+    to asking. Added an explicit "Before asking the client which device/
+    workstation they're on, try to find out yourself" instruction
+    (list_organizations to map the Halo client to its NinjaOne org -
+    confirmed live that list_org_contacts is frequently empty, so match by
+    client name instead - then list_org_devices/get_device to look for a
+    hostname or last-logged-in-user match), plus a "Company VPN access
+    requested" section covering the whole flow for that specific case:
+    identify the device, check whether the VPN client is already
+    installed, run the matching per-client "Add <Company Abbreviation> VPN
+    Configuration" NinjaOne script if not (new config.json remediation
+    whitelist entry, requested by Roger - the script name varies per
+    client, so resolver-prompt.md's remediation-whitelist matching rules
+    were extended to cover a placeholder-style entry name, not just exact
+    literal names), then actually walk the client through connecting via
+    Windows' built-in VPN client rather than a vague "we're setting it up,
+    details to follow." Config note from Roger: no OpenVPN references -
+    Altec is moving away from it.
+    Version: 2.10.27 - real incident: Roger reported a ticket that had gone
+    quiet (waiting on a client reply) got a fresh reply and was skipped
+    entirely - not tiered, not touched. Verified directly against the live
+    Halo tenant that its /Tickets response for the unassigned-bucket query
+    (agent_id: 1, team_id: Help Desk) is ordered by ticket ID/creation date
+    descending, not by last-updated - so the page_no:1/page_size:15 pull
+    both classifier-prompt.md's own candidate list and halopsa-mcp's
+    /helpdesk-gate fingerprint (v2.10.24) relied on could miss a ticket
+    with an older ID that just got fresh activity, if enough newer tickets
+    existed to bump it past page 1. Fixed on both sides: halopsa-mcp's
+    buildHelpDeskGate now pages through the whole unassigned bucket (new
+    fetchAllTickets helper, page_size 20, capped at 5 pages/100 tickets -
+    the cap is a runaway-cost guard against an unusually large queue, not
+    a real limitation, since this all happens as plain Worker-side HTTP
+    calls with zero LLM cost either way) instead of trusting page 1 alone,
+    same pattern the stuck-claimed/Ready-for-AI buckets already used;
+    classifier-prompt.md's own "Unassigned" candidate call (call 1) does
+    the same full paged sweep now rather than a single page. The gate
+    response also carries a new unassigned_truncated flag (only true if a
+    queue somehow exceeds the 100-ticket cap) which the PS1 script logs as
+    a NOTE line if it ever fires, so a future gap like this shows up in the
+    log instead of silently recurring.
     Version: 2.10.26 - design change, requested by Roger: a tracked ticket
     a real tech resolves before this pipeline gets back to it used to be a
     dead end - classifier-prompt.md's tracked-ticket check just emitted
@@ -2413,6 +2459,10 @@ try {
                     if (-not $seenUnassignedIds.ContainsKey($key)) { $unassignedLastSeen.Remove($key) }
                 }
                 $shouldRunClassifier = $anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged
+                if ($gate.unassigned_truncated) {
+                    $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                    Add-Content -Path $logFile -Value "[$gateTimestamp] NOTE: unassigned gate fingerprint truncated - the Help Desk unassigned bucket has more tickets than the Worker's page cap covered this cycle (unassigned_count=$($gate.unassigned_count)); a change on a ticket past the cap could be missed until it's covered by a future cycle." -Encoding UTF8
+                }
                 if (-not $shouldRunClassifier) {
                     $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                     Add-Content -Path $logFile -Value "[$gateTimestamp] SKIPPED (gate: nothing changed) - unassigned unchanged ($($seenUnassignedIds.Count) known, none new), stuck_claimed=0, $($trackedTicketIds.Count) tracked ticket(s) unchanged." -Encoding UTF8

@@ -54,6 +54,16 @@ validated for this run - use the numbers given above directly:
   `mcp__Ninja__list_automation_scripts` and match the script named exactly X. This
   one still needs a per-ticket lookup, since which script (if any) applies depends
   on this specific ticket, not on a fixed value for the whole run.
+- A remediation entry whose name contains a placeholder like
+  `<Company Abbreviation>` isn't one fixed script - some scripts are
+  per-client, named after the client (e.g. "Add Gold VPN Configuration" for
+  Gold Mechanical, Inc.). Call `mcp__Ninja__list_automation_scripts` and look
+  for the one whose name fits the entry's pattern with this specific
+  ticket's client substituted in place of the placeholder - the client's own
+  short/common name or an obvious abbreviation of it, not a guess unrelated
+  to the actual client name. If exactly one script fits, that's the match.
+  If none fits, or more than one plausibly does, don't guess which one -
+  note that in your internal note instead of running anything.
 
 These IDs were already validated against Halo before this cycle started, so trust
 them directly rather than re-checking. If something about the real ticket seems
@@ -483,7 +493,28 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    Then investigate with whatever else helps pinpoint the cause - M365/CIPP for
    identity/mail, NinjaOne for device health/patches/software, UniFi/Meraki for
    network/connectivity, Huntress for security-flagged tickets, Hudu for existing
-   client documentation. Default to read-only calls. Only take a remediation action
+   client documentation.
+
+   **Before asking the client which device/workstation they're on, try to find
+   out yourself.** Real incident: a ticket named the contact by name but not a
+   device, and the resolver skipped straight to asking "which device will you
+   be using?" without ever calling a NinjaOne tool - the answer might have
+   been findable directly. `mcp__Ninja__list_organizations` maps the ticket's
+   Halo client to its NinjaOne organization (match by client name - NinjaOne
+   contact records are frequently empty for a given org, so don't rely on
+   `list_org_contacts` alone), then `mcp__Ninja__list_org_devices` for that
+   org to look for a device that plausibly belongs to the contact - a
+   hostname containing their name, or (via `mcp__Ninja__get_device` on a
+   promising candidate) a `lastLoggedInUser` matching them. This is a
+   judgment call with a real chance of coming up empty (small/generic
+   hostnames, a shared machine, no clean name match) - if nothing confidently
+   matches after a reasonable look, it's fine to ask the client directly, but
+   only after actually trying, and word the question tighter for having
+   tried (e.g. "I don't see a workstation logged in under your name yet -
+   what's the computer's name, or where is it located?") rather than a bare
+   "what device are you on?" that ignores the lookup entirely.
+
+   Default to read-only calls. Only take a remediation action
    if it's in the config whitelist AND its "requires" condition is clearly met from
    what you've verified - if there's any doubt, diagnose and note, don't act.
 
@@ -495,6 +526,31 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    usually contains the same SMTP error code and is enough to explain most bounces
    (bad address, mailbox full, blocked by the recipient's spam filter, etc.) without
    a full trace.
+
+   **Company VPN access requested specifically** (a client asking to get VPN
+   access set up or working, e.g. to work from home - not to be confused
+   with the personal/consumer-VPN-flagged case below, which is the opposite
+   situation: a security concern about a VPN the client is already using):
+   first try to identify their workstation (see "Before asking the client
+   which device/workstation they're on" above) - you need it both to check
+   whether it's already set up and to know what to walk them through.
+   - If you found the device, check `mcp__Ninja__get_device_software` for
+     whether the client's VPN client is already installed - if there's a
+     matching "Run NinjaOne script:" remediation whitelist entry for this
+     client (per the placeholder-name rule above, e.g. "Add Gold VPN
+     Configuration" for Gold Mechanical, Inc.) and its "requires" condition
+     is met, and the software isn't already present, run it.
+   - Once it's installed (already was, or you just ran the script), this is
+     ordinarily a standard Windows built-in VPN connection - actually walk
+     them through connecting (Settings > Network & Internet > VPN, select
+     the configured connection, Connect, sign in if prompted) rather than
+     just saying access is "being set up" with details to follow later. Only
+     fall back to a vaguer "we're working on it, more details soon" if you
+     genuinely couldn't identify the device/software state and have nothing
+     concrete yet to walk them through.
+   - Config note: Altec is moving away from OpenVPN - don't suggest or
+     reference it even if you find it referenced in older tickets/KB
+     articles.
 
    **Personal/consumer VPN use flagged (most often via Huntress, but this is
    a general policy - it applies no matter which system surfaced it)

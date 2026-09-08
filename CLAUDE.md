@@ -1263,6 +1263,84 @@ tools, since this pass never touches the ticket or the client) and runs on
 `resolver_model_trivial` (cheap tier — this is a read-and-file-away pass, not
 an investigation).
 
+**Unassigned-bucket pagination — Halo's `/Tickets` isn't sorted by recency
+(v2.10.27).** Roger reported a ticket that had gone quiet waiting on a client
+reply, got a fresh reply, and was skipped completely — not tiered, not
+touched. Verified directly against the live tenant: `GET /Tickets` with
+`agent_id: 1, team_id: <Help Desk>` returns results ordered by ticket
+ID/creation date descending, not by `last_update`. Both
+`classifier-prompt.md`'s own "Unassigned" candidate call and
+`halopsa-mcp`'s `/helpdesk-gate` fingerprint (v2.10.24) assumed a single
+`page_no: 1, page_size: 15` pull covered "the most recently active
+unassigned tickets" — it actually covered "the most recently *created*"
+ones. A ticket with an older ID that just got a fresh reply can have a
+newer `last_update` than several tickets ranked above it (confirmed with
+real data: tickets 21478 and 20910 both had more recent `last_update`
+values than 21730, despite sitting below it in the returned order) — so if
+enough newer tickets exist to fill page 1, an old-ID ticket's change falls
+outside the window and both the gate and the classifier miss it, forever,
+until something else changes about it. Fixed by paging through the whole
+bucket instead of trusting page 1: `halopsa-mcp`'s `buildHelpDeskGate` got
+a new `fetchAllTickets` helper (page_size 20, capped at 5 pages/100 tickets
+— purely a runaway-cost guard against an unusually large queue, not a real
+limitation, since this is plain Worker-side HTTP with zero LLM cost either
+way) and `classifier-prompt.md`'s own "Unassigned" call now pages the same
+way calls 2 and 4 already did. The gate response carries a new
+`unassigned_truncated` flag (true only if a queue somehow exceeds the
+100-ticket cap), logged as a NOTE line in `Invoke-HaloResponseAgent.ps1` if
+it ever fires, so a recurrence of this class of gap is visible in the log
+rather than silent. Decided with Roger: full paging over widening the
+window or guessing at an unverified Halo `order`/`orderdirection` API
+parameter — the paging pattern was already proven safe on the other two
+buckets, and guessing a sort parameter against production without
+verifying it first is exactly the kind of mistake this project's "verify
+against real data" discipline exists to prevent (see the `urgent_priority_names`
+incident later in this document, "In-flight / not-yet-built" section).
+
+**Device lookup before asking the client — and per-client remediation
+scripts (v2.10.28).** Roger reviewed a live VPN-access ticket (Gold
+Mechanical, #21866) where the resolver's only action was a draft note
+asking the client which device they'd be using — no NinjaOne tool call
+appears anywhere in the ticket's action log. `resolver-prompt.md`'s
+investigate step only ever said "NinjaOne for device health/patches/
+software" as general context; nothing told the resolver to actually
+attempt mapping the ticket's contact to a NinjaOne device before falling
+back to a clarifying question. Added an explicit instruction: map the
+Halo client to its NinjaOne org via `mcp__Ninja__list_organizations`
+(matched by client name — confirmed live that `list_org_contacts` is
+frequently empty, so a contact-record lookup alone isn't reliable), then
+look for a device via `mcp__Ninja__list_org_devices`/`get_device` whose
+hostname or `lastLoggedInUser` plausibly matches the contact. This can
+legitimately still come up empty (confirmed on the live case itself — no
+device at Gold Mechanical matched "Cody"/"jcody" by name or logged-in
+user) — the fix isn't "always find the device," it's "always try before
+asking, and ask a tighter question for having tried" rather than skipping
+straight to a generic "what device are you on?"
+
+Also added a specific "Company VPN access requested" flow (distinct from
+the pre-existing "Personal/consumer VPN use flagged" section, which is
+the opposite case — a security concern about a VPN already in use, not a
+request to set one up): identify the device per above, check via
+`get_device_software` whether the VPN client is already installed, and if
+not, run the matching per-client NinjaOne script — Roger's own
+company-wide naming convention is `Add <Company Abbreviation> VPN
+Configuration` (e.g. "Add Gold VPN Configuration" for Gold Mechanical,
+Inc.), so `config.json`'s `remediation_whitelist` gained an entry with a
+placeholder name rather than a fixed literal one, and
+`resolver-prompt.md`'s remediation-whitelist matching rules were extended
+to explain how to resolve a placeholder entry against
+`mcp__Ninja__list_automation_scripts` for the specific client on a given
+ticket (find the one script whose name plausibly matches this client; if
+none or more than one plausibly matches, don't guess — note it instead).
+Once the VPN client is confirmed present (already was, or just installed),
+the resolver now actually walks the client through connecting via
+Windows' standard built-in VPN UI, rather than a vague "we're setting it
+up, details to follow" — that vaguer fallback is now reserved for the case
+where the device/software state genuinely couldn't be determined. Per
+Roger: no OpenVPN references anywhere in this flow — Altec is moving away
+from it, so even a coincidental match in an old ticket/KB article
+shouldn't be suggested.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

@@ -70,15 +70,30 @@ by relying on an unfiltered pull's default recency window - see .NOTES
 version history for the real case this was fixed from):
 
 1. **Unassigned:** `{ open_only: true, agent_id: 1, team_id: {{TEAM_ID}},
-   pageinate: true, page_no: 1, page_size: 15 }`. Halo has a real agent
-   record named "Unassigned" (`is_agent: false`) whose id is `1` - a ticket
-   with `agent_id: 1` has nobody working it. Passing `team_id` here is not
-   optional - a real incident found this call without it fetches every
-   team's unassigned tickets account-wide (82 full ticket bodies in one
-   case, almost all irrelevant) just to manually discard everything outside
-   Help Desk, at real per-cycle cost, every 15 minutes, whether or not
-   anything is actually found. **Most tickets here are genuinely fresh,
-   first-pass candidates**, with two exceptions:
+   pageinate: true, page_no: 1, page_size: 20 }`, then keep paging
+   (`page_no: 2`, `3`, ...) the same way call 2 does, until the response's
+   `record_count` is fully covered or you've fetched 5 pages (100 tickets),
+   whichever comes first - that cap exists only as a runaway-cost guard
+   against an unusually large queue, not because paging itself is
+   expensive. Halo has a real agent record named "Unassigned"
+   (`is_agent: false`) whose id is `1` - a ticket with `agent_id: 1` has
+   nobody working it. Passing `team_id` here is not optional - a real
+   incident found this call without it fetches every team's unassigned
+   tickets account-wide (82 full ticket bodies in one case, almost all
+   irrelevant) just to manually discard everything outside Help Desk, at
+   real per-cycle cost, every 15 minutes, whether or not anything is
+   actually found. **Do not assume this response is ordered by recency** -
+   verified directly against a live tenant that Halo returns it ordered by
+   ticket ID/creation date descending, not by last-updated. A ticket with an
+   older ID that just got a fresh client reply can sit past page 1 even
+   though it's the most urgent thing in the bucket right now - this is
+   exactly why call 2 and call 4 already page through fully rather than
+   trusting page 1, and why this call now does too (real incident: a
+   page-1-only pull here missed a ticket that had gone quiet for a while,
+   then received a fresh client reply, because several newer tickets had
+   been created in between and Halo's ID-descending order buried it past
+   page 1). **Most tickets here are genuinely fresh, first-pass
+   candidates**, with two exceptions:
    - Drop any ticket whose ID is in the tracked list above - that ticket is
      unassigned because the resolver already handled it and correctly
      unassigned itself (see resolver-prompt.md), not because it's new, and
@@ -110,10 +125,6 @@ version history for the real case this was fixed from):
      Progress," and "Updated" are never dropped by this rule - real Help
      Desk work legitimately sits in all three.
 
-   This is page 1 only (most recent 15 unassigned Help Desk tickets) - one
-   that's been sitting untouched long enough to fall past page 1 is a real
-   but slower-moving gap than the one this fix targets; not worth a full
-   paged sweep every 15 minutes.
 2. **Stuck-claimed (recovery only):** `{ open_only: true,
    agent_id: {{AGENT_ID}}, team_id: {{TEAM_ID}}, pageinate: true,
    page_no: 1, page_size: 15 }`.
