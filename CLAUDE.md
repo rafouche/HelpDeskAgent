@@ -1370,6 +1370,95 @@ the most recently active one, weigh device type against context (e.g.
 `system.chassisType`), and if still ambiguous, ask the client to confirm
 which specific device rather than picking one silently.
 
+**`[CACHE: BLOCKED]` — a Halo-side write-swallow bug was silently costing
+real money every cycle, forever (v2.10.30).** Roger attached a full day's
+log after a nearly-$20 day and asked for both a diagnosis and a cost fix.
+Direct evidence in the log: ticket 21846 (and similarly 21842) was fully
+reprocessed by the resolver three times in about ten minutes, each pass
+independently rediscovering the exact same conclusion — Halo's own
+untriaged-ticket bug (see "Halo's own ticket-triage" in resolver-prompt.md)
+was silently swallowing every write attempt, so the resolver correctly
+stopped each time rather than guessing. The existing `[CACHE: TRACK]`/
+`[CACHE: UNTRACK]` mechanism couldn't help here, and resolver-prompt.md's
+own documented guidance for this exact case (use `UNTRACK`) wouldn't have
+helped either even if followed correctly — `UNTRACK` only stops the cheap
+tracked-ticket recheck path, it does nothing to keep a ticket out of the
+classifier's expensive Unassigned-bucket candidate list, which is where
+this ticket kept reappearing from every cycle, since the write-swallow
+meant nothing ever visibly changed about it in Halo. Root cause: neither
+existing marker was designed for "this will keep failing identically no
+matter how soon I retry" — `TRACK` assumes a future check will find some
+new evidence to react to, `UNTRACK` assumes there's nothing left to check
+at all, and this case is neither. Added a third real marker, `[CACHE:
+BLOCKED]`, specifically for a structural/platform dead end (the
+write-swallow bug, or a genuine agent-permissions error) that only a human
+fixing something in Halo itself can resolve. A new `blocked_tickets` map
+in `agent-cache.json` (ticket_id → when it was last found blocked) is
+checked by `classifier-prompt.md`'s Unassigned candidate call (a third
+exclusion alongside the tracked-list and status-name-pre-filter
+exclusions already there) — excluded tickets aren't reprocessed at all
+until `claude.blocked_ticket_retry_hours` (default 4) has passed, at which
+point the entry simply ages out of the cache and the ticket becomes a
+normal candidate again with no special recheck path needed — aging out
+of the map *is* the retry mechanism. Chose a multi-hour cooldown over
+either "never retry" (a human might fix the Halo-side issue and the
+ticket would then sit invisible forever) or "retry every cycle anyway"
+(the exact problem being fixed) — long enough to give a human a real
+chance to notice and fix it, short enough that a fix doesn't sit
+unnoticed for a full day.
+
+**Approval bypass — several TRIVIAL-tier tickets sent a real reply despite
+`-RequireApproval` being active (v2.10.31), fixed at the tool-allowlist
+level, not just in the prompt.** Same log, second finding: tickets #21871,
+#21880, #21887, and #21888 all show the resolver posting a genuine,
+emailed client-facing reply and moving straight to a real status
+(`Waiting on client`) — no `[DRAFT PENDING APPROVAL]` note, no `AI
+Waiting Approval` status, nothing indicating the approval hold was ever
+consulted. Every one of these was TRIVIAL or TRIVIAL_UNCERTAIN tier — the
+cheapest model (`resolver_model_trivial`, Haiku 4.5 by default), which
+also can't take `--effort` at all (see `claude._comment`) — while every
+MEDIUM/COMPLEX ticket in the same log correctly drafted and held. Root
+cause, once found: `$resolverToolsApprovalStripped` (added in v2.8.0) was
+only ever a subset removal of the *remediation* tools — `mcp__Halo__update_ticket`
+itself was deliberately left in place for every tier, because FLOW B's own
+draft-note/status/unassign bookkeeping is itself a real `update_ticket`
+call that has to succeed. That meant the ONLY thing keeping a non-APPROVED
+ticket's reply private was the resolver choosing to follow the approval
+banner's "do this instead" redirect over other, more concrete "reply to
+the client now" instructions scattered throughout the rest of
+resolver-prompt.md (the TRIVIAL_UNCERTAIN section literally says "reply
+asking for exactly that" with no mention of an approval gate anywhere
+nearby) — a single global override stated once, far away in token
+distance from the point where a much more concrete, locally-relevant
+instruction told the model to just reply. A cheap model given a long,
+dense document is exactly the case most likely to lose track of the
+distant rule in favor of the nearby, concrete one.
+
+Fixed the way this project already fixes anything that can be enforced at
+the allowlist level instead of trusted to the prompt (the same category as
+remediation-action stripping): `halopsa-mcp` gained a new tool,
+`update_ticket_draft_only` — identical to `update_ticket` for every other
+field, but any note it writes always lands private and unemailed,
+*structurally*, no matter what arguments are passed, and it throws a loud
+error instead of silently downgrading if a caller explicitly tries to
+override that (so a resolver that does try to send for real gets
+immediate, visible feedback rather than a false belief that it worked).
+`$resolverToolsApprovalStripped` now removes `mcp__Halo__update_ticket`
+entirely for a non-APPROVED ticket and substitutes `update_ticket_draft_only`
+— sending a real reply is no longer possible regardless of what the model
+does, closing the gap the prompt-only approach left open. Also reinforced
+the prompt itself in two places, since the tool fix alone still leaves the
+model wasting a turn on a rejected `update_ticket` call before discovering
+`update_ticket_draft_only`: a new, ever-present (not conditionally
+injected) "Which update_ticket tool do you actually have?" section near
+the very top of resolver-prompt.md, and an inline reinforcement at
+"Sending a real, client-facing reply" — the one section every other
+"reply to the client" instruction in the document conceptually routes
+through. Chose "check which tool you actually have" as the framing over
+"remember this rule" deliberately: which tool is available is a structural
+fact about the run that can't be gotten wrong the way a memorized
+instruction can.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

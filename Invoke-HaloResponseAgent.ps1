@@ -73,6 +73,59 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.31 - real incident, reported by Roger from a live day's
+    log: several tickets under -RequireApproval got a real, emailed
+    client-facing reply sent directly, bypassing the approval hold
+    entirely (confirmed: tickets #21871, #21880, #21887, #21888, all on
+    TRIVIAL/TRIVIAL_UNCERTAIN tier, the cheapest model/shortest-effort
+    combination). Root cause: mcp__Halo__update_ticket was never actually
+    removed from a non-APPROVED ticket's tool allowlist under
+    -RequireApproval (it couldn't be - FLOW B's own draft/status/unassign
+    bookkeeping needed some update_ticket-shaped tool), so whether a reply
+    stayed private depended entirely on the resolver choosing to follow
+    the approval banner's redirect over other, more concrete "reply now"
+    instructions written throughout the rest of resolver-prompt.md
+    (the TRIVIAL_UNCERTAIN section, the EASY/NOT EASY sections, etc.) -
+    which it didn't always do, especially on the cheaper tier. Fixed
+    structurally, not just with more prompt text: halopsa-mcp gained a new
+    tool, update_ticket_draft_only - identical to update_ticket in every
+    other respect, but a note it writes is always private and unemailed,
+    regardless of what's passed, and it throws a loud error rather than
+    silently downgrading if the caller explicitly tries to override that.
+    $resolverToolsApprovalStripped now removes mcp__Halo__update_ticket
+    entirely for a non-APPROVED ticket and gives it update_ticket_draft_only
+    instead, so sending a real reply is no longer possible regardless of
+    what the model does - a tool-allowlist-level guarantee, the same
+    category of fix already used for remediation actions, extended to
+    cover this gap too. resolver-prompt.md also gained a new "Which
+    update_ticket tool do you actually have?" section near the top (an
+    ever-present, not conditionally-injected, reinforcement - the model is
+    told to check which tool is actually available rather than trust a
+    rule read many tokens earlier) plus a reinforcement inline at "Sending
+    a real, client-facing reply," the single place every other section's
+    "reply to the client" instruction ultimately routes through.
+    Version: 2.10.30 - real incident, same log as v2.10.31: a ticket stuck
+    in Halo's own untriaged-ticket write-swallow bug (see "Halo's own
+    ticket-triage" in resolver-prompt.md) got fully reprocessed by the
+    resolver every single cycle - confirmed live: one ticket cost over a
+    dollar across three consecutive cycles in about ten minutes, each one
+    correctly concluding "a human needs to fix something in Halo, I can't
+    act on this" and stopping, with no sign it would ever stop reprocessing
+    on its own. [CACHE: TRACK] didn't help: the underlying problem is that
+    literally nothing lands on the ticket, not even the tracking note
+    itself, so a future cycle's tracked-ticket recheck found no evidence
+    anything had been tried and treated it as a brand-new candidate again
+    every time. Added a third real marker, [CACHE: BLOCKED] (resolver-
+    prompt.md's "When you finish" section), for this specific class of
+    problem - a structural/platform dead end only a human fixing something
+    in Halo can resolve, where immediate retry reproduces the identical
+    failure at the identical cost. A new blocked_tickets map in
+    agent-cache.json (ticket_id -> when it was last found blocked) excludes
+    those IDs from the classifier's Unassigned candidate list
+    (classifier-prompt.md's call 1) until claude.blocked_ticket_retry_hours
+    (default 4) has passed, at which point the entry simply ages out and
+    the ticket becomes a normal candidate again automatically - no special
+    recheck logic needed for that half, aging out IS the retry.
     Version: 2.10.29 - follow-up, same day as v2.10.28: verified live that
     the device-lookup fix's hostname-pattern-matching approach was itself
     weak - on the actual Gold Mechanical case, no device hostname contained
@@ -1288,6 +1341,7 @@ elseif ((Test-Path $legacyIdCachePath) -or (Test-Path $legacyTrackedPath)) {
         tracked_tickets      = $migratedTracked
         tracked_last_seen    = [PSCustomObject]@{}
         unassigned_last_seen = [PSCustomObject]@{}
+        blocked_tickets      = [PSCustomObject]@{}
         last_real_cycle_at   = $null
     }
     foreach ($legacyPath in @($legacyIdCachePath, $legacyTrackedPath, "$legacyIdCachePath.tmp", "$legacyTrackedPath.tmp")) {
@@ -1302,6 +1356,7 @@ if (-not $agentCache) {
         tracked_tickets      = @()
         tracked_last_seen    = [PSCustomObject]@{}
         unassigned_last_seen = [PSCustomObject]@{}
+        blocked_tickets      = [PSCustomObject]@{}
         last_real_cycle_at   = $null
     }
 }
@@ -1323,6 +1378,43 @@ if ($agentCache.tracked_last_seen) {
 $unassignedLastSeen = @{}
 if ($agentCache.unassigned_last_seen) {
     foreach ($prop in $agentCache.unassigned_last_seen.PSObject.Properties) { $unassignedLastSeen[$prop.Name] = $prop.Value }
+}
+
+# Real incident (v2.10.30): a ticket stuck in one of Halo's own structural
+# dead ends - most often the "untriaged ticket" write-swallow bug (see
+# resolver-prompt.md's "Halo's own ticket-triage" section), sometimes a
+# genuine agent-permissions gap - got fully reprocessed by the resolver
+# every single cycle, each time correctly re-discovering "I can't act on
+# this, a human needs to fix something in Halo first" and stopping, at
+# real cost (confirmed live: one ticket cost over a dollar across three
+# consecutive cycles in about ten minutes, with no sign it would ever stop
+# on its own). [CACHE: TRACK] doesn't help here because the underlying
+# problem is that NO write ever lands - not even the tracking note itself -
+# so a future cycle's tracked-ticket recheck sees no evidence anything was
+# ever tried and treats it as a brand-new candidate again, forever.
+# [CACHE: BLOCKED] (see resolver-prompt.md's "When you finish" section) is
+# the fix: a resolver that hits one of these dead ends says so with that
+# marker instead, and this ticket ID goes in blocked_tickets (ticket_id ->
+# when it was last found blocked) instead of tracked_tickets. Blocked
+# tickets are excluded from the classifier's Unassigned candidate list
+# (see {{BLOCKED_TICKET_IDS}} below) until claude.blocked_ticket_retry_hours
+# has passed, at which point the entry simply ages out here and the ticket
+# becomes a completely normal candidate again next cycle - on the
+# (hopeful) assumption a human fixed whatever was actually broken in Halo
+# by then. No new classifier logic needed for the retry itself: aging out
+# is just "stop excluding it," not a special recheck path.
+$blockedTicketRetryHours = 4
+if ($config.claude.blocked_ticket_retry_hours) { $blockedTicketRetryHours = [double]$config.claude.blocked_ticket_retry_hours }
+$blockedTickets = @{}
+if ($agentCache.blocked_tickets) {
+    foreach ($prop in $agentCache.blocked_tickets.PSObject.Properties) {
+        $blockedAt = $null
+        if ([datetime]::TryParse($prop.Value, [ref]$blockedAt)) {
+            if (((Get-Date) - $blockedAt).TotalHours -lt $blockedTicketRetryHours) {
+                $blockedTickets[$prop.Name] = $prop.Value
+            }
+        }
+    }
 }
 
 # Carried through untouched unless Stage 0 below actually re-resolves fresh
@@ -1603,24 +1695,19 @@ $resolverTools = @(
 # the model how to label a simulation-sourced article so it's never mistaken for
 # a confirmed fix.
 $mutatingTools = @(
-    "mcp__Halo__update_ticket", "mcp__Halo__create_contact",
+    "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
 )
 
 # Subset of $mutatingTools that -RequireApproval strips from a non-APPROVED-tier
-# ticket (see the per-ticket tool selection below). Deliberately narrower than
-# $mutatingTools: mcp__Halo__update_ticket itself CANNOT be stripped here, because
-# -RequireApproval's own "draft note + AI Waiting Approval status + unassign"
-# bookkeeping (see the approval banner below) is itself a real update_ticket call
-# that must succeed - only the CONTENT of that call (private draft vs. a real
-# public reply) tells the two apart, which isn't something a tool allowlist can
-# enforce. mcp__Microsoft365__outlook_send_mail is also deliberately absent - the
-# on-call notification it sends is an internal alert to Altec's own team, not
-# client correspondence, so it's never gated. What CAN be enforced at the
-# allowlist level - and is - is that a non-APPROVED-tier ticket physically cannot
-# call a remediation action, regardless of what the prompt says.
+# ticket (see the per-ticket tool selection below). mcp__Microsoft365__outlook_send_mail
+# is deliberately absent - the on-call notification it sends is an internal
+# alert to Altec's own team, not client correspondence, so it's never gated.
+# What CAN be enforced at the allowlist level - and is - is that a
+# non-APPROVED-tier ticket physically cannot call a remediation action,
+# regardless of what the prompt says.
 # mcp__Halo__create_contact is deliberately NOT in this list, even though it's
 # in $mutatingTools above (so -WhatIf still blocks it) - a real -RequireApproval
 # run (ticket #21702, a Huntress escalation for a verified Mark Pon) showed the
@@ -1645,8 +1732,27 @@ $remediationMutatingTools = @(
 # filtering (by $mutatingTools, a superset of $remediationMutatingTools) is
 # applied inline in that same loop instead of precomputed here, since it always
 # applies uniformly regardless of tier - no per-ticket variant needed for it.
+#
+# REAL INCIDENT (v2.10.31): $resolverToolsApprovalStripped used to just remove
+# $remediationMutatingTools and leave mcp__Halo__update_ticket in place,
+# because the old halopsa-mcp had no tool that could write a note without
+# being able to also send it publicly - so whether a non-APPROVED ticket's
+# reply actually stayed private depended entirely on the resolver choosing to
+# follow resolver-prompt.md's approval-banner instructions over other,
+# more concrete "reply now" instructions written elsewhere in the same
+# document. It didn't always: several real tickets got a genuine, emailed
+# client-facing reply despite -RequireApproval being active, most often on
+# TRIVIAL/TRIVIAL_UNCERTAIN tickets (the cheapest model, the shortest-effort
+# tier). halopsa-mcp now has mcp__Halo__update_ticket_draft_only - same
+# shape, but a note can only ever land private and unemailed, structurally,
+# regardless of what's passed (see its tool description) - so a non-APPROVED
+# ticket gets THAT in place of mcp__Halo__update_ticket entirely: even a
+# resolver that tries to send a real reply anyway physically cannot, it can
+# only get a rejected tool call and (per resolver-prompt.md's reinforcement
+# near FLOW B) notice its real update_ticket tool isn't available and use
+# the draft-only one instead.
 $resolverToolsFull = $resolverTools
-$resolverToolsApprovalStripped = $resolverToolsFull | Where-Object { $remediationMutatingTools -notcontains $_ }
+$resolverToolsApprovalStripped = @($resolverToolsFull | Where-Object { ($remediationMutatingTools -notcontains $_) -and ($_ -ne "mcp__Halo__update_ticket") }) + @("mcp__Halo__update_ticket_draft_only")
 
 # LEARN_FIX (see resolver-prompt.md's "If the assigned tier is LEARN_FIX"
 # section) never claims, assigns, replies to, or mutates the ticket at all -
@@ -2194,6 +2300,13 @@ try {
         $trackedTicketIdsText = (@($trackedTicketIds) -join ", ")
     }
 
+    # Same "none" rendering, same reason - see the blocked_tickets loading/
+    # pruning comment above for what this list means and why it exists.
+    $blockedTicketIdsText = "none"
+    if ($blockedTickets.Count -gt 0) {
+        $blockedTicketIdsText = (@($blockedTickets.Keys) -join ", ")
+    }
+
     if ($usedCachedIds) {
         # Log a lightweight confirmation, not the full claude-call section (there
         # was no claude call this cycle) - shaped like a no-cost claude response so
@@ -2249,6 +2362,7 @@ try {
         -replace '\{\{STATUS_ID_NAMES\}\}', $statusIdNamesText `
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText `
+        -replace '\{\{BLOCKED_TICKET_IDS\}\}', $blockedTicketIdsText `
         -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
@@ -2374,7 +2488,9 @@ try {
             "remediation action) with one change at the very end. Wherever this document",
             "would have you send a real, public, client-facing reply OR take a",
             "remediation action (password reset/unlock/reboot/script run), do this",
-            "instead, in one update_ticket call:",
+            "instead, in one update_ticket_draft_only call (not update_ticket - that tool",
+            "is not in your allowlist for this ticket; see the top of resolver-prompt.md's",
+            "`"Which update_ticket tool do you actually have?`" section if you're unsure why):",
             "1. note: a single private note, in this exact structure - `"[DRAFT PENDING",
             "   APPROVAL]`" on its own line, then the full client-facing reply text you",
             "   would have sent, verbatim, exactly as you'd have sent it live; then a line",
@@ -2387,16 +2503,18 @@ try {
             "   that FLOW A can execute this exact action later without re-diagnosing.",
             "   No assignment line is needed - FLOW A always unassigns regardless of",
             "   which status this lands on (see its own step 7).",
-            "2. note_is_private: true.",
-            "3. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name).",
-            "4. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",
+            "2. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name).",
+            "3. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",
             "   as yours while it waits).",
-            "Verify this call actually landed per resolver-prompt.md's untriaged-ticket",
-            "section - an untriaged ticket can silently drop the note/agent_id part of",
-            "this exact call while still applying the status_id part, which would leave",
-            "the ticket looking like it's waiting for approval with nothing to actually",
-            "approve. Do not actually take the remediation action, and do not post any",
-            "real client-facing reply this cycle - only the private draft note above.",
+            "update_ticket_draft_only always writes the note above as private and",
+            "unemailed regardless of any other argument, so there is no note_is_private",
+            "or send_email field to set here - it isn't capable of sending a real reply",
+            "no matter what you pass it. Verify this call actually landed per",
+            "resolver-prompt.md's untriaged-ticket section - an untriaged ticket can",
+            "silently drop the note/agent_id part of this exact call while still applying",
+            "the status_id part, which would leave the ticket looking like it's waiting",
+            "for approval with nothing to actually approve. Do not actually take the",
+            "remediation action this cycle - only the private draft note above.",
             "",
             "ONE EXCEPTION: the brief EMERGENCY acknowledgment (`"We've identified this as",
             "a priority issue and are notifying our on-call engineer now`") still sends",
@@ -2661,21 +2779,31 @@ try {
             $resolverCost += $ticketCost
 
             # resolver-prompt.md's "When you finish" section requires every
-            # path to end with exactly one of these two markers, so the cache
-            # doesn't depend on Halo's own agent_id anymore (see the
+            # path to end with exactly one of these three markers, so the
+            # cache doesn't depend on Halo's own agent_id anymore (see the
             # tracked-tickets cache loaded above). A real run under -WhatIf
             # never writes this cache back (see the finally block below), so
             # a missing marker there is expected, not a warning-worthy gap.
             $cacheMarker = $null
-            if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK)\s*\]') {
+            if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK|BLOCKED)\s*\]') {
                 $cacheMarker = $Matches[1].ToUpperInvariant()
             }
             switch ($cacheMarker) {
                 'TRACK'   { if ($trackedTicketIds -notcontains $ticketId) { $trackedTicketIds += $ticketId } }
                 'UNTRACK' { $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId }) }
+                'BLOCKED' {
+                    # A structural/platform dead end, not "waiting on
+                    # someone" - see blocked_tickets loading comment above.
+                    # Not tracked via the normal mechanism (there's nothing
+                    # for a tracked-ticket recheck to find - the whole point
+                    # is that writes aren't landing), and not left in
+                    # tracked_tickets either if it got there first.
+                    $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId })
+                    $blockedTickets[[string]$ticketId] = (Get-Date).ToString("o")
+                }
                 default {
                     if (-not $WhatIf) {
-                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK] marker found in resolver output; tracked-tickets cache left unchanged for this ticket." -Encoding UTF8
+                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK|BLOCKED] marker found in resolver output; tracked-tickets cache left unchanged for this ticket." -Encoding UTF8
                     }
                 }
             }
@@ -2739,6 +2867,7 @@ finally {
                 tracked_tickets      = @($trackedTicketIds | Select-Object -Unique)
                 tracked_last_seen    = $prunedTrackedLastSeen
                 unassigned_last_seen = $unassignedLastSeen
+                blocked_tickets      = $blockedTickets
                 last_real_cycle_at   = (Get-Date).ToString("o")
             }
             $tempCachePath = "$agentCachePath.tmp"

@@ -52,6 +52,7 @@ output format section at the end of this document).
 - Halo status id -> name: {{STATUS_ID_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
+- Blocked ticket_id(s) - a prior cycle hit a structural dead end on these, see call 1 below: {{BLOCKED_TICKET_IDS}}
 - `halo.ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
@@ -93,11 +94,25 @@ version history for the real case this was fixed from):
    then received a fresh client reply, because several newer tickets had
    been created in between and Halo's ID-descending order buried it past
    page 1). **Most tickets here are genuinely fresh, first-pass
-   candidates**, with two exceptions:
+   candidates**, with three exceptions:
    - Drop any ticket whose ID is in the tracked list above - that ticket is
      unassigned because the resolver already handled it and correctly
      unassigned itself (see resolver-prompt.md), not because it's new, and
      the tracked-list check below is what re-examines it, not this bucket.
+   - **Drop any ticket whose ID is in the blocked list above.** A prior
+     cycle's resolver already hit a structural dead end on this ticket - a
+     Halo-side write that silently won't land (see resolver-prompt.md's
+     "Halo's own ticket-triage" section), a genuine agent-permissions gap,
+     or similar - and reprocessing it again right now would just reproduce
+     the identical failure at the identical cost, since nothing about the
+     underlying problem has had a chance to change. Real incident: before
+     this exclusion existed, one such ticket got fully reprocessed by the
+     resolver every single cycle, costing real money each time, because the
+     write that never landed included the tracking marker itself, so
+     nothing ever told a future cycle this had already been tried. It
+     becomes a candidate again automatically once enough time has passed
+     (see config's `blocked_ticket_retry_hours`) - you don't need to do
+     anything to make that happen, it just stops appearing in this list.
    - **Drop any ticket whose `status_id`, looked up in {{STATUS_ID_NAMES}}
      above, clearly names an already-active workflow this pipeline has no
      tool or whitelisted action for** - real examples seen on this tenant:

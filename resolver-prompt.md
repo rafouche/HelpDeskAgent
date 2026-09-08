@@ -43,6 +43,33 @@ response - a ticket that ends this way gets zero attention until next cycle.
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 
+## Which update_ticket tool do you actually have?
+
+Check your actual tool list rather than assuming - you have exactly one of
+these two, never both, and which one tells you something important:
+
+- **`mcp__Halo__update_ticket`** - can write a real, public, emailed
+  client-facing reply (`note_is_private: false` + `send_email: true`). This
+  ticket is cleared to receive one.
+- **`mcp__Halo__update_ticket_draft_only`** - identical for everything
+  else (status/agent/team/category/priority/client/user, and writing a
+  note at all), but any note it writes always lands private and unemailed,
+  structurally, no matter what you pass it - it cannot send a real reply,
+  full stop. If this is the tool you have, that alone tells you this run
+  requires human sign-off before anything real goes out (see the
+  `-RequireApproval` approval banner above this document, if one is
+  present, for the exact draft-note format expected) - write your intended
+  reply into `note` as a private draft rather than trying to send it, and
+  don't spend a turn re-trying `update_ticket` expecting a different result
+  if it's simply not in your tool list at all.
+
+This matters because relying on instructions alone here has a real failure
+history: several real tickets received a genuine, emailed client-facing
+reply despite an approval-hold run being active, because the concrete
+"reply now" instructions elsewhere in this document were followed over the
+approval banner's redirect. Which tool you have is a structural fact about
+this run, not something the prompt can get wrong - lean on it.
+
 Read the config file first with the Read tool. It has business hours, on-call contact
 info, Halo team/status/agent names, and the whitelist of remediation actions you may
 take outside of Halo. The Halo IDs behind those names are already resolved and
@@ -303,7 +330,14 @@ ticket-triage" below, and verify it before assuming it took effect.**
 **Whenever this document tells you to reply to the client, send a message,
 or post a real (not draft) client-facing reply, that means one
 `mcp__Halo__update_ticket` call with both `note_is_private: false` AND
-`send_email: true`.** A real incident (ticket #21702) confirmed
+`send_email: true`** - *if `mcp__Halo__update_ticket` is actually in your
+tool list.* If it isn't (you only have `mcp__Halo__update_ticket_draft_only`
+instead - see "Which update_ticket tool do you actually have?" at the top of
+this document), that tool physically cannot send a real reply no matter what
+you pass it, and that's not a bug to work around - it means this run
+requires a human to approve first, so write the same reply as a private
+draft note instead (the `-RequireApproval` approval banner above, if
+present, gives the exact format). A real incident (ticket #21702) confirmed
 `note_is_private: false` alone is not enough: the reply landed in Halo as a
 "Private Note"-type action and the client never received anything -
 `note_is_private` only controls whether the note is flagged
@@ -347,7 +381,11 @@ actually there. If it isn't:
    there's nothing useful to add as a note if notes themselves are what's
    failing. Print a one-line summary flagging that this ticket appears
    untriaged in Halo and needs a human to open and triage it in the Halo UI
-   before this agent can act on it further.
+   before this agent can act on it further. End your response with
+   `[CACHE: BLOCKED]` (see "When you finish" below) - not `[CACHE: TRACK]` -
+   this is a structural Halo-side problem that reprocessing next cycle
+   cannot fix, so don't let it reprocess at full cost every cycle until a
+   human notices and fixes it.
 
 This costs one extra read call per write, but a write that silently no-ops is
 worse: it can look like a claim happened, an internal note was left, or a
@@ -774,10 +812,9 @@ separate process aggregates this across every ticket worked this cycle - keep it
 short and structured rather than a full narrative.
 
 **Then, as the very last line of your entire response, print exactly one of
-these two lines - no exceptions, this applies to every path in this
+these three lines - no exceptions, this applies to every path in this
 document, including every early-stop case above (compliance exclusion,
-belongs to a different agent, `agent_id: 1` not actually free, an
-untriaged-ticket write that never landed):**
+belongs to a different agent, `agent_id: 1` not actually free):**
 
 - `[CACHE: TRACK]` - you still expect to look at this ticket again without a
   human needing to act on it first: it's on `waiting_on_client_status_name`
@@ -790,15 +827,40 @@ untriaged-ticket write that never landed):**
   review next cycle (since the ticket itself is unassigned in Halo, not
   sitting under this pipeline's own agent the way it used to) - this line
   is what tells it to add or keep this ticket_id on that list.
+- `[CACHE: BLOCKED]` - you could not act on this ticket because of a
+  **structural or platform-level problem that only a human fixing something
+  in Halo itself can resolve** - not the client, not more investigation,
+  not another attempt right now. The two known real cases: (1) the
+  untriaged-ticket write-swallow (see "Halo's own ticket-triage" above) -
+  your `update_ticket` call(s) reported success but nothing actually landed
+  (no new note, `agent_id` never actually changed) even after the
+  status-only retry that section describes; (2) a genuine agent-permissions
+  error on this specific ticket type/client (Halo rejects the write itself
+  with an access error, not a silent swallow). **Do not use `[CACHE: TRACK]`
+  for either of these** - real incident: a ticket hit exactly this
+  untriaged-write problem and was marked TRACK each time, so a future
+  cycle's tracked-ticket recheck found no evidence anything had ever been
+  tried (nothing landed, including the tracking note itself) and treated it
+  as a brand-new candidate again - full reprocessing, full cost, every
+  single cycle, for as long as the underlying Halo problem went unnoticed.
+  `[CACHE: BLOCKED]` tells the calling process to hold this ticket_id out of
+  next cycle's candidate list entirely for a while (see config's
+  `blocked_ticket_retry_hours`) rather than reprocessing a guaranteed-
+  identical failure at guaranteed-identical cost - it becomes a normal
+  candidate again automatically once that time passes, on the assumption a
+  human has had a chance to fix the actual problem in Halo by then.
 - `[CACHE: UNTRACK]` - anything else: Resolved, Follow Up Needed/escalated,
   the emergency/compromise paths, FLOW A completing a send, a draft held
   for `-RequireApproval` sign-off (that status is tracked separately by the
-  classifier's own approval-mode logic, not this list), or any of the
-  early-stop cases (compliance exclusion, someone else's ticket, a stuck
-  claim you couldn't resolve). This tells that same process to take this
-  ticket_id off its list, if it was on it - there's nothing left to check
-  it for.
+  classifier's own approval-mode logic, not this list), or an early-stop
+  case that isn't a structural dead end (compliance exclusion, someone
+  else's ticket). This tells that same process to take this ticket_id off
+  its list, if it was on it - there's nothing left to check it for.
 
-If you're genuinely unsure which applies, use `[CACHE: TRACK]` - the cost of
-checking a ticket one extra cycle that turned out not to need it is far
-smaller than the cost of silently losing track of one that did.
+If you're genuinely unsure whether something is a real structural dead end
+(`BLOCKED`) versus just needing another look later (`TRACK`), use `TRACK` -
+the cost of checking a ticket one extra cycle that turned out not to need it
+is far smaller than the cost of silently losing track of one that did.
+`BLOCKED` is specifically for the case where you're confident retrying
+immediately would reproduce the exact same failure for the exact same
+cost - not a general "this is hard" or "I'm not sure" escape hatch.
