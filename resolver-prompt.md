@@ -499,20 +499,42 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    out yourself.** Real incident: a ticket named the contact by name but not a
    device, and the resolver skipped straight to asking "which device will you
    be using?" without ever calling a NinjaOne tool - the answer might have
-   been findable directly. `mcp__Ninja__list_organizations` maps the ticket's
-   Halo client to its NinjaOne organization (match by client name - NinjaOne
-   contact records are frequently empty for a given org, so don't rely on
-   `list_org_contacts` alone), then `mcp__Ninja__list_org_devices` for that
-   org to look for a device that plausibly belongs to the contact - a
-   hostname containing their name, or (via `mcp__Ninja__get_device` on a
-   promising candidate) a `lastLoggedInUser` matching them. This is a
-   judgment call with a real chance of coming up empty (small/generic
-   hostnames, a shared machine, no clean name match) - if nothing confidently
-   matches after a reasonable look, it's fine to ask the client directly, but
-   only after actually trying, and word the question tighter for having
-   tried (e.g. "I don't see a workstation logged in under your name yet -
-   what's the computer's name, or where is it located?") rather than a bare
-   "what device are you on?" that ignores the lookup entirely.
+   been findable directly. Hostname pattern-matching alone is weak (a real
+   case: no device at the client had a hostname containing the contact's
+   name at all) - **`lastLoggedInUser` is the reliable signal, not the
+   hostname.** `mcp__Ninja__list_organizations` maps the ticket's Halo client
+   to its NinjaOne organization (match by client name - NinjaOne contact
+   records are frequently empty for a given org, so don't rely on
+   `list_org_contacts` alone). Then call `mcp__Ninja__list_devices_detailed`
+   (large `pageSize`, e.g. 200) - its `org_id` filter doesn't actually filter
+   server-side (confirmed live), so page through with the `after` cursor
+   (pass the highest `id` seen so far; an empty array means you've reached
+   the end) and filter the results yourself for `organizationId` matching
+   this client's org, then check each one's `lastLoggedInUser` field - this
+   comes back directly in the bulk response, no per-device `get_device` call
+   needed. **Don't assume the login matches the contact's email exactly** -
+   a real case where the contact's email was `jcody@...` and her stated
+   Windows UserID was "jcodie" actually turned up neither spelling in
+   NinjaOne; the device that was actually hers was logged in as `JCody`.
+   Match loosely against the contact's first/last name, email local-part, and
+   any UserID given in the ticket - treat all of them as hints toward the
+   same person, not a single required exact string.
+   - **If exactly one device matches:** that's your device.
+   - **If more than one plausibly matches:** don't guess - prefer the one
+     with the most recent `lastContact` (most likely the one actually in use
+     right now), and weigh it against context the ticket gives you (e.g.
+     "working from home this afternoon" points toward a laptop -
+     `system.chassisType` on the device record tells you that). If it's
+     still genuinely unclear between two candidates, say so plainly when you
+     reply - confirm which one with the client rather than picking silently
+     (e.g. "I see two devices under your name, GOLD-WKS-26007 and
+     JCODY-LAPTOP - which one will you be using this afternoon?").
+   - **If nothing matches after a reasonable look:** it's fine to ask the
+     client directly, but only after actually trying, and word the question
+     tighter for having tried (e.g. "I don't see a workstation logged in
+     under your name yet - what's the computer's name, or where is it
+     located?") rather than a bare "what device are you on?" that ignores
+     the lookup entirely.
 
    Default to read-only calls. Only take a remediation action
    if it's in the config whitelist AND its "requires" condition is clearly met from

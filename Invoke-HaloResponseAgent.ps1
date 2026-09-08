@@ -73,6 +73,26 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.29 - follow-up, same day as v2.10.28: verified live that
+    the device-lookup fix's hostname-pattern-matching approach was itself
+    weak - on the actual Gold Mechanical case, no device hostname contained
+    the contact's name at all, and even her stated Windows UserID
+    ("jcodie") didn't exactly match what NinjaOne had on record for her
+    device (logged in as "JCody"). Rewrote resolver-prompt.md's device
+    lookup to search NinjaOne's `lastLoggedInUser` field (the reliable
+    signal) instead of hostname pattern-matching: mcp__Ninja__list_devices_detailed
+    returns `lastLoggedInUser` directly in its bulk response (confirmed
+    live - no per-device get_device call needed), but its own org_id filter
+    doesn't actually filter server-side (same bug class already known for
+    list_devices), so the instructions now page through with the `after`
+    cursor and filter client-side by organizationId, matching the login
+    field loosely against the contact's name/email/stated UserID rather
+    than requiring an exact string match against any one of them. Also
+    added explicit multi-match handling, requested by Roger: prefer the
+    most recently active device, weigh device type against ticket context
+    (e.g. "working from home" implies a laptop), and if still ambiguous,
+    ask the client to confirm which specific device rather than picking
+    silently.
     Version: 2.10.28 - real incident: a VPN-access ticket (Gold Mechanical,
     #21866) got a draft reply asking the client what device they'd be
     using, without the resolver ever calling a NinjaOne tool first - the

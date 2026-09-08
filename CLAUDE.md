@@ -1341,6 +1341,35 @@ Roger: no OpenVPN references anywhere in this flow — Altec is moving away
 from it, so even a coincidental match in an old ticket/KB article
 shouldn't be suggested.
 
+**Follow-up, same day (v2.10.29): hostname pattern-matching for device
+lookup was itself too weak — `lastLoggedInUser` is the real signal, and
+even that isn't a guaranteed exact-string match.** Testing the v2.10.28
+fix against the actual Gold Mechanical case: no device hostname at that
+client contained "Cody" anywhere, so hostname matching alone would always
+have failed here regardless of effort spent. Roger supplied Jodie's
+Windows UserID ("jcodie") to search for directly — but the device that
+was actually hers (confirmed via NinjaOne's `lastLoggedInUser` field,
+found by scanning `mcp__Ninja__list_devices_detailed`'s bulk response
+rather than per-device `get_device` calls) was logged in as `GOLD\JCody`,
+matching neither her email spelling nor the UserID given. Two real,
+narrower lessons captured: (1) `list_devices_detailed` returns
+`lastLoggedInUser` directly per device in its bulk response — no
+per-device call needed to check it, which matters because checking
+dozens of devices per-device would be far too expensive for a per-ticket
+resolver pass; but (2) its own `org_id` filter is silently ignored
+server-side (same bug class as `list_devices`, see the tool-bug note
+above), so resolver-prompt.md's instructions now page through the full
+device list with the `after` cursor and filter client-side by
+`organizationId`. Match the login field loosely against every identity
+hint the ticket/contact gives you (name, email local-part, any stated
+UserID) rather than requiring any single one to match exactly — none of
+them is authoritative on their own. Also added explicit handling, at
+Roger's request, for when more than one device plausibly matches: prefer
+the most recently active one, weigh device type against context (e.g.
+"working from home" implies a laptop, via the device record's
+`system.chassisType`), and if still ambiguous, ask the client to confirm
+which specific device rather than picking one silently.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
