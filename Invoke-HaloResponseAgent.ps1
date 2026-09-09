@@ -73,6 +73,41 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.41 - real incident, reported by Roger: the script stopped
+    running entirely ("haven't seen any activity in a while"), and a manual
+    run surfaced the actual error - "Cannot find an overload for 'TryParse'
+    and the argument count: '2'" at the blocked_tickets loading line. Root
+    cause: `$blockedAt = $null` followed by `[datetime]::TryParse($prop.Value,
+    [ref]$blockedAt)` - PowerShell's method-overload binder can't resolve a
+    `[ref]` argument against an untyped/`$null` variable, so this call has
+    likely never actually worked, on any version of this script, since this
+    loading code was first written (v2.10.30). It stayed silent purely
+    because it only executes when `$agentCache.blocked_tickets` actually has
+    an entry to iterate - and v2.10.39, shipped hours earlier, was very
+    likely what produced this pipeline's first-ever real blocked_tickets
+    entry (ticket #21950's "no marker" outcome). So a fix from earlier the
+    same day is almost certainly what exposed a bug that had been dormant
+    since v2.10.30 - the two are directly connected, not a coincidence.
+    Confirmed both the failure and the fix locally before touching
+    production code: reproduced the exact error with the isolated TryParse
+    call, then fixed it by pre-typing the ref target (`[datetime]$blockedAt
+    = 0` instead of `$blockedAt = $null`) and re-ran the *entire* loading
+    block end to end against a realistic two-entry cache (one within the
+    retry window, one past it) to confirm it now parses and prunes
+    correctly, not just that it no longer throws. Checked the rest of the
+    file for the same pattern - one other `[ref]` call exists
+    (`[long]::TryParse` for a ticket ID) and was already written correctly
+    (`$parsedId = 0L` pre-types it), so this was the only instance.
+    Process note for next time: this script's existing
+    `[System.Management.Automation.Language.Parser]::ParseFile` check after
+    every edit (mandatory in this project since early on) verifies syntax
+    only - it cannot and did not catch this, because a method-overload
+    resolution failure is a runtime error, not a parse error. It shipped
+    clean through that check for however long this code has existed. Worth
+    remembering that "parses cleanly" and "actually runs" are different
+    guarantees whenever a change touches a genuinely new code path (like a
+    cache that had never before held a real entry) rather than one already
+    exercised by prior runs.
     Version: 2.10.40 - v2.10.39's own BLOCKED-backoff fix confirmed working
     live, same day: ticket #21950 hit the identical deferred-tool confusion
     as #21934, but this time correctly triggered "treating as BLOCKED
@@ -1648,7 +1683,7 @@ if ($config.claude.blocked_ticket_retry_hours) { $blockedTicketRetryHours = [dou
 $blockedTickets = @{}
 if ($agentCache.blocked_tickets) {
     foreach ($prop in $agentCache.blocked_tickets.PSObject.Properties) {
-        $blockedAt = $null
+        [datetime]$blockedAt = 0
         if ([datetime]::TryParse($prop.Value, [ref]$blockedAt)) {
             if (((Get-Date) - $blockedAt).TotalHours -lt $blockedTicketRetryHours) {
                 $blockedTickets[$prop.Name] = $prop.Value

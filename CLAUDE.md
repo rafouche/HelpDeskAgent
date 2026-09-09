@@ -1763,6 +1763,35 @@ than oversold as solved; the backoff mechanism is what actually bounds
 the cost here, and this pattern is worth continuing to watch rather than
 a lever to keep pulling without more evidence.
 
+**v2.10.39 fixed one bug and, hours later, exposed a second one that had
+been dormant since v2.10.30 (v2.10.41).** Roger reported the script had
+stopped running entirely, and a manual run surfaced the real error:
+`Cannot find an overload for "TryParse" and the argument count: "2"` at
+the `blocked_tickets` loading line. Root cause: `$blockedAt = $null`
+followed by `[datetime]::TryParse($prop.Value, [ref]$blockedAt)` -
+PowerShell's method-overload binder can't resolve a `[ref]` argument
+against an untyped/`$null` variable, so this call has almost certainly
+never worked, on any version of this script, since the loading code was
+first written for v2.10.30's BLOCKED mechanism. It stayed silent purely
+because it only runs when `blocked_tickets` actually has an entry to
+iterate - and v2.10.39, shipped hours earlier the same day, was very
+likely what produced this pipeline's first-ever real entry there
+(ticket #21950). One fix exposed the bug that broke the next run - not a
+coincidence, a direct chain. Confirmed both the failure and the fix
+locally before touching production: reproduced the exact error with the
+isolated `TryParse` call, then verified the fix (`[datetime]$blockedAt =
+0` instead of `$blockedAt = $null`, pre-typing the ref target) by running
+the *entire* loading block end to end against a realistic two-entry
+cache. Checked the file for the same pattern elsewhere - one other
+`[ref]` call exists (ticket-ID parsing) and was already written
+correctly. Worth naming plainly: this project's mandatory
+`ParseFile`-based syntax check after every edit is necessary but not
+sufficient - it verifies the script parses, not that it runs, and a
+method-overload resolution failure is a runtime error that check cannot
+see. It shipped clean through that check for as long as this code has
+existed, because nothing had ever actually exercised this code path
+before v2.10.39.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
