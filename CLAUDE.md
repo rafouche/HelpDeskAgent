@@ -1741,6 +1741,28 @@ added to `blocked_tickets`, backs off for `blocked_ticket_retry_hours` -
 instead of left alone. Costs nothing if it was a one-off fluke; stops it
 from being a silent, repeatable cost leak if it isn't.
 
+**v2.10.39's own fix confirmed live, same day - and the underlying
+confusion it contains, not eliminated (v2.10.40).** The very next
+production log after v2.10.39 shipped showed ticket #21950 hit the
+identical deferred-tool confusion as #21934 - and this time correctly
+triggered "treating as BLOCKED," not left unprotected. The backoff held.
+But the confusion itself came back: 2 of 4 Haiku-tier/TRIVIAL resolver
+calls in that one log reached for a PowerShell probe before touching any
+real tool, and both of those 2 fully spiraled into a wasted, empty turn;
+the other 2 recovered fine after a single denial; both Sonnet-tier/
+COMPLEX calls in the same log show zero of this pattern. A real
+reliability tax, concentrated in the cheap tier specifically - contained
+by the backoff, not solved by it. Traced the new spiral's exact shape:
+a denied PowerShell probe (checking the date, a "just verifying setup"
+no-op) got treated as if it cast doubt on whether the Halo MCP tools
+were connected at all - two completely unrelated systems, conflated.
+Added a second, narrower resolver-prompt.md paragraph naming this exact
+chain directly. No code change this time - explicitly logged as a
+prompt fix with limited confidence, per v2.10.39's own reasoning, rather
+than oversold as solved; the backoff mechanism is what actually bounds
+the cost here, and this pattern is worth continuing to watch rather than
+a lever to keep pulling without more evidence.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

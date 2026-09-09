@@ -73,6 +73,30 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.40 - v2.10.39's own BLOCKED-backoff fix confirmed working
+    live, same day: ticket #21950 hit the identical deferred-tool confusion
+    as #21934, but this time correctly triggered "treating as BLOCKED
+    (backing off for blocked_ticket_retry_hours)" instead of being left
+    unprotected - the structural fix held. The underlying confusion itself
+    recurred anyway (this is now 2 of 4 Haiku-tier/TRIVIAL resolver calls in
+    one log that reached for a PowerShell probe first, and both of those 2
+    fully spiraled into a no-op turn; the 2 that recovered did so after a
+    single denial; both Sonnet-tier/COMPLEX calls in the same log show zero
+    of this pattern) - a real, still-open reliability tax concentrated in
+    the cheap tier specifically, contained by v2.10.39's backoff but not
+    eliminated by it. Traced the new spiral's exact shape: a denied
+    PowerShell probe (checking the date, a "just verifying setup" no-op) was
+    followed by the model treating that denial as if it cast doubt on
+    whether its Halo MCP tools were connected at all - two unrelated
+    systems, conflated. Added a second, narrower resolver-prompt.md
+    paragraph naming this specific chain (PowerShell denial -> doubt about
+    MCP tools) directly, alongside the existing ToolSearch-confusion
+    paragraph from v2.10.39. No code change this time - this is squarely in
+    "prompt fix with real but limited confidence" territory per v2.10.39's
+    own reasoning, so the backoff mechanism, not the prompt wording, is what
+    actually bounds the cost. Nothing else to fix here without more evidence
+    - this is a pattern worth continuing to watch, not a lever to pull
+    further blind.
     Version: 2.10.39 - real incident, from Roger's own log review of the
     first live runs after v2.10.36-38 shipped: ticket #21934's resolver hit
     a deferred MCP tool (this machine has enough MCP servers/tools
