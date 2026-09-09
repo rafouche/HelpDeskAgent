@@ -73,6 +73,37 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.42 - real incident, reported by Roger from a live
+    -RequireApproval run: tickets #21954 and #21952, in the same run, both
+    landed a draft note correctly (private, unsent - update_ticket_draft_only
+    worked exactly as designed, nothing went out) but with the wrong
+    status_id on the real call: waiting_on_client_status_name instead of
+    ai_waiting_approval_status_id. FLOW B's own instructions (the
+    -RequireApproval banner built in this script) already said the right
+    value unambiguously ("status_id: $($ids.ai_waiting_approval_status_id)"),
+    but resolver-prompt.md's ordinary EASY-case section - written for the
+    fully-live default, where "set status to waiting_on_client_status_name"
+    is correct because a real reply was actually sent - also feeds the
+    model's own reasoning about what status this ticket "should" be in. Both
+    tickets conflated the two: correctly wrote
+    "[INTENDED STATUS] waiting_on_client_status_name" in the draft note body
+    (that part's right - it records what FLOW A should set later, once
+    approved), then also applied that same value to the real status_id on
+    THIS call, where FLOW B's fixed value should have applied instead. Not a
+    missing instruction, a conflict-resolution failure between two correct-
+    in-their-own-context instructions - the same failure shape as this
+    project's other "an explicit rule existed and still wasn't prioritized
+    correctly" incidents. Consequence is worse than a cosmetic status
+    mismatch: waiting_on_client_status_name is exactly the status this same
+    run's own classifier banner treats as ordinary, unremarkable ticket
+    state (not the dedicated ai_waiting_approval_status_id state the
+    classifier's banner explicitly protects from reprocessing) - so the
+    pending, unreviewed draft would have looked like a normal
+    already-handled ticket indefinitely, never flagged as needing a human's
+    sign-off. Fixed by expanding FLOW B step 2 in place, at the exact point
+    the real call is made, to explicitly name and preempt this conflation
+    (citing this concrete incident) rather than trusting the model to keep
+    the two status concepts separate on its own after deciding one first.
     Version: 2.10.41 - real incident, reported by Roger: the script stopped
     running entirely ("haven't seen any activity in a while"), and a manual
     run surfaced the actual error - "Cannot find an overload for 'TryParse'
@@ -2802,7 +2833,23 @@ try {
             "   that FLOW A can execute this exact action later without re-diagnosing.",
             "   No assignment line is needed - FLOW A always unassigns regardless of",
             "   which status this lands on (see its own step 7).",
-            "2. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name).",
+            "2. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name) -",
+            "   ALWAYS this exact value on THIS call, never",
+            "   resolved_status_name/waiting_on_client_status_name/follow_up_status_name,",
+            "   even though you likely just decided one of those belongs in the",
+            "   `"[INTENDED STATUS]`" line above. Those are two different things: the",
+            "   [INTENDED STATUS] line is a record of what status should be set LATER,",
+            "   by FLOW A, once a human approves and this actually sends - it never",
+            "   controls what status_id you pass to THIS call. Real incident: two",
+            "   tickets in one run set this call's real status_id to",
+            "   waiting_on_client_status_name instead - matching what they'd correctly",
+            "   written as [INTENDED STATUS], but wrong for the actual call, because the",
+            "   client hadn't actually been asked anything yet (the reply was still an",
+            "   unsent private draft) - `"Waiting on client`" was simply false. Worse,",
+            "   that status is exactly what this run's own classifier banner (above)",
+            "   treats as ordinary, unremarkable ticket state, not something needing",
+            "   review - so the pending draft would have gone unnoticed indefinitely",
+            "   instead of surfacing for approval.",
             "3. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",
             "   as yours while it waits).",
             "update_ticket_draft_only always writes the note above as private and",

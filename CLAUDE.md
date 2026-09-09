@@ -1792,6 +1792,33 @@ see. It shipped clean through that check for as long as this code has
 existed, because nothing had ever actually exercised this code path
 before v2.10.39.
 
+**Two correct-in-context instructions, applied to the wrong one of two
+similar-looking status fields (v2.10.42).** Roger caught this live: under
+`-RequireApproval`, tickets #21954 and #21952 both drafted correctly
+(private, unsent - the draft-only tool worked exactly as designed) but
+landed with `status_id` set to `waiting_on_client_status_name` instead of
+`ai_waiting_approval_status_id` on the actual call. The instructions
+weren't missing or wrong anywhere - FLOW B's own step already named the
+fixed value unambiguously - but resolver-prompt.md's ordinary EASY-case
+section (correct for the fully-live default, where a reply really was
+sent) also shapes the model's reasoning about "what status this ticket
+should be in," and both tickets applied that reasoning to the real
+`status_id` field instead of only to the `[INTENDED STATUS]` line in the
+draft note, where it actually belonged. Same failure shape as this
+project's other "an explicit rule existed and still lost to a
+closer-at-hand one" incidents - not something to expect a wording tweak
+to fully close, but worth doing anyway since the fix is cheap and the
+stakes here are real: `waiting_on_client_status_name` is exactly the
+status this run's own classifier banner treats as ordinary ticket
+state, not the dedicated one it protects from reprocessing - so a
+pending, unreviewed draft would have sat there indefinitely, looking
+like a normal already-handled ticket instead of something needing a
+human's sign-off. Fixed by expanding FLOW B's status step in place, at
+the exact point the real call happens, naming this concrete incident and
+explicitly separating the two fields rather than trusting the two
+concepts to stay separate in the model's own head after being decided
+together.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
