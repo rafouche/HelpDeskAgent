@@ -1713,6 +1713,34 @@ as evidence once the returned addresses are confirmed to actually belong
 to the requested tenant; an error or a wrong-tenant result both mean
 "unavailable," not "clean" or "broken."
 
+**A resolver that gets confused can end its turn with nothing to show for
+the money it spent, and the existing safety net didn't cover that case
+(v2.10.39).** Roger's first live-log review after v2.10.36-38 shipped
+found ticket #21934: the resolver hit a deferred MCP tool (this machine
+has enough registered MCP servers that Claude Code defers some tool
+schemas until `ToolSearch` loads them - already known, `ToolSearch` was
+already granted for exactly this), but instead of just calling it, spun
+into confusion, tried a PowerShell probe that was correctly denied, then
+ended its whole turn asking "can you confirm I have permission to invoke
+the MCP Halo tools?" - in a fully headless run, despite
+resolver-prompt.md already saying explicitly not to end a turn asking
+the operator anything. $0.13 spent, nothing done to the ticket, no note
+or reply, and critically: no `[CACHE: TRACK|UNTRACK|BLOCKED]` marker
+either, since the model never reached "When you finish." The existing
+"no marker" handling just logged a warning and left the ticket exactly
+as unprotected as a brand-new candidate - free to reproduce the same
+confusion at the same cost every single cycle indefinitely, with zero
+visibility on the Halo side (nothing was ever posted to the ticket).
+Strengthened resolver-prompt.md's existing ToolSearch guidance with this
+specific failure pattern, but placed no real confidence in a prompt fix
+alone - the model already had, and ignored, a clear "never end your turn
+asking" instruction here, the same lesson as the approval-bypass
+incident earlier this session. The actual fix: a resolver run ending
+with no marker at all is now treated the same as `[CACHE: BLOCKED]` -
+added to `blocked_tickets`, backs off for `blocked_ticket_retry_hours` -
+instead of left alone. Costs nothing if it was a one-off fluke; stops it
+from being a silent, repeatable cost leak if it isn't.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
@@ -1739,12 +1767,45 @@ config tweak. Not worth building preemptively.
   directly, but re-check against production), then update the `mcp__CIPP__...`
   entries in `Invoke-HaloResponseAgent.ps1` and `resolver-prompt.md` to the new
   server name.
-- **Email/bounce diagnostics**: the CIPP server (old worker, see above) has no
-  dedicated message-trace tool, but its generic `cipp_api_get` wrapper covers
-  CIPP's native Message Trace via `endpoint: "ListMessageTrace"` — wired into
-  `resolver-prompt.md`. Falls back to finding the NDR in the user's own mailbox
-  (`outlook_email_search`) when that doesn't turn up enough — though see the
-  Microsoft365 gap below, that fallback doesn't work either until it's registered.
+- **Email/bounce diagnostics**: the CIPP server (old worker, see above) now has a
+  dedicated `list_message_trace` tool (added v2.10.38, `rafouche/MCPs` commit
+  `c8aa744`) with verified real param names — wired into `resolver-prompt.md`.
+  **Known unresolved gap, not fixable from either MCP repo's code**: verified live
+  that this worker's tenant-scoping doesn't actually work for message trace
+  specifically — a query for a real client tenant (bcfo.org) silently returned the
+  MSP's own partner-tenant traffic instead (byte-identical whether `tenantFilter`
+  was the domain or the tenant's GUID), and a second client tenant threw a 500/404.
+  Graph-API-backed endpoints (`ListUsers`/`ListMailboxes`) correctly honor
+  `tenantFilter` for the same tenants, so this looks like a GDAP/Exchange-Online-
+  remoting permission gap specific to message trace on this CIPP deployment — worth
+  checking each client tenant's GDAP role assignment (needs Exchange Administrator
+  or similar) next time this comes up. resolver-prompt.md now requires confirming a
+  trace result's addresses actually belong to the requested tenant before trusting
+  it, given it can come back looking fully successful for the wrong tenant. Falls
+  back to finding the NDR in the user's own mailbox (`outlook_email_search`) when
+  the trace doesn't turn up enough or is wrong-tenant — though see the Microsoft365
+  gap below, that fallback doesn't work either until it's registered.
+- **Cost lever, proposed not built: mechanical ownership pre-check in the
+  classifier's Unassigned bucket.** Real evidence (2026-09-09 log, ticket #21916):
+  a ticket showed `agent_id: 1` (Halo's Unassigned marker) in a non-excluded status
+  ("New"/"In Progress" are never dropped by the classifier's judgment-call status
+  list), and reached a full COMPLEX-tier Sonnet resolver call ($0.25) purely to
+  discover, via `human_touch`, that a real human agent had already opened it — the
+  same underlying Halo behavior the classifier's own "Dispatch Needed" bullet
+  already documents (a status change can clear `agent_id` regardless of who's
+  actually working the ticket), just under a status name not on that judgment-call
+  list. The classifier's own text already acknowledges this is an intentional,
+  accepted gap ("this is purely a cost optimization... never a substitute for" the
+  resolver's own backstop check) — not a bug, a known tradeoff. Whether to close it
+  needs a real design decision, not just flipping a switch: catching this
+  mechanically would mean calling `get_ticket_time_entries` for candidates in the
+  Unassigned bucket before tiering them (mirroring `human_touch`'s existing role in
+  the resolver), but doing that for every ticket in a bucket that pages up to 100
+  tickets deep could itself get expensive on a large backlog day. Worth checking
+  first whether `list_tickets`' own response already carries any cheap signal
+  (an action count, a last-actioned-by field) that could gate the extra call to
+  only plausibly-touched tickets rather than paying it for every candidate. Not
+  implemented — flagged for Roger's call given the real cost/latency tradeoff.
 - **3CX troubleshooting**: planned, not built. Per-client 3CX server API access is
   needed (multi-tenant, matching the 3CX Cloudflare Worker target already planned
   in Roger's broader MCP-servers project). Natural design: store each client's 3CX

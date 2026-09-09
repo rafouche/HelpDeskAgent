@@ -73,6 +73,36 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.39 - real incident, from Roger's own log review of the
+    first live runs after v2.10.36-38 shipped: ticket #21934's resolver hit
+    a deferred MCP tool (this machine has enough MCP servers/tools
+    registered that Claude Code defers some tool schemas until ToolSearch
+    loads them - already known, `ToolSearch` was already granted to
+    $resolverTools for exactly this), but instead of just calling
+    `ToolSearch` per resolver-prompt.md's own existing instruction, it spun
+    into confusion, tried a denied PowerShell probe for "Halo" commands,
+    then ended its entire turn asking "can you confirm I have permission to
+    invoke the MCP Halo tools?" - a question nobody was there to answer,
+    in a fully headless run, despite resolver-prompt.md already saying
+    explicitly not to do exactly this. $0.13 spent, zero ticket progress,
+    no note or reply posted to the ticket, and - the real gap - no
+    `[CACHE: TRACK|UNTRACK|BLOCKED]` marker either, so the existing "no
+    marker" handling just logged a warning and left the ticket completely
+    unprotected: identical to a fresh candidate next cycle, free to
+    reproduce the identical confusion at the identical cost indefinitely.
+    Two fixes: (1) resolver-prompt.md's existing ToolSearch guidance
+    strengthened with the specific failure pattern observed (deferred !=
+    permissions problem, never a reason to stop and ask) - a prompt fix
+    alone given no real confidence, since the model already had and
+    ignored a clear "never end your turn asking" instruction here; so (2)
+    the actual fix: a resolver run ending with no marker at all is now
+    treated the same as BLOCKED (added to blocked_tickets, backs off for
+    blocked_ticket_retry_hours) instead of left unprotected - same
+    reasoning blocked_tickets already exists for, just extended to cover
+    "the resolver never got far enough to emit anything" alongside "the
+    resolver explicitly gave up." Costs nothing if this was a one-off
+    fluke (ticket just gets a normal cycle after the backoff window); stops
+    it from being a repeatable, silent cost leak if it isn't.
     Version: 2.10.38 - follow-up to v2.10.37, same day: Roger asked to have
     cipp-mcp itself fixed for the ListMessageTrace param-naming gap that let
     v2.10.37's ticket #21900 investigation skip the trace. Fixing it exposed
@@ -3016,7 +3046,24 @@ try {
                 }
                 default {
                     if (-not $WhatIf) {
-                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK|BLOCKED] marker found in resolver output; tracked-tickets cache left unchanged for this ticket." -Encoding UTF8
+                        # Real incident (v2.10.39): a resolver run can end without ever
+                        # reaching "When you finish" at all - e.g. it got confused about
+                        # a deferred MCP tool's availability, asked a question nobody was
+                        # there to answer, and stopped - so there's no marker to parse
+                        # because the model never got that far, not because it forgot the
+                        # syntax. Treated the same as BLOCKED, not left alone: whatever
+                        # went wrong, retrying this exact ticket next cycle (15-30 min
+                        # later) just reproduces the identical failure at the identical
+                        # cost, the same reasoning blocked_tickets already exists for.
+                        # Backing off for blocked_ticket_retry_hours costs nothing if the
+                        # failure was a one-off fluke - it just gets a normal cycle next
+                        # time it comes up - but stops a repeatable failure from silently
+                        # burning money every cycle with zero ticket progress and zero
+                        # Halo-side visibility (no note, no reply - only this ticket's own
+                        # marker discipline would normally record anything at all).
+                        $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId })
+                        $blockedTickets[[string]$ticketId] = (Get-Date).ToString("o")
+                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK|BLOCKED] marker found in resolver output; treating as BLOCKED (backing off for blocked_ticket_retry_hours) rather than leaving it unprotected for next cycle." -Encoding UTF8
                     }
                 }
             }
