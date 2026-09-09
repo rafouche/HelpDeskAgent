@@ -73,6 +73,37 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.37 - real incident, found by Roger reviewing the same
+    -RequireApproval validation cycle as v2.10.36: ticket #21900, a client
+    report that mail wasn't arriving at `accounting@bcfo.org`. The resolver
+    found `accountEnabled: false` on that account via `mcp__CIPP__get_user`
+    and reported it as the likely cause in its draft note, recommending a
+    human review before re-enabling - without ever running the
+    ListMessageTrace check resolver-prompt.md already documents for email
+    delivery issues. `accounting@bcfo.org` is a shared mailbox
+    (`recipientTypeDetails: SharedMailbox`) - shared mailboxes have no
+    interactive sign-in by design, so a disabled account there is normal,
+    not a fault. Roger's own message trace the next day showed mail had in
+    fact been delivered successfully (one message quarantined, unrelated).
+    Two compounding gaps, both in resolver-prompt.md's prompt text only (no
+    code change needed - the tool calls already existed): (1) the
+    message-trace step was written as one option among several rather than
+    a required check before reporting a cause, so it was skippable in
+    practice; (2) nothing anywhere told the resolver a disabled account is
+    expected/benign on a shared mailbox specifically, so a true-but-benign
+    fact (`accountEnabled: false`) was reported as if it were diagnostic.
+    Fixed both in resolver-prompt.md's "Email delivery / bounce issues
+    specifically" section: the trace is now framed as required before
+    reporting any suspected cause as a finding ("a hypothesis, not a
+    diagnosis" until confirmed), and a new rule requires checking
+    `recipientTypeDetails` before flagging any disabled/locked account as a
+    possible cause of anything, since shared/room/equipment mailboxes being
+    disabled is expected and only a disabled real UserMailbox is actually
+    informative. This is a diagnostic-accuracy gap, not a safety/cost one
+    like v2.10.30-2.10.36 - the ticket correctly went to Waiting Approval
+    and nothing was sent without review - but a wrong root cause reaching a
+    human reviewer as a confident recommendation defeats the point of
+    review just as surely as a cost or safety miss would.
     Version: 2.10.36 - real incident, found by Roger reviewing a live
     -RequireApproval validation cycle: ticket #21478, actively worked by
     real humans (Roger, Erick Gonzales - calls, replies, status changes)

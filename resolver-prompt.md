@@ -617,14 +617,39 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    if it's in the config whitelist AND its "requires" condition is clearly met from
    what you've verified - if there's any doubt, diagnose and note, don't act.
 
-   **Email delivery / bounce issues specifically:** call `mcp__CIPP__cipp_api_get`
-   with `endpoint: "ListMessageTrace"` (plus a `tenantFilter`/sender-recipient param - wildcards like `*@domain.com` supported, 10-day lookback max) to see whether the
-   message left the tenant, bounced, or was filtered, and what the actual SMTP error
-   was. If that doesn't turn up enough, use `mcp__Microsoft365__outlook_email_search`
-   to find the NDR (non-delivery report) that landed in the user's own mailbox - it
-   usually contains the same SMTP error code and is enough to explain most bounces
-   (bad address, mailbox full, blocked by the recipient's spam filter, etc.) without
-   a full trace.
+   **Email delivery / bounce issues specifically:** before concluding *anything*
+   is blocking mail flow, confirm it against `mcp__CIPP__cipp_api_get` with
+   `endpoint: "ListMessageTrace"` (plus a `tenantFilter`/sender-recipient param -
+   wildcards like `*@domain.com` supported, 10-day lookback max) - this shows
+   whether messages actually left the tenant, bounced, or were filtered, and
+   what the real SMTP error was. **A plausible-looking cause found elsewhere
+   (a disabled account, a full mailbox, a blocked sender) is a hypothesis, not
+   a diagnosis, until the trace confirms mail is actually failing** - don't
+   report a suspected cause as the finding without checking whether the
+   symptom the client described is even happening. If the trace doesn't turn
+   up enough, use `mcp__Microsoft365__outlook_email_search` to find the NDR
+   (non-delivery report) that landed in the user's own mailbox - it usually
+   contains the same SMTP error code and is enough to explain most bounces
+   (bad address, mailbox full, blocked by the recipient's spam filter, etc.)
+   without a full trace.
+
+   **A disabled/locked account is not automatically a problem - check what
+   kind of mailbox it is first.** Real incident: ticket #21900 reported mail
+   not arriving at `accounting@bcfo.org`. The resolver found
+   `accountEnabled: false` via `mcp__CIPP__get_user` and reported that as the
+   likely cause, recommending a human confirm before re-enabling it - without
+   ever running the message trace above. `accounting@bcfo.org` is a **shared
+   mailbox** (`recipientTypeDetails: SharedMailbox`, visible via
+   `mcp__CIPP__list_mailboxes`), and shared mailboxes have no interactive
+   sign-in by design - `accountEnabled: false` on one is the normal, expected
+   state, not a fault. A human tech's own message trace afterward showed mail
+   had in fact been delivered successfully (one message quarantined - a
+   separate, minor, unrelated issue). Before flagging a disabled/locked
+   account as a possible cause of *any* reported issue, check
+   `recipientTypeDetails` - `SharedMailbox`/`RoomMailbox`/`EquipmentMailbox`
+   having sign-in disabled is expected and not worth mentioning; only a
+   disabled **UserMailbox** account is actually informative, and even then
+   only after the trace confirms mail is actually failing.
 
    **Company VPN access requested specifically** (a client asking to get VPN
    access set up or working, e.g. to work from home - not to be confused

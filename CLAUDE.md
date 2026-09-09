@@ -1654,6 +1654,37 @@ and this specific case has a clean, always-correct mechanical check
 available, so there was no reason to leave it as one more thing the model
 has to remember to infer.
 
+**A confident-but-wrong root cause reaching the human reviewer is its own
+kind of failure (v2.10.37).** Continuing the same review of that
+`-RequireApproval` validation cycle, Roger flagged ticket #21900: "It said
+the mailbox was disabled, which is true, because this is a shared mailbox,
+not a user account. The suggestions were way off. I performed a message
+trace and show mail flow successfully." The resolver's draft note told the
+client `accounting@bcfo.org` was disabled and blocking mail, and its
+internal recommendation to the reviewer was to check why it was disabled
+before re-enabling. Verified against live data: `accounting@bcfo.org` is a
+shared mailbox (`recipientTypeDetails: SharedMailbox` via
+`mcp__CIPP__list_mailboxes`) - shared mailboxes have no interactive
+sign-in by design, so `accountEnabled: false` there is the normal,
+expected state, not a fault. And the resolver never actually confirmed
+mail was failing at all - it never called the `ListMessageTrace` check
+resolver-prompt.md already documents for exactly this scenario; Roger's
+own trace the next day showed mail delivery working (one message
+quarantined, unrelated). Unlike v2.10.30-2.10.36, this wasn't a safety or
+cost miss - the ticket correctly stopped at Waiting Approval and nothing
+was sent unreviewed - but a wrong diagnosis presented confidently to the
+reviewer defeats the purpose of the approval step almost as badly, since
+it spends the reviewer's trust and attention on a plausible-sounding
+answer that verification would have caught. Fixed both gaps in
+resolver-prompt.md's prompting only (no code change - the tools already
+existed and worked): the message-trace step is now framed as required
+before reporting any suspected cause, not one option among several ("a
+hypothesis, not a diagnosis" until the trace confirms it); and a new rule
+requires checking `recipientTypeDetails` before flagging a disabled/locked
+account as a possible cause of anything, since a disabled
+shared/room/equipment mailbox is expected and only a disabled real
+`UserMailbox` is actually informative.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
