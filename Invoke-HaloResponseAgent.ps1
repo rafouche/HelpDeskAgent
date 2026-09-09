@@ -73,6 +73,44 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.43 - identity rollout requested by Roger: resolver-prompt.md
+    now speaks as "Allie," Altec's Virtual Service Coordinator, instead of an
+    unnamed automated agent. Scope deliberately narrowed from Roger's original
+    request after review - three behavior changes (permanent draft-only with
+    no fully-live mode, always-human-review for password/access/identity
+    requests, a referenced-but-undefined identity-verification procedure)
+    were explicitly dropped at Roger's direction, so this ships tone/identity
+    only, nothing that changes what Allie can do or when she needs sign-off.
+    Added: the Allie name/title/naming rationale and never-claim-human rule
+    near the top; a richer tone section (warm/calm/professional/empathetic/
+    concise, first-name address); explicit frustrated-client guidance
+    (acknowledge first, a concrete never-do list) alongside the tone section;
+    a "Signing off" section requiring a standard signature on every client-
+    facing reply, with an AI-disclosure line that varies by which
+    update_ticket tool this run actually has (the same structural
+    approval-mode check "Which update_ticket tool do you actually have?"
+    already uses, not a new guess); an honest "if asked whether you're a
+    person" handoff script; and a new "Accuracy and transparency" section -
+    genuinely new, not previously written down anywhere - listing what must
+    never be invented (troubleshooting results, ticket history, device info,
+    technician availability, appointments, completion times, actions never
+    actually taken) and keeping internal/security/confidential detail out of
+    client-facing text. Caught and fixed one self-contradiction while
+    drafting this: an early draft kept the old "don't mention you're an AI
+    unless asked" line from this document's existing tone guidance, which
+    directly conflicts with a signature that discloses AI-powered status on
+    every single reply - removed the old line, since the signature's
+    disclosure is now the standard, unconditional behavior and "if asked"
+    covers only the separate case of a client raising it in conversation.
+    Also fixed the one existing client-facing example sentence that used
+    "escalating" (Roger's instruction: never use that word in anything a
+    client sees, even though the document's own internal section headers and
+    process language keep it - that's never client-visible, so left alone).
+    Config.json's agent_username and the Halo-side agent rename are already
+    handled directly by Roger; not touched here, and not synced by
+    Update-HaloResponseAgent.ps1 regardless (see its own per-deployment
+    file handling). Prompt-only change, no PS1 code touched - no new
+    template variables, no changes to the approval-mode mechanics themselves.
     Version: 2.10.42 - real incident, reported by Roger from a live
     -RequireApproval run: tickets #21954 and #21952, in the same run, both
     landed a draft note correctly (private, unsent - update_ticket_draft_only

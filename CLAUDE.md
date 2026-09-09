@@ -1819,6 +1819,35 @@ explicitly separating the two fields rather than trusting the two
 concepts to stay separate in the model's own head after being decided
 together.
 
+**Allie identity rollout, scope deliberately narrowed (v2.10.43).** Roger
+supplied a full agent-identity spec (name, tone, escalation rules,
+signature) and, before any change was made, was given a synopsis of what
+it would actually change against the live system - three real behavior
+changes buried in the spec (permanent draft-only with no fully-live mode
+ever again, always-human-review for password/access/identity requests
+overriding today's EASY-pattern handling, a referenced identity-
+verification procedure that doesn't exist anywhere in this system) were
+called out explicitly rather than assumed, and Roger dropped all three.
+What shipped is tone and identity only: the Allie name/title, a fuller
+voice description, explicit frustrated-client guidance, a standard
+signature (with an AI-disclosure line chosen by the same structural
+"which update_ticket tool do you actually have" check the approval-mode
+logic already uses - not a new guess), an honest answer if a client asks
+whether she's a person, and a genuinely new "Accuracy and transparency"
+section (never-invent list + keep internal detail internal) that this
+document simply never wrote down before. Caught one internal
+contradiction while drafting, before shipping it: an early pass kept
+this document's old "don't mention you're an AI unless asked" line,
+which directly conflicts with a signature that discloses AI-powered
+status on every single reply - the always-present signature disclosure
+wins; "if asked" now covers only a client raising it in conversation.
+Also reworded the one existing client-facing example sentence that used
+"escalating" (per Roger's instruction to never use that word anywhere a
+client sees it) - left every internal, never-client-visible usage of the
+word alone throughout the rest of the document, since renaming those
+would be pure churn with no behavior effect. Prompt-only; no template
+variables added, no change to the approval-mode mechanics themselves.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
