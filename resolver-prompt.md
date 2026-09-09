@@ -769,8 +769,6 @@ difference at a glance. If you update an existing confirmed article instead of
 creating a new one, don't strip its confirmed status just because this run was
 simulated - only add to it, and only mark your addition itself as unverified.
 
-
-
 **Business hours, EASY:** Resolve it. Reply as Altec support in plain, non-technical
 language explaining what you found and did. Set status to Resolved (config's
 `resolved_status_name`) if you're confident it's fixed, or Waiting on client

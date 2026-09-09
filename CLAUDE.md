@@ -1608,6 +1608,52 @@ it needs his own review of before/after `-WhatIf` output to gate for
 quality, per this project's usual discipline, since no formal eval exists
 for this pipeline.
 
+**A live validation cycle's own $0.25 line item found a real gap the
+whole session's fixes had missed (v2.10.36).** Roger ran the manual
+`-RequireApproval` cycle this project asked for before re-enabling the
+schedule, and pushed back hard on one line in its own cost table: ticket
+#21478 reached a Sonnet resolver call ($0.25) that concluded "a human
+already owns this" via the new `human_touch` field (v2.10.32) - correct,
+but Roger's exact challenge was "why did this even reach the expensive
+model if it was going to be recognized as human-owned anyway?" Tracing it
+end to end: Roger and Erick Gonzales had been actively working this ticket
+for days (confirmed in Halo's own action log - calls, replies, status
+changes), most recently setting it to `waiting_on_client_status_name`.
+Because that status wasn't in `classifier-prompt.md`'s Unassigned-bucket
+pre-filter (the same list that already excludes "Dispatch Needed,"
+"Scheduled," etc.), the ticket looked like a fresh candidate and got
+tiered MEDIUM.
+
+The real finding: `waiting_on_client_status_name` and
+`follow_up_status_name` - the two statuses *this pipeline itself* uses for
+hand-back and escalation - were never added to that list, despite
+`waiting_on_client_status_name` being named explicitly, all the way back
+at the very start of this project's ownership-check work ("We use all
+three of those status, and you would too"), as a status real techs use
+just as often as the bot does. Worse, this wasn't even a judgment call
+the classifier could reasonably get right by itself: any ticket sitting
+in `waiting_on_client_status_name` while *not* in the tracked list is, by
+construction, never this pipeline's own doing - a genuine bot-created one
+is already excluded by the tracked-list check one bullet above (the bot
+always emits `[CACHE: TRACK]` when it sets that status), and an escalated
+ticket always emits `[CACHE: UNTRACK]` immediately on `follow_up_status_name`,
+so it looks freshly unassigned again the very next cycle unless caught by
+status. This is a plain, always-true mechanical fact, not a "does this
+status name sound like an active workflow" guess the way "Dispatch
+Needed" is - so it was fixed as one: `$ids.waiting_status_id`/
+`$ids.followup_status_id` (already resolved for resolver-prompt.md) are
+now also injected into classifier-prompt.md as
+`{{WAITING_STATUS_ID}}`/`{{FOLLOWUP_STATUS_ID}}`, and the Unassigned
+bucket drops a numeric `status_id` match against either one outright,
+ahead of and independent from the existing status-*name* judgment-call
+list. Deliberately not folded into that judgment-call list as one more
+name to recognize - this session's whole track record is judgment calls
+not being applied consistently every single time (the approval bypass,
+the missed `human_touch` check on a different pass of the same ticket),
+and this specific case has a clean, always-correct mechanical check
+available, so there was no reason to leave it as one more thing the model
+has to remember to infer.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

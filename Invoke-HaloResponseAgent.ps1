@@ -73,6 +73,37 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.36 - real incident, found by Roger reviewing a live
+    -RequireApproval validation cycle: ticket #21478, actively worked by
+    real humans (Roger, Erick Gonzales - calls, replies, status changes)
+    for days, sat in `waiting_on_client_status_name` and reached a real
+    Sonnet resolver call ($0.25) purely to re-discover "a human already
+    owns this" via human_touch - something a status-name check should have
+    caught for free, the same way "Dispatch Needed" already does.
+    classifier-prompt.md's Unassigned-bucket pre-filter never included
+    `waiting_on_client_status_name`/`follow_up_status_name` - the two
+    statuses THIS PIPELINE ITSELF uses for hand-back and escalation -
+    despite `waiting_on_client_status_name` being named, from the very
+    start of this project's ownership-check work, as a status real techs
+    use routinely too. Root cause: any ticket reaching the Unassigned
+    bucket while in one of these two statuses is, by construction, never
+    this pipeline's own doing - a genuine bot-created `waiting_on_client_status_name`
+    ticket is already excluded by the tracked-list check (the pipeline
+    always emits [CACHE: TRACK] when setting it), and an escalated ticket
+    always emits [CACHE: UNTRACK] immediately, so it looks "fresh" to this
+    bucket the very next cycle unless caught by status. Fixed as a plain
+    numeric check, not a judgment call: $ids.waiting_status_id/
+    $ids.followup_status_id (already resolved for resolver-prompt.md) are
+    now also injected into classifier-prompt.md as
+    {{WAITING_STATUS_ID}}/{{FOLLOWUP_STATUS_ID}}, and the Unassigned bucket
+    drops a ticket_id match against either one outright, ahead of (and
+    independent from) the existing status-name judgment-call list. Chose a
+    mechanical ID comparison over adding these two names to the existing
+    judgment-call list deliberately - this project's whole track record
+    this session is judgment calls not being applied consistently every
+    time (the approval bypass, the missed ownership check), and this one
+    has a clean, always-correct mechanical rule available, so it doesn't
+    need to be a judgment call at all.
     Version: 2.10.35 - correction, same day as v2.10.33: NordLayer and the
     per-client NinjaOne VPN configuration scripts are two completely
     unrelated products solving two unrelated problems, not a hierarchy -
@@ -2477,6 +2508,8 @@ try {
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText `
         -replace '\{\{BLOCKED_TICKET_IDS\}\}', $blockedTicketIdsText `
+        -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
+        -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
         -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `

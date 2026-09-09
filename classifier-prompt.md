@@ -53,6 +53,8 @@ output format section at the end of this document).
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
 - Blocked ticket_id(s) - a prior cycle hit a structural dead end on these, see call 1 below: {{BLOCKED_TICKET_IDS}}
+- `halo.waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
+- `halo.follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
 - `halo.ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
@@ -113,6 +115,27 @@ version history for the real case this was fixed from):
      becomes a candidate again automatically once enough time has passed
      (see config's `blocked_ticket_retry_hours`) - you don't need to do
      anything to make that happen, it just stops appearing in this list.
+   - **Drop any ticket whose `status_id` is {{WAITING_STATUS_ID}} or
+     {{FOLLOWUP_STATUS_ID}}** - a plain numeric comparison, same as the
+     tracked/blocked-list checks above, not a status-name judgment call.
+     Unlike the judgment-call list below, this one isn't a guess: **any
+     ticket sitting in one of these two statuses while *not* in the tracked
+     list above was, by construction, never this pipeline's own doing.**
+     Every time this pipeline itself sets {{WAITING_STATUS_ID}}, it also
+     emits `[CACHE: TRACK]` (see resolver-prompt.md's "When you finish"),
+     which the tracked-list exclusion above already caught. Every time it
+     sets {{FOLLOWUP_STATUS_ID}} (escalating), it emits `[CACHE: UNTRACK]`
+     immediately - so an escalated ticket looks "untracked" to this bucket
+     one cycle later, exactly like a genuine fresh ticket, unless this rule
+     catches it by status_id instead. Real incident: a ticket a human had
+     been actively working for days (calls, replies, status changes) sat in
+     `waiting_on_client_status_name` and, because that status wasn't
+     excluded here, reached a real resolver call on the expensive tier
+     purely to re-discover "a human already owns this" - a $0.25 Sonnet
+     call to confirm what the status alone already said for free. This gap
+     existed despite `waiting_on_client_status_name` being named, from the
+     very start of this project's ownership-check work, as a status real
+     techs use routinely, not just this pipeline.
    - **Drop any ticket whose `status_id`, looked up in {{STATUS_ID_NAMES}}
      above, clearly names an already-active workflow this pipeline has no
      tool or whitelisted action for** - real examples seen on this tenant:
