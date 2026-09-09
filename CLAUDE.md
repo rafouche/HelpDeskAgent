@@ -1685,6 +1685,34 @@ account as a possible cause of anything, since a disabled
 shared/room/equipment mailbox is expected and only a disabled real
 `UserMailbox` is actually informative.
 
+**Fixing the tool exposed a bigger problem than the tool (v2.10.38).**
+Roger asked to have cipp-mcp itself fixed for the param-naming gap behind
+v2.10.37 - the generic `cipp_api_get` passthrough was never actually
+broken, it forwards whatever it's given correctly; the resolver's
+remembered param names for `ListMessageTrace` (`Recipient`, missing the
+required `days` window) were wrong. Found the real ones
+(`tenantFilter`/`days`/`sender`/`recipient`, all lowercase) from CIPP's
+own community PowerShell module source and added a dedicated
+`list_message_trace` tool to cipp-mcp so this can't be gotten wrong from
+memory again - the same "tool over remembered judgment" move as
+`human_touch`/`update_ticket_draft_only`. But verifying it against ticket
+#21900's own tenant, `bcfo.org`, still didn't return `bcfo.org`'s mail -
+it silently returned Altec's own partner tenant's traffic instead,
+byte-identical whether `tenantFilter` was the domain name or the tenant's
+GUID. A second client tenant instead threw a 500/404. Both are real gaps
+in this CIPP deployment's message-trace integration for delegated
+tenants - a GDAP/Exchange-remoting issue, most likely, since Graph-API-
+backed endpoints like `ListUsers`/`ListMailboxes` correctly honor
+`tenantFilter` for the same tenants - not something either MCP repo's
+code can fix. Flagged to Roger to chase down on the CIPP/GDAP side rather
+than declared fixed. Given the tool can hand back a fully-formed,
+successful-looking result for the wrong tenant entirely, v2.10.37's
+"trust the trace" framing was itself a live hazard without a check on
+top of it - amended resolver-prompt.md again: a trace result only counts
+as evidence once the returned addresses are confirmed to actually belong
+to the requested tenant; an error or a wrong-tenant result both mean
+"unavailable," not "clean" or "broken."
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

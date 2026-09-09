@@ -73,6 +73,39 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.38 - follow-up to v2.10.37, same day: Roger asked to have
+    cipp-mcp itself fixed for the ListMessageTrace param-naming gap that let
+    v2.10.37's ticket #21900 investigation skip the trace. Fixing it exposed
+    something worse. Verified live: cipp-mcp's `cipp_api_get` generic
+    passthrough was never the actual bug - it forwards whatever params it's
+    given correctly - the resolver's *guesses* at param names
+    (`Recipient`/`recipientAddress`, missing the required `days` window) were
+    wrong. Found the real param names (`tenantFilter`, `days`, `sender`,
+    `recipient` - all lowercase) from CIPP's own community PowerShell module
+    source (BNWEIN/CIPPAPIModule) and added a dedicated
+    `mcp__CIPP__list_message_trace` tool to cipp-mcp so a resolver never has
+    to guess this again - same "mechanical tool over remembered judgment"
+    pattern as `human_touch`/`update_ticket_draft_only` this session.
+    But testing the corrected call against ticket #21900's own tenant
+    (bcfo.org) still didn't return bcfo.org's mail - it silently returned
+    Altec's own partner-tenant traffic instead (`@altecusa.com` addresses),
+    byte-identical whether `tenantFilter` was the domain name or the tenant's
+    GUID `customerId`. A second client tenant (springfieldbrewingco.com)
+    instead threw a 500 wrapping a 404 from the underlying Exchange call.
+    Confirmed this is a real gap in this CIPP deployment's message-trace
+    integration for delegated/managed tenants (likely a GDAP/Exchange-Online-
+    remoting session/permission issue, not something visible from Graph-API-
+    backed endpoints like ListUsers/ListMailboxes, which correctly honor
+    `tenantFilter` for the same tenants) - not something fixable from either
+    MCP repo's own code. Flagged to Roger to investigate on the CIPP/GDAP
+    side rather than silently shipped as "fixed." Given the tool can return a
+    fully-formed, successful-looking result for the wrong tenant, v2.10.37's
+    "trust the trace" framing was itself dangerous without a check - amended
+    resolver-prompt.md's message-trace guidance to require confirming the
+    returned rows' addresses actually belong to the requested tenant before
+    treating a trace result as evidence of anything, and to fall through to
+    the NDR-search check (or say delivery couldn't be confirmed) rather than
+    trusting an error or a wrong-tenant result either way.
     Version: 2.10.37 - real incident, found by Roger reviewing the same
     -RequireApproval validation cycle as v2.10.36: ticket #21900, a client
     report that mail wasn't arriving at `accounting@bcfo.org`. The resolver

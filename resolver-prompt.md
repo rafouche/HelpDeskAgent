@@ -618,20 +618,37 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    what you've verified - if there's any doubt, diagnose and note, don't act.
 
    **Email delivery / bounce issues specifically:** before concluding *anything*
-   is blocking mail flow, confirm it against `mcp__CIPP__cipp_api_get` with
-   `endpoint: "ListMessageTrace"` (plus a `tenantFilter`/sender-recipient param -
-   wildcards like `*@domain.com` supported, 10-day lookback max) - this shows
-   whether messages actually left the tenant, bounced, or were filtered, and
-   what the real SMTP error was. **A plausible-looking cause found elsewhere
-   (a disabled account, a full mailbox, a blocked sender) is a hypothesis, not
-   a diagnosis, until the trace confirms mail is actually failing** - don't
-   report a suspected cause as the finding without checking whether the
-   symptom the client described is even happening. If the trace doesn't turn
-   up enough, use `mcp__Microsoft365__outlook_email_search` to find the NDR
-   (non-delivery report) that landed in the user's own mailbox - it usually
-   contains the same SMTP error code and is enough to explain most bounces
-   (bad address, mailbox full, blocked by the recipient's spam filter, etc.)
-   without a full trace.
+   is blocking mail flow, confirm it against `mcp__CIPP__list_message_trace`
+   (`tenantFilter`, `days` - 1-10, `sender`/`recipient` as **exact full
+   addresses, no wildcards** - CIPP's message trace doesn't support them) -
+   this shows whether messages actually left the tenant, bounced, or were
+   filtered, and what the real SMTP error was. **A plausible-looking cause
+   found elsewhere (a disabled account, a full mailbox, a blocked sender) is
+   a hypothesis, not a diagnosis, until the trace confirms mail is actually
+   failing** - don't report a suspected cause as the finding without checking
+   whether the symptom the client described is even happening.
+
+   **The trace result is only trustworthy if you actually check it matches
+   the tenant you asked for.** Confirmed live: `list_message_trace` can come
+   back with a real, well-formed, *successful* result full of message
+   records that belong to a completely different tenant than the one
+   requested (in one confirmed case, it silently returned Altec's own
+   internal mail traffic - `@altecusa.com` addresses - for a `tenantFilter`
+   that named a client tenant), and for at least one other client tenant it
+   instead threw a 500 wrapping a 404 from the underlying Exchange call.
+   Neither failure mode announces itself as "this didn't work" - one looks
+   like a normal empty-of-relevant-results trace, the other is an explicit
+   error you can at least see. **Before drawing any conclusion from a trace
+   result, check that the `SenderAddress`/`RecipientAddress` values in the
+   returned rows actually belong to the domain you queried.** If they don't
+   (or the call errors), the trace is unavailable for this ticket, not
+   evidence of anything - fall through to `mcp__Microsoft365__outlook_email_search`
+   for the NDR (non-delivery report) in the user's own mailbox instead (same
+   SMTP error code, usually enough to explain most bounces - bad address,
+   mailbox full, blocked by the recipient's spam filter, etc.), or note in
+   your finding that delivery couldn't be independently confirmed and say so
+   plainly rather than treating silence as "mail is fine" or wrong-tenant
+   data as "mail is broken."
 
    **A disabled/locked account is not automatically a problem - check what
    kind of mailbox it is first.** Real incident: ticket #21900 reported mail
