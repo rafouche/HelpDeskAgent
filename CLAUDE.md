@@ -1848,6 +1848,44 @@ word alone throughout the rest of the document, since renaming those
 would be pure churn with no behavior effect. Prompt-only; no template
 variables added, no change to the approval-mode mechanics themselves.
 
+**Ownership stopped blocking the approval review loop, and a "remember
+this" memory was added (v2.10.44).** Two requests from Roger while still
+validating under `-RequireApproval`. First: Ready for AI already
+overrode ownership, but two real gaps sat next to it - an approved
+ticket claimed by a human just to approve it was invisible to the
+classifier (only ever searched for via the Unassigned bucket, which
+requires `agent_id: 1`), and a human leaving a note on a pending draft
+instead of formally approving it hit the "someone else owns this, stay
+out" rule and would go unread forever. Fixed both with new, explicit,
+status-filtered candidate calls (same paging pattern the existing Ready-
+for-AI call already uses) unconditional on agent_id - the waiting-
+approval one only includes a ticket if something has actually happened
+since the resolver's own last touch, so an untouched pending draft is
+still skipped, preserving the original cost protection. resolver-
+prompt.md gained a matching ownership-check exception (a prior draft
+note proves no independent ownership existed, since it could only have
+been written if the ownership check passed the first time) and a new
+section for incorporating a human's note into a revised draft - never a
+direct send, since a note is guidance, not the specific approval-status
+sign-off FLOW A requires. Deliberately no new tier invented for this -
+tiered normally by content, the same precedent Ready for AI already set.
+
+Second: a durable "remember this" mechanism - when a human's note asks
+Allie to retain something for future tickets, not just resolve this one,
+a new `[CACHE: REMEMBER: <client or general>] <text>` marker captures it
+into agent-cache.json, injected into every resolver call. Chose this
+in-context approach over a Hudu article specifically because the ask was
+"least cost and speed for future lookups" - zero marginal tool calls
+versus a real lookup call every time - deliberately not injected into
+classifier-prompt.md, which never drafts a reply and would just pay the
+token cost unused. Real tradeoff named directly: unlike blocked_tickets,
+these entries never age out on their own (they're permanent institutional
+knowledge, not a retry state), so a new `max_remembered_notes` config cap
+(oldest dropped first) is the only thing bounding a cost that would
+otherwise grow forever. Verified the extraction regex, the cap logic, and
+a full JSON round-trip through agent-cache.json's actual serialization
+locally before shipping.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

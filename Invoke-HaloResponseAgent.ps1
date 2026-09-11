@@ -73,6 +73,61 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.44 - two features requested by Roger while still validating
+    under -RequireApproval.
+
+    (1) Ownership no longer blocks the AI-approval review loop. Ready for AI
+    already overrode ownership; two real gaps sat next to it. First:
+    ai_approved_status_id was only ever found via the Unassigned bucket
+    (agent_id: 1), so a human who claimed a ticket just to approve it would
+    make it invisible to the classifier - fixed with a new, explicit,
+    status_id-filtered candidate call (paging fully, like the existing
+    Ready-for-AI call), unconditional on agent_id. Second, and new: a human
+    reviewing a pending draft by leaving a note - "reword this," "wrong
+    device, try X" - rather than formally approving it would hit the
+    ownership check's "a human is already working this, stay out" rule and
+    get silently skipped forever, so the note would just sit there unread.
+    Fixed with a second new candidate call (same status-filtered pattern,
+    for ai_waiting_approval_status_id) that only includes a ticket if
+    something has actually happened since the resolver's own last touch -
+    an untouched, still-pending draft is still skipped, exactly as before,
+    preserving the original cost protection. resolver-prompt.md gained a
+    matching ownership-check exception (0b: your own prior draft note
+    overrides the "someone else owns this" checks - proven safe because
+    that note could only exist if no human had touched the ticket the
+    first time around) and a new "If a human left a note on your own
+    pending draft" section: read the human's guidance, incorporate it, and
+    write an *updated* draft - never send directly, since a note is
+    guidance, not the specific sign-off `ai_approved_status_name`/FLOW A
+    requires. Deliberately did not invent a new tier for this - it's tiered
+    normally by content, same precedent Ready for AI already set
+    ("this status doesn't pre-decide the tier, only candidacy").
+
+    (2) A durable "remember this" mechanism. When a human's note says
+    something like "remember this" or "we'll remember that," expecting it
+    kept for future tickets (not just this one), the resolver now captures
+    it via a new `[CACHE: REMEMBER: <client or general>] <text>` marker -
+    independent of, and coexisting with, the required TRACK/UNTRACK/BLOCKED
+    line. Persisted in agent-cache.json's new `remembered_notes` list and
+    injected into every resolver call as `{{REMEMBERED_NOTES}}` -
+    deliberately NOT injected into classifier-prompt.md, since the
+    classifier only tiers/finds candidates and would pay the token cost on
+    every single call without ever using it. Chose this in-context-memory
+    approach over a Hudu article specifically because the ask was "least
+    cost and speed for future lookups": zero marginal tool calls, instant,
+    versus a Hudu article costing a real lookup call each time it might be
+    relevant. The real tradeoff, named directly rather than glossed over:
+    unlike blocked_tickets' time-based aging, remembered notes never expire
+    on their own - they're meant to be permanent institutional knowledge -
+    so config's new `max_remembered_notes` (default 50) is the only thing
+    bounding growth, oldest entries dropped first once exceeded, since an
+    ever-growing list would otherwise inflate every future resolver call's
+    cost forever. Explicitly instructed never to capture a password or
+    credential verbatim into this plain-text, always-injected list.
+    Verified the extraction regex, the cap logic, and a full JSON round-
+    trip through ConvertTo-Json/ConvertFrom-Json (exactly how it persists
+    to and loads from agent-cache.json) locally before shipping either
+    piece.
     Version: 2.10.43 - identity rollout requested by Roger: resolver-prompt.md
     now speaks as "Allie," Altec's Virtual Service Coordinator, instead of an
     unnamed automated agent. Scope deliberately narrowed from Roger's original
@@ -1685,6 +1740,7 @@ elseif ((Test-Path $legacyIdCachePath) -or (Test-Path $legacyTrackedPath)) {
         tracked_last_seen    = [PSCustomObject]@{}
         unassigned_last_seen = [PSCustomObject]@{}
         blocked_tickets      = [PSCustomObject]@{}
+        remembered_notes     = @()
         last_real_cycle_at   = $null
     }
     foreach ($legacyPath in @($legacyIdCachePath, $legacyTrackedPath, "$legacyIdCachePath.tmp", "$legacyTrackedPath.tmp")) {
@@ -1700,6 +1756,7 @@ if (-not $agentCache) {
         tracked_last_seen    = [PSCustomObject]@{}
         unassigned_last_seen = [PSCustomObject]@{}
         blocked_tickets      = [PSCustomObject]@{}
+        remembered_notes     = @()
         last_real_cycle_at   = $null
     }
 }
@@ -1759,6 +1816,24 @@ if ($agentCache.blocked_tickets) {
             }
         }
     }
+}
+
+# Requested feature: when a human explicitly asks Allie to remember something
+# ("remember this," "we'll remember that") for future tickets, resolver-prompt.md's
+# "Remembering something for future tickets" section captures it via a
+# `[CACHE: REMEMBER] <text>` line. This is durable institutional knowledge, not a
+# transient per-ticket cache entry like tracked/blocked_tickets above - it's never
+# pruned by age, only capped by count (max_remembered_notes, oldest dropped first)
+# so it doesn't grow the resolver prompt's size (and therefore every future call's
+# cost) without bound. Injected into resolver-prompt.md only, not
+# classifier-prompt.md - the classifier's only job is finding/tiering candidates,
+# never drafting replies, so this context would cost tokens on every single
+# candidate-finding call without ever actually being used for anything.
+$maxRememberedNotes = 50
+if ($config.claude.max_remembered_notes) { $maxRememberedNotes = [int]$config.claude.max_remembered_notes }
+$rememberedNotes = @()
+if ($agentCache.remembered_notes) {
+    $rememberedNotes = @($agentCache.remembered_notes | Select-Object -Last $maxRememberedNotes)
 }
 
 # Carried through untouched unless Stage 0 below actually re-resolves fresh
@@ -2674,6 +2749,17 @@ try {
         $blockedTicketIdsText = (@($blockedTickets.Keys) -join ", ")
     }
 
+    # Same "none" rendering, same reason - see the remembered_notes loading
+    # comment above. Rendered as a plain bullet list (not JSON) since this is
+    # meant to be read and weighed by the resolver, not parsed.
+    $rememberedNotesText = "none"
+    if (@($rememberedNotes).Count -gt 0) {
+        $rememberedNotesLines = @($rememberedNotes | ForEach-Object {
+            "- [$($_.client)] $($_.text) (from ticket #$($_.source_ticket_id), $($_.remembered_at))"
+        })
+        $rememberedNotesText = "`n" + ($rememberedNotesLines -join "`n")
+    }
+
     if ($usedCachedIds) {
         # Log a lightweight confirmation, not the full claude-call section (there
         # was no claude call this cycle) - shaped like a no-cost claude response so
@@ -2738,6 +2824,7 @@ try {
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
         -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
+        -replace '\{\{REMEMBERED_NOTES\}\}', $rememberedNotesText `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
@@ -2754,24 +2841,49 @@ try {
             "=== APPROVAL MODE (-RequireApproval) ===",
             "This run requires human sign-off before any client-facing reply or",
             "remediation action happens for real - see the resolver's own approval-mode",
-            "banner for what that means downstream. It changes two things about how you",
-            "build today's candidate list:",
+            "banner for what that means downstream. It adds two extra, ownership-",
+            "independent candidate-finding calls, on top of calls 1-4 above:",
             "",
-            "1. SKIP ENTIRELY any ticket whose status_id is $($ids.ai_waiting_approval_status_id)",
-            "   (config's ai_waiting_approval_status_name) - it already has a drafted",
-            "   reply/action sitting in a private note, waiting on a human to review. Do",
-            "   not include it as a candidate; re-processing it wastes cost and risks",
-            "   clobbering the pending draft.",
-            "2. DO include any ticket whose status_id is $($ids.ai_approved_status_id)",
-            "   (config's ai_approved_status_name) as a candidate, even though it's still",
-            "   unassigned (agent_id: 1) - a human approved its draft and it's ready to",
-            "   actually send. Tag it with tier `"APPROVED`" specifically, not your usual",
-            "   TRIVIAL/MEDIUM/COMPLEX judgment - this ticket's tier was already decided",
-            "   last cycle; your only job for it now is flagging it so the resolver runs",
-            "   its approval-completion flow instead of tiering it fresh.",
+            "5. **AI Waiting Approval, but only if a human has touched it since:**",
+            "   `{ team_id: $($ids.team_id), status_id: $($ids.ai_waiting_approval_status_id),",
+            "   open_only: true, pageinate: true, page_no: 1, page_size: 15 }`, paging",
+            "   through every page (same reasoning as call 4 - a human deliberately left",
+            "   feedback on one of these expecting it to be seen). For each ticket found,",
+            "   call `mcp__Halo__get_ticket_time_entries` and check whether anything has",
+            "   happened since your own most recent action on it - a new note from a real",
+            "   human (`who_type: 1`, not this pipeline's own identity), or a change in",
+            "   who it's assigned to. **If nothing has happened yet** (your own",
+            "   `[DRAFT PENDING APPROVAL]` note is still the most recent substantive",
+            "   entry): skip it, same as always - re-processing an untouched, still-",
+            "   pending draft wastes cost and risks clobbering it. **If something HAS",
+            "   happened** - a human left a note, or reassigned it to themselves to",
+            "   review it, or both: include it as a candidate, regardless of who it's",
+            "   currently assigned to. Do not apply the 'skip anything with a recent",
+            "   reply from a different Altec agent' rule to this bucket - a human",
+            "   reviewing or annotating a draft this pipeline itself wrote is not the",
+            "   same as a colleague independently working an unrelated ticket, even if",
+            "   they claimed it to leave the note. Tier it normally based on its actual",
+            "   content, exactly like a first-pass candidate - this call finds *whether*",
+            "   to look again, not how complex it is. The resolver's own instructions",
+            "   (see resolver-prompt.md's `"If a human left a note on your own pending",
+            "   draft`") handle what happens next - producing a revised draft, not a",
+            "   fresh send, even if the note reads like approval.",
+            "6. **AI Approved, regardless of ownership:**",
+            "   `{ team_id: $($ids.team_id), status_id: $($ids.ai_approved_status_id),",
+            "   open_only: true, pageinate: true, page_no: 1, page_size: 15 }`, paging",
+            "   through every page. **Every ticket found here is an unconditional",
+            "   candidate, regardless of who it's currently assigned to** - a human",
+            "   approved this exact draft and it's ready to actually send; don't skip it",
+            "   for being assigned to a real agent (they may have claimed it just to",
+            "   approve it) and don't apply the 'recent reply from a different agent'",
+            "   rule here either. Tag it with tier `"APPROVED`" specifically, not your",
+            "   usual TRIVIAL/MEDIUM/COMPLEX judgment - this ticket's tier was already",
+            "   decided last cycle; your only job for it now is flagging it so the",
+            "   resolver runs its approval-completion flow instead of tiering it fresh.",
             "",
-            "Every other candidate-selection/tiering rule in this document still applies",
-            "as normal to every other ticket.",
+            "Skip any ticket ID in calls 5-6 that's already present in calls 1-4's",
+            "results, so it isn't listed twice. Every other candidate-selection/tiering",
+            "rule in this document still applies as normal to every other ticket.",
             "==="
         )
         $classifierPrompt = ($classifierApprovalBannerLines -join "`n") + "`n`n" + $classifierPrompt
@@ -3171,6 +3283,28 @@ try {
             # tracked-tickets cache loaded above). A real run under -WhatIf
             # never writes this cache back (see the finally block below), so
             # a missing marker there is expected, not a warning-worthy gap.
+            # `[CACHE: REMEMBER: <client>] <text>` is independent of, and can
+            # coexist with, the single required TRACK/UNTRACK/BLOCKED line
+            # below - see resolver-prompt.md's "Remembering something for
+            # future tickets". Zero or more per ticket; each becomes one new
+            # entry, newest last, then capped to max_remembered_notes (oldest
+            # dropped first) so this list can't grow the resolver prompt's
+            # size - and therefore every future call's cost - without bound.
+            if ($resolverResult.Parsed -and $resolverResult.Parsed.result) {
+                $rememberMatches = [regex]::Matches($resolverResult.Parsed.result, '\[CACHE:\s*REMEMBER:\s*([^\]]+)\]\s*(.+)')
+                foreach ($m in $rememberMatches) {
+                    $rememberedNotes = @($rememberedNotes) + [PSCustomObject]@{
+                        client           = $m.Groups[1].Value.Trim()
+                        text             = $m.Groups[2].Value.Trim()
+                        source_ticket_id = $ticketId
+                        remembered_at    = (Get-Date).ToString("o")
+                    }
+                }
+                if (@($rememberedNotes).Count -gt $maxRememberedNotes) {
+                    $rememberedNotes = @($rememberedNotes | Select-Object -Last $maxRememberedNotes)
+                }
+            }
+
             $cacheMarker = $null
             if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK|BLOCKED)\s*\]') {
                 $cacheMarker = $Matches[1].ToUpperInvariant()
@@ -3272,6 +3406,7 @@ finally {
                 tracked_last_seen    = $prunedTrackedLastSeen
                 unassigned_last_seen = $unassignedLastSeen
                 blocked_tickets      = $blockedTickets
+                remembered_notes     = @($rememberedNotes)
                 last_real_cycle_at   = (Get-Date).ToString("o")
             }
             $tempCachePath = "$agentCachePath.tmp"
