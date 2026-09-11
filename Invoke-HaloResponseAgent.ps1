@@ -73,6 +73,60 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.45 - real incident, reported by Roger: ticket #22067. Two
+    separate bugs found and fixed.
+
+    (1) A human's private note was never read. Timeline confirmed via the
+    ticket's real action log: Roger set the ticket straight to
+    ai_approved_status_id, then one second later left a private note asking
+    for the user's department and the machine's physical location. FLOW A
+    (this script's own -RequireApproval banner) only ever looks for the ONE
+    [DRAFT PENDING APPROVAL] note and sends its text verbatim once the status
+    is AI Approved - it never looks at anything written after that note, so
+    Roger's note was never seen and the stale, now-incomplete draft went out
+    as-is. Fixed by inserting a new step 1.5 into FLOW A, between finding the
+    draft note and executing it: pull the ticket's action log and check
+    everything after the draft note for a real human note (who_type: 1) with
+    actual free-text instruction, ignoring routine bookkeeping (a bare status
+    change, an auto-generated contact/client re-link note). Find one -> stop,
+    don't send the stale draft, instead follow resolver-prompt.md's existing
+    "If a human left a note on your own pending draft" section (the same
+    section 2.10.44 already added for the AI Waiting Approval case) to
+    produce a *revised* draft for fresh review. Find nothing but bookkeeping
+    -> continue exactly as before. Deliberately reused v2.10.44's existing
+    revision-loop instructions rather than writing a new one, since the
+    underlying situation is the same: a note is guidance, never itself
+    approval for text it was never actually written against.
+
+    Caught and fixed one bug in myself while writing this: single backticks
+    used for markdown-style code formatting around identifiers in this new
+    step (and, it turned out, in two calls added back in 2.10.44 that had the
+    same issue and had gone unnoticed) are not inert in a PowerShell
+    double-quoted string - a backtick followed by any character silently
+    consumes both and prints the trailing character(s) with no parse error,
+    so `` `ai_waiting_approval_status_id` `` rendered as a mangled
+    "i_waiting_approval_status_id" with no visible sign anything was wrong
+    unless the actual rendered text was read, not just parsed. Confirmed via
+    direct pwsh testing, then fixed by doubling every affected backtick
+    (`` ` `` -> literal backtick) at all four locations, and re-verified by
+    extracting and actually rendering both affected string arrays end to end
+    from the live file. Filed here rather than glossed over, consistent with
+    this project's standing rule to surface self-caught mistakes.
+
+    (2) The sent reply's formatting was lost. Roger confirmed the draft note
+    looked perfect but the actual emailed reply lost all paragraph
+    formatting. Root cause confirmed against HaloPSA's own Actions API
+    documentation: Actions have a plain-text `note` field and a separate
+    `note_html` field used for the outbound email body; halopsa-mcp's
+    update_ticket and update_ticket_draft_only only ever set `note`. Halo's
+    own ticket-view UI renders plain-text bare newlines forgivingly, but the
+    outgoing email is built from `note_html`, where a bare `\n` is not a line
+    break without an explicit `<br>` - so every paragraph break vanished the
+    moment it left Halo's UI for an actual email. Fixed in halopsa-mcp
+    (src/index.ts), not this script: added a `noteToHtml()` helper
+    (HTML-escapes the text, then converts newlines to `<br>`) and set
+    `note_html: noteToHtml(args.note)` alongside the existing `note` field on
+    both write paths. Typechecked clean; Roger deploys the Worker separately.
     Version: 2.10.44 - two features requested by Roger while still validating
     under -RequireApproval.
 
@@ -2849,9 +2903,9 @@ try {
             "   open_only: true, pageinate: true, page_no: 1, page_size: 15 }`, paging",
             "   through every page (same reasoning as call 4 - a human deliberately left",
             "   feedback on one of these expecting it to be seen). For each ticket found,",
-            "   call `mcp__Halo__get_ticket_time_entries` and check whether anything has",
+            "   call ``mcp__Halo__get_ticket_time_entries`` and check whether anything has",
             "   happened since your own most recent action on it - a new note from a real",
-            "   human (`who_type: 1`, not this pipeline's own identity), or a change in",
+            "   human (``who_type: 1``, not this pipeline's own identity), or a change in",
             "   who it's assigned to. **If nothing has happened yet** (your own",
             "   `[DRAFT PENDING APPROVAL]` note is still the most recent substantive",
             "   entry): skip it, same as always - re-processing an untouched, still-",
@@ -2921,6 +2975,27 @@ try {
             "   `"[DRAFT PENDING APPROVAL]`". If you find zero or more than one, stop -",
             "   add an internal note flagging the mismatch and do nothing else; don't",
             "   guess which draft is the real one.",
+            "1.5. **Before trusting this status, check what's actually after that draft",
+            "   note.** A human can move a ticket to AI Approved and leave an",
+            "   instructional note at essentially the same moment - the status change",
+            "   alone does not mean the exact draft text is still what they want sent.",
+            "   Real incident: ticket #22067 - a human triaged the ticket to AI Approved",
+            "   and, one second later, left a private note reading `"Ask what department",
+            "   the user is in and where is the machine physically located.`" FLOW A found",
+            "   the AI-Approved status, sent the original stale draft verbatim, and the",
+            "   note asking for missing information was never read or acted on at all.",
+            "   Look at everything after the draft note for any note with real text from",
+            "   a human (``who_type: 1``, not this pipeline's own identity) - ignore routine",
+            "   bookkeeping with no free-text instruction (a bare status change, a",
+            "   contact/client re-link with only its auto-generated `"From: ... To: ...`"",
+            "   note). **If you find one:** stop here - do not proceed to step 2. Instead,",
+            "   follow resolver-prompt.md's `"If a human left a note on your own pending",
+            "   draft`" section exactly as if this ticket were still AI Waiting Approval:",
+            "   read the note, incorporate it, and write a *revised* draft back to",
+            "   ``ai_waiting_approval_status_id`` for a fresh review - do not send the",
+            "   original text, and do not treat the AI-Approved status as still valid for",
+            "   text that was never actually reviewed. **If nothing but routine bookkeeping",
+            "   follows the draft:** continue to step 2 below, business as usual.",
             "2. Read its structure: the text after that first line is the exact",
             "   client-facing reply a human approved, verbatim - don't edit, improve, or",
             "   shorten it. A line `"[INTENDED STATUS] <name>`" names the status to set",

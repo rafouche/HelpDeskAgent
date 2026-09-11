@@ -1886,6 +1886,47 @@ otherwise grow forever. Verified the extraction regex, the cap logic, and
 a full JSON round-trip through agent-cache.json's actual serialization
 locally before shipping.
 
+**Two real bugs on ticket #22067: a post-approval note never read, and
+formatting lost on send (v2.10.45).** Roger reported both from a live
+ticket. First: FLOW A only ever finds the ONE `[DRAFT PENDING APPROVAL]`
+note and sends its text verbatim once status reaches AI Approved - it
+never looks at anything written after that note. On #22067, Roger set the
+ticket to AI Approved and, one second later, left a private note asking
+for the user's department and the machine's physical location; FLOW A
+found the AI-Approved status, sent the stale draft as-is, and the note
+was never read at all. Fixed by inserting a new step between finding the
+draft and executing it: scan everything after the draft note for a real
+human note with actual free-text instruction (ignoring routine bookkeeping
+like a bare status change or an auto-generated contact re-link), and if
+one exists, stop and produce a *revised* draft via v2.10.44's own "note on
+your own pending draft" flow instead of sending the stale text - same
+principle as that fix, a note is guidance, never itself approval for text
+it was never written against.
+
+Caught a real bug in my own two most recent changes while writing this
+one: single backticks used for markdown-style code formatting inside a
+PowerShell double-quoted string are not inert - a backtick followed by any
+character silently consumes both and prints the trailing character(s),
+with no parse error, so a `ParseFile` check can't catch it, only actually
+rendering the string can. This had already slipped into two v2.10.44 calls
+unnoticed. Fixed by doubling every affected backtick and re-verifying by
+extracting and rendering the actual arrays end to end, not just re-parsing
+them. Surfaced here rather than glossed over, per this project's own
+standing rule.
+
+Second, separate bug: the approved draft looked correctly formatted in
+Halo's own ticket view, but the client-facing email lost every paragraph
+break. Root cause, confirmed against HaloPSA's own Actions API docs:
+Actions carry a plain-text `note` field and a separate `note_html` field
+that the outbound email is actually built from; halopsa-mcp only ever set
+`note`. A bare `\n` renders forgivingly in Halo's own UI but is not a line
+break in HTML without an explicit `<br>`, so formatting vanished the
+moment the note left Halo's UI for an actual email. Fixed in halopsa-mcp
+(not this script) with a small `noteToHtml()` helper (HTML-escape, then
+`\n` -> `<br>`) and a `note_html` field added alongside `note` on both
+`update_ticket` and `update_ticket_draft_only`'s write paths. Typechecked
+clean; Roger deploys the Worker separately, same as always.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
