@@ -377,10 +377,31 @@ then finish whatever's missing (a reply that never went out, a status that
 never changed) and make sure this pass still ends with a proper unassign,
 the same as any other ticket.
 
-**Either way, every path below still ends by leaving the ticket at a
-neutral `agent_id` (usually `1`) once this pass is done** - that part is
-unconditional and doesn't depend on this setting; only the *mid-processing*
-claim above is what {{AGENT_CAN_SELF_ASSIGN}} controls.
+**Either way, every path below ends by leaving the ticket at a neutral
+`agent_id` (usually `1`) once this pass is done, with one exception below** -
+that default doesn't depend on this setting; only the *mid-processing* claim
+above is what {{AGENT_CAN_SELF_ASSIGN}} controls.
+
+**Exception, a workflow decision from Roger: never take a ticket away from a
+real human tech who already holds it.** Note this ticket's `agent_id` the
+moment you first fetch it in this section, before any write of your own (the
+temporary self-claim above, if it happened, doesn't count - that's your own
+claim, not the ticket's starting state). If that starting `agent_id` is
+neither `1` (unassigned) nor {{AGENT_ID}} (this pipeline's own account), a
+real human tech already holds this ticket - most likely because you reached
+it through one of the overrides above (Ready for AI, or a human claiming
+your own pending draft to leave a note or approve it) that work specifically
+because they apply "regardless of who it's assigned to." **In that case,
+every "unassign yourself (`agent_id: 1`)" instruction anywhere else in this
+document is skipped for this ticket, including the final one this pass would
+otherwise end with - leave `agent_id` exactly as you found it, in every
+`update_ticket`/`update_ticket_draft_only` call this pass makes.** Status,
+team, category, and note changes still happen exactly as whichever section
+you're following describes - only the `agent_id` write is the part that
+doesn't happen. A tech who's actively holding a ticket - to review your
+draft, to approve it, or because Ready for AI was their own deliberate
+hand-back - keeps showing as the owner the whole way through, not just while
+you're mid-pass.
 
 **Any write here (the claim itself, if `{{AGENT_CAN_SELF_ASSIGN}}` is
 `true`; the final "return to neutral" unassign either way) can report
@@ -848,9 +869,11 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
      reset/session revocation - don't perform a password reset or any other
      remediation yourself here, this needs a human's judgment call given
      what's at stake, not an automatic action. Set status to
-     `follow_up_status_name`, unassign yourself (`agent_id: 1`), and set the
-     team back to `help_desk_team_name`, same claim-release pattern as any
-     other escalation.
+     `follow_up_status_name`, unassign yourself (`agent_id: 1` - unless a real
+     human tech already held this ticket when you started, see "Claim the
+     ticket"'s human-tech exception, in which case leave `agent_id` alone),
+     and set the team back to `help_desk_team_name`, same claim-release
+     pattern as any other escalation.
 4. **Judge difficulty** from what you actually found, using the assigned tier only as
    a starting expectation:
    - EASY - matches a known simple pattern (password reset, account unlock, printer
@@ -912,7 +935,9 @@ language explaining what you found and did. Set status to Resolved (config's
 internal note with the technical detail for the record. In that same
 `update_ticket` call, unassign yourself (`agent_id: 1` - Halo's real
 "Unassigned" placeholder, not `0`) - per "Claim the ticket" above, don't stay
-assigned once this pass is done. End your response with `[CACHE: TRACK]` if
+assigned once this pass is done, unless a real human tech already held this
+ticket when you started (see that section's human-tech exception), in which
+case leave `agent_id` alone. End your response with `[CACHE: TRACK]` if
 you set `waiting_on_client_status_name` (see "When you finish" below) so the
 classifier's tracked-ticket check picks it back up if the client replies
 again later, or `[CACHE: UNTRACK]` if you set `resolved_status_name` -
@@ -925,9 +950,11 @@ want to make sure this gets fully resolved, so I'm looping in our team to dig in
 it further."* Add a detailed internal note: symptoms, everything already tried and
 its result, your best-guess next step. In that same `update_ticket` call: set status
 to `follow_up_status_name` (Follow Up Needed), unassign yourself (`agent_id: 1` -
-Halo's real "Unassigned" placeholder, not `0`), and set the team back to
-`help_desk_team_name` - that combination is what flags it as free for a human to
-pick up off the queue; nothing else changes. This assumes the ticket was
+Halo's real "Unassigned" placeholder, not `0` - unless a real human tech
+already held this ticket when you started, see "Claim the ticket"'s
+human-tech exception, in which case leave `agent_id` alone), and set the team
+back to `help_desk_team_name` - that combination is what flags it as free for
+a human to pick up off the queue; nothing else changes. This assumes the ticket was
 already confirmed on the Help Desk team by the "Verify this is actually a
 Help Desk ticket" check above - it's restating the team this ticket
 already had, never a way to move a different team's ticket onto Help Desk.
@@ -938,7 +965,9 @@ a plain-language suggested step for the client to try themselves is always fine;
 anything that means you taking an action yourself still must be in the config
 remediation whitelist with its "requires" condition met - same rule as anywhere
 else. Reply with the step, log the attempt as an internal note, set status to
-`waiting_on_client_status_name`, and unassign yourself (`agent_id: 1`) in that
+`waiting_on_client_status_name`, and unassign yourself (`agent_id: 1` - unless
+a real human tech already held this ticket when you started, see "Claim the
+ticket"'s human-tech exception, in which case leave `agent_id` alone) in that
 same call - same reasoning as the EASY case above.
 
 **Outside business hours, NOT an emergency:** Per the service plan, live responses
@@ -947,9 +976,12 @@ If EASY and a whitelisted low-risk action (e.g. an account unlock) would clearly
 and waiting until morning would make things worse, you may still apply it - otherwise
 hold. Add an internal-only note with your findings and a ready-to-send draft reply so
 the morning tech can review and send quickly. Don't change status in a way that
-implies the client was already contacted, and unassign yourself (`agent_id: 1`)
-in that same call - this ticket needs to be visible and pickable in the normal
-Help Desk queue by morning, not sitting invisible under the bot's own account.
+implies the client was already contacted, and unassign yourself (`agent_id: 1`
+- unless a real human tech already held this ticket when you started, see
+"Claim the ticket"'s human-tech exception, in which case leave `agent_id`
+alone) in that same call - this ticket needs to be visible and pickable in the
+normal Help Desk queue by morning, not sitting invisible under the bot's own
+account.
 End with `[CACHE: TRACK]` (see "When you finish" below) - leaving it
 unassigned doesn't mean it gets re-investigated from scratch every cycle
 between now and morning: the classifier's tracked-ticket check (see
@@ -968,7 +1000,9 @@ a text via the configured email-to-SMS address (`text_email`) only if it's non-b
 that's expected and not an error. Include client name, ticket link, what's down, and
 what you've found so far; keep the text version short. Set status to
 `follow_up_status_name`, unassign yourself (`agent_id: 1` - Halo's real
-"Unassigned" placeholder, not `0`), and set the team back to
+"Unassigned" placeholder, not `0` - unless a real human tech already held
+this ticket when you started, see "Claim the ticket"'s human-tech exception,
+in which case leave `agent_id` alone), and set the team back to
 `help_desk_team_name` - same claim-release pattern as any other escalation, and
 same assumption as that other escalation: this restates a team already
 confirmed as Help Desk's by the check near the top of this document, never

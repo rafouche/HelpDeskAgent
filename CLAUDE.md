@@ -1927,6 +1927,28 @@ moment the note left Halo's UI for an actual email. Fixed in halopsa-mcp
 `update_ticket` and `update_ticket_draft_only`'s write paths. Typechecked
 clean; Roger deploys the Worker separately, same as always.
 
+**Never take a ticket away from a human tech who already holds it
+(v2.10.46).** A forward-looking workflow decision from Roger, not a bug
+report: status changes can still happen, but agent_id shouldn't. Every
+place in this pipeline ended a pass by forcing `agent_id: 1` unconditionally
+- resolver-prompt.md's "Claim the ticket" default and all six "When you
+finish" cases, plus FLOW A step 7 and FLOW B step 3 in the -RequireApproval
+banner - which is exactly wrong for a ticket reached through one of the
+ownership overrides (Ready for AI, or a human claiming a pending draft to
+approve or annotate it) that work specifically "regardless of who it's
+assigned to": a tech who claimed a ticket to approve it would have that
+assignment silently stripped the moment Allie finished, even though they
+were the one actively holding it. Fixed by checking the ticket's agent_id
+as found at the start of the pass everywhere the old unconditional write
+happened: if it's neither `1` (Unassigned) nor this pipeline's own account,
+skip the agent_id write entirely for every call the rest of that pass makes.
+Deliberately touched every individual occurrence rather than adding one
+rule stated once upstream and trusting it to be recalled correctly at each
+downstream call site - this project already has a concrete example
+(v2.10.42) of a correct general rule losing to a more specific,
+closer-at-hand instruction, so a policy this consequential gets the
+redundant, localized treatment instead.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.46 - new workflow decision from Roger: never take a ticket
+    away from a real human tech who already holds it; status changes can
+    still happen. Every place in this pipeline that ends a pass by forcing
+    `agent_id: 1` (resolver-prompt.md's "Claim the ticket" default and all
+    six "When you finish" cases; FLOW A step 7 and FLOW B step 3 in this
+    script's own -RequireApproval banner) now checks the ticket's agent_id
+    as found at the start of the pass first: if it's neither `1`
+    (Unassigned) nor this pipeline's own account, a real human tech already
+    holds it - most likely reached via one of the ownership overrides
+    (Ready for AI, a human claiming a pending draft to approve or annotate
+    it) that work specifically "regardless of who it's assigned to" - and
+    the agent_id write is skipped entirely, in every call that pass makes,
+    including the final one. Status, team, category, and note writes are
+    unaffected; only the agent_id field changes behavior. Not a bug fix -
+    a forward-looking policy change, applied everywhere the old
+    unconditional "always unassign" language lived rather than as a single
+    rule stated once and left to be recalled correctly downstream (this
+    project's own v2.10.42 lesson: a rule stated once elsewhere has
+    previously lost to a more specific instruction at the actual point of
+    action). Prompt/banner-text only; re-verified both edited PowerShell
+    string arrays (FLOW A/B's approval banner) by extracting and rendering
+    them end to end, not just re-parsing the file.
     Version: 2.10.45 - real incident, reported by Roger: ticket #22067. Two
     separate bugs found and fixed.
 
@@ -3002,8 +3024,8 @@ try {
             "   afterward. A line `"[INTENDED REMEDIATION] none`" or `"...  <description>`"",
             "   names the exact whitelisted remediation action, if any, queued for this",
             "   ticket, with enough detail (target device/account) to actually perform it",
-            "   now. There is no assignment line to read - step 7 below always unassigns",
-            "   regardless of which status this lands on.",
+            "   now. There is no assignment line to read - step 7 below decides agent_id",
+            "   from the ticket's own current state, not from anything in this note.",
             $flowAStep3Lines,
             "4. If [INTENDED REMEDIATION] isn't `"none`": perform EXACTLY that action now,",
             "   matching the remediation whitelist the same way you always would. Can't",
@@ -3023,13 +3045,21 @@ try {
             "   `"Approved and sent - see the reply above. (The draft note above is now`"",
             "   `"historical, not pending.)`" - this keeps the record unambiguous for anyone",
             "   reading the ticket later, without a delete that isn't actually possible.",
-            "7. In that same call: set status to [INTENDED STATUS], agent_id: 1 (always",
-            "   unassign yourself, whatever status this landed on - Halo's API-user",
-            "   account doesn't show up in a normal licensed-user list, so a ticket left",
-            "   assigned to it is invisible in the Help Desk ticket list a human looks",
-            "   at), team_id back to help_desk_team_name, and verify: true. Check the",
-            "   response's verified.confirmed before your summary below - don't report",
-            "   `"sent`" if the reply never actually posted.",
+            "7. Check the ticket's current agent_id (from step 1's data, or a fresh",
+            "   mcp__Halo__get_ticket if you don't already have it) before this call.",
+            "   Workflow decision from Roger: never take a ticket away from a real human",
+            "   tech who already holds it. If agent_id is neither 1 (Halo's real",
+            "   `"Unassigned`" placeholder) nor this pipeline's own agent_id, a human tech",
+            "   already holds it - most likely because they claimed it just to approve",
+            "   this draft - so leave agent_id out of this call entirely; don't change it.",
+            "   Otherwise (agent_id is already 1, or somehow this pipeline's own account),",
+            "   include agent_id: 1 same as always - Halo's API-user account doesn't show",
+            "   up in a normal licensed-user list, so a ticket left assigned to it is",
+            "   invisible in the Help Desk ticket list a human looks at. Either way, in",
+            "   that same call: set status to [INTENDED STATUS], team_id back to",
+            "   help_desk_team_name, and verify: true. Check the response's",
+            "   verified.confirmed before your summary below - don't report `"sent`" if",
+            "   the reply never actually posted.",
             "8. Print your one-line summary, then as the very last line of your response",
             "   print exactly `"[CACHE: TRACK]`" if [INTENDED STATUS] was",
             "   waiting_on_client_status_name, or `"[CACHE: UNTRACK]`" for any other",
@@ -3056,8 +3086,9 @@ try {
             "   target>`" (e.g. `"Reset M365 password for jsmith@client.com`" or `"Run",
             "   NinjaOne script 'Reset Printing' on device WKS-1234`") - specific enough",
             "   that FLOW A can execute this exact action later without re-diagnosing.",
-            "   No assignment line is needed - FLOW A always unassigns regardless of",
-            "   which status this lands on (see its own step 7).",
+            "   No assignment line is needed - FLOW A decides agent_id from the ticket's",
+            "   own current state when it executes this later (see its own step 7), not",
+            "   from anything recorded here.",
             "2. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name) -",
             "   ALWAYS this exact value on THIS call, never",
             "   resolved_status_name/waiting_on_client_status_name/follow_up_status_name,",
@@ -3075,8 +3106,14 @@ try {
             "   treats as ordinary, unremarkable ticket state, not something needing",
             "   review - so the pending draft would have gone unnoticed indefinitely",
             "   instead of surfacing for approval.",
-            "3. agent_id: 1 (unassign yourself - visibly free/pending, not stuck showing",
-            "   as yours while it waits).",
+            "3. agent_id: 1 - unless the ticket already belongs to a real human tech",
+            "   (agent_id is neither 1 nor this pipeline's own agent_id) when you",
+            "   fetched it, most likely because you reached it through Ready for AI,",
+            "   which works specifically `"regardless of who it's assigned to`" - in that",
+            "   case, leave agent_id out of this call, per Roger's workflow decision to",
+            "   never take a ticket away from a tech who already holds it. Otherwise,",
+            "   agent_id: 1 (visibly free/pending, not stuck showing as yours while it",
+            "   waits).",
             "update_ticket_draft_only always writes the note above as private and",
             "unemailed regardless of any other argument, so there is no note_is_private",
             "or send_email field to set here - it isn't capable of sending a real reply",
