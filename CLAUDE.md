@@ -2036,6 +2036,41 @@ happened around it) - and if the tool ever does refuse for some reason,
 the instruction is explicit not to fight it or block ticket completion
 over a cosmetic leftover note.
 
+**Two independent bugs on one ticket: an unpaginated Ninja org lookup, and
+a half-completed client relink (v2.10.50).** Roger reported ticket #22107:
+Allie claimed Gold Mechanical doesn't exist in NinjaOne, when it does and
+had been matched correctly before. Confirmed directly: Gold Mechanical is
+a real, actively-monitored NinjaOne org (60+ devices) sitting on page 2 of
+the org list. Root cause: resolver-prompt.md told the resolver to page
+through `list_devices_detailed` with its `after` cursor (documented
+already, for a different reason - its `org_id` filter doesn't filter
+server-side) but never said the same about `mcp__Ninja__list_organizations`
+itself, describing that as a single call - which happens to paginate too,
+and with ~90 real orgs in this tenant, anything past the first 50 was
+invisible. Fixed by adding the same paging instruction to the organization
+lookup.
+
+Separately, but on the same ticket: Allie's own note said she'd re-linked
+it from generic "Unknown" to Gold Mechanical (`client_id` correctly set to
+129), yet the ticket still displayed as client/site "Unknown" everywhere
+in Halo. Cause: `site_id` was left at 1 (the old "Unknown" client's site) -
+Halo needs `client_id` and `site_id` to be a consistent pair, not
+independently correct, and this ticket had no real human contact to
+re-link to at all (an automated Microsoft Entra Connect alert sent to a
+shared system mailbox), a case resolver-prompt.md's existing
+contact-linking guidance never covered - its three documented cases all
+assume a real person eventually gets attached. Added a fourth case for
+exactly this: verified-client, no-real-contact automated alerts should set
+`site_id` alongside `client_id` (the client's designated invoice/primary
+site when more than one exists), leaving `user_id` on the generic system
+contact rather than fabricating a person. While writing that instruction,
+found it would have been impossible to follow: `update_ticket`/
+`update_ticket_draft_only` had no `site_id` parameter at all, even though
+`create_contact`/`get_site` already used one - added it to both tools (and
+to `verifyWrite`'s confirmation check) in the same pass, so the guidance
+being written and the tool capability to follow it landed together instead
+of one arriving without the other.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

@@ -628,6 +628,26 @@ Then continue this ticket's investigation/resolution normally. If step 3 is
 ambiguous (multiple sites, genuinely unclear which), create nothing and fall
 through to the next case instead of guessing a site.
 
+**AUTOMATED/SYSTEM ALERT, VERIFIED CLIENT, NO REAL CONTACT TO LINK:** the
+sender is a generic monitoring/system mailbox (Microsoft Security,
+Huntress, NinjaOne, etc.), not a real person - there's no human identity
+to search for or create a contact for at all, but the client actually
+affected is independently verifiable from the alert's own content (a
+tenant domain, device hostname, org name matching a real Halo client).
+This isn't the same as the three cases above (all assume a real person
+eventually gets attached) - a shared system contact can legitimately
+serve tickets for any client. Set `client_id` to the verified client AND
+`site_id` to a real site under that client (its designated invoice/
+primary site if more than one exists and nothing else in the alert points
+to a specific one) - **real incident, ticket #22107 (Gold Mechanical):** a
+ticket relinked to the correct `client_id` alone, with `site_id` left on
+the old client's site, still displayed as "Unknown" everywhere in Halo
+despite `client_id` being correct - `client_id` and `site_id` have to be
+a consistent pair, not independently correct. Leave `user_id` on the
+generic system contact - don't fabricate or guess at a real person for an
+automated alert. Add a private note stating what changed and why, same as
+the cases above.
+
 **LOW CONFIDENCE - flag for a human, do not act:** everything else - a name
 and company mentioned in text with no phone/email match and no independent
 verification available, a company name alone, an identity you can't confirm
@@ -707,7 +727,17 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    hostname.** `mcp__Ninja__list_organizations` maps the ticket's Halo client
    to its NinjaOne organization (match by client name - NinjaOne contact
    records are frequently empty for a given org, so don't rely on
-   `list_org_contacts` alone). Then call `mcp__Ninja__list_devices_detailed`
+   `list_org_contacts` alone). **Page through the full list with its own
+   `after` cursor (pass the highest `id` seen so far; a shorter-than-`pageSize`
+   or empty page means you've reached the end) before concluding a client has
+   no NinjaOne organization at all** - one call only covers its default
+   `pageSize` (50), and this tenant already has more organizations than that.
+   Real incident: ticket #22107 (Gold Mechanical) - a single unpaginated call
+   put Gold Mechanical's organization on page 2, so the first page alone
+   looked like it didn't exist in NinjaOne, and the resolver told a human so
+   in an internal note, even though Gold Mechanical is a real, actively
+   monitored org with 60+ devices, previously matched correctly on other
+   tickets. Then call `mcp__Ninja__list_devices_detailed`
    (large `pageSize`, e.g. 200) - its `org_id` filter doesn't actually filter
    server-side (confirmed live), so page through with the `after` cursor
    (pass the highest `id` seen so far; an empty array means you've reached

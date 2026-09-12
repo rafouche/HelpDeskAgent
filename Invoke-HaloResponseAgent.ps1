@@ -73,6 +73,42 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.50 - real incident, reported by Roger: ticket #22107. He
+    said Allie wrongly claimed Gold Mechanical doesn't exist in NinjaOne,
+    when it does and had been matched correctly before. Confirmed live: real
+    incident cited directly against ticket #22107 - Gold Mechanical is
+    org_id 82 in NinjaOne with 60+ real, actively-checking-in devices,
+    including domain controllers and dozens of workstations. Root cause:
+    `mcp__Ninja__list_organizations` paginates just like
+    `list_devices_detailed` right below it in resolver-prompt.md, but only
+    `list_devices_detailed` had pagination instructions - the organization
+    lookup was described as a single call. This tenant has ~90 organizations
+    and Gold Mechanical sits on page 2 of the default 50-per-page listing,
+    so one unpaginated call made it look like it didn't exist at all. Fixed
+    by adding the same "page through with `after` until a short/empty page"
+    instruction already used for devices to the organization lookup too.
+    Second, related but independently confirmed bug on the same ticket:
+    Allie's own prior note said she re-linked the ticket from the generic
+    "Unknown" client to Gold Mechanical (client_id 129, confirmed correct)
+    - but the ticket's `site_id` was left at 1 (the old "Unknown" client's
+    site), and the ticket still displayed as client "Unknown"/site "Unknown"
+    everywhere in Halo despite client_id being right, because Halo needs
+    client_id and site_id to be a consistent pair, not independently
+    correct. This is a genuinely new case resolver-prompt.md's existing
+    contact-linking section never covered: an automated/system alert
+    (Microsoft Security, Huntress, NinjaOne, etc.) has no real human contact
+    to attach at all, but the affected client can still be independently
+    verified - added a new documented case for exactly this, requiring
+    site_id to be set alongside client_id even when user_id stays on the
+    generic system contact. Discovered mid-fix that `mcp__Halo__update_ticket`
+    /`update_ticket_draft_only` had no `site_id` parameter at all - the
+    instruction I was about to write would have been physically impossible
+    to follow - so added site_id support to both tools in halopsa-mcp
+    (already true for create_contact/get_site, just never wired into ticket
+    updates) and to verifyWrite's own confirmation check. Typechecked the
+    Worker change clean; ticket #22107 itself still needs a live
+    client_id-129/site_id-259 ("Main") fix once Roger deploys this, since
+    the currently-deployed Worker doesn't support site_id yet.
     Version: 2.10.49 - Roger asked to extend v2.10.48's draft-cleanup to
     FLOW A's own bookkeeping note too. Previously, once the real approved
     reply was sent (step 5), step 6 added a second private note ("Approved
