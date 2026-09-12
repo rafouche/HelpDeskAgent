@@ -1949,6 +1949,44 @@ downstream call site - this project already has a concrete example
 closer-at-hand instruction, so a policy this consequential gets the
 redundant, localized treatment instead.
 
+**The pre-flight gate's change-fingerprint was itself silently broken
+(v2.10.47).** Roger asked for another cost-overrun investigation, this time
+with a real run log attached instead of just an impression. The log's own
+cost breakdown made the culprit obvious: ticket #22033 alone was
+reprocessed by the full classifier+resolver roughly 28 times in one day
+(~$8.68), almost every pass concluding "nothing new happened" only after
+paying for a full Sonnet investigation to find that out - exactly what the
+v2.10.19/2.10.24 gate exists to prevent, except it wasn't preventing it
+here. Root cause: the gate fingerprints "did this ticket change" by
+comparing Halo's `last_update` field, which is "any field on this ticket
+record changed" - and Halo recomputes time-based fields (slaholdtime, for
+an on-hold ticket) on its own, continuously, with zero human or agent
+activity. Every status a ticket sits in while awaiting review is on hold,
+so `last_update` on a genuinely untouched ticket drifted anyway -
+confirmed directly against live Halo data: a ticket's `last_update` moved
+15 minutes after its true last action, with nothing new anywhere in its
+real action log for that gap. The gate's "nothing changed" skip did fire
+on plenty of other cycles - it just couldn't ever fire for a ticket sitting
+on hold, which is precisely the state a tracked, awaiting-approval ticket
+is in almost all the time. Fixed by switching the fingerprint to HaloPSA's
+separate `lastactiondate` field (only moves when a real Action - note,
+reply, status change - is actually added), changed in both halopsa-mcp's
+`/helpdesk-gate` route (which now returns `last_action_date` instead of
+`last_update`) and this script's own gate-comparison logic. Worth naming
+directly: this is the second time a "gate" or "verification" mechanism in
+this project turned out to be checking the wrong signal rather than not
+existing at all (the first being v2.10.41's TryParse overload-resolution
+failure) - a real incident with a real log was needed to catch it either
+time, not just re-reading the code.
+
+Also surfaced in the same log review, not chased to a fix: one resolver
+pass on #22033 reported finding "3 separate [DRAFT PENDING APPROVAL]
+notes" in the ticket's history, but the ticket's actual, complete action
+log (read directly) has only ever contained one - and since Halo notes
+can't be deleted, a real second or third draft would still be sitting
+there. Recorded as an apparent resolver miscount rather than papered over,
+but not acted on further without more evidence of how it happened.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

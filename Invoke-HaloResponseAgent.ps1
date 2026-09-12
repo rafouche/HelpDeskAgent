@@ -73,6 +73,44 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.47 - real incident, cost-overrun investigation requested by
+    Roger against today's actual run log: ticket #22033 alone was
+    reprocessed by the full classifier+resolver pipeline roughly 28 times
+    in one day (Sonnet, MEDIUM tier each time) for ~$8.68, nearly all of it
+    the resolver re-investigating from scratch only to conclude "nothing
+    new happened" - the exact expensive anti-pattern the pre-flight gate
+    (v2.10.19/2.10.24) exists to prevent. Root cause: the gate's "has this
+    ticket changed since last cycle" fingerprint (both the tracked bucket
+    and the unassigned bucket) compared Halo's raw `last_update` field -
+    which is "any field on this ticket record changed," and Halo
+    recomputes time-based fields (slaholdtime in particular) on its own for
+    any on-hold ticket, with zero human or agent activity. Every status a
+    ticket sits in while awaiting review (AI Waiting Approval, AI Approved,
+    Waiting on client, ...) shows `onhold: true`, so `last_update` on a
+    genuinely untouched ticket kept drifting anyway - confirmed live: a
+    ticket's `last_update` moved 15 minutes after its actual last action
+    with nothing new anywhere in its real action log. That made the gate
+    see "changed" on nearly every cycle for any tracked or on-hold
+    unassigned ticket, defeating the fingerprint entirely while still
+    reporting it as working (the log's "gate: nothing changed" skip did
+    fire on some cycles - just not the ones that mattered here). Fixed by
+    switching the fingerprint to HaloPSA's separate `lastactiondate` field,
+    which only moves when a real Action (note/reply/status change) is
+    actually added - confirmed against the same ticket's data, where it
+    stayed constant across that entire drifting `last_update` window.
+    Changed in two places: halopsa-mcp's `/helpdesk-gate` route now returns
+    `last_action_date` (from `lastactiondate`) instead of `last_update` for
+    both the tracked and unassigned projections (separate repo,
+    rafouche/MCPs), and this script's gate-comparison logic reads that
+    field instead. Typechecked the Worker change clean; Roger deploys it
+    separately. Also surfaced from the same log review, not yet fixed: one
+    resolver pass on ticket #22033 claimed its history held "3 separate
+    [DRAFT PENDING APPROVAL] notes," but the ticket's actual, complete
+    action log (verified directly) has only ever contained one - since
+    Halo notes can't be deleted, a real second or third draft would still
+    be there. Flagging this as an apparent resolver miscount/hallucination
+    rather than a confirmed, fixable defect - noted here for visibility,
+    not chased further without more to go on.
     Version: 2.10.46 - new workflow decision from Roger: never take a ticket
     away from a real human tech who already holds it; status changes can
     still happen. Every place in this pipeline that ends a pass by forcing
@@ -3176,8 +3214,8 @@ try {
                     $key = [string]$t.id
                     if (-not $t.found) { $anyTrackedChanged = $true; continue }
                     $previousSeen = $trackedLastSeen[$key]
-                    if (-not $previousSeen -or $previousSeen -ne $t.last_update) { $anyTrackedChanged = $true }
-                    $trackedLastSeen[$key] = $t.last_update
+                    if (-not $previousSeen -or $previousSeen -ne $t.last_action_date) { $anyTrackedChanged = $true }
+                    $trackedLastSeen[$key] = $t.last_action_date
                 }
                 # Real incident: unassigned_count alone can never go quiet on
                 # a queue that always has a few non-actionable tickets
@@ -3189,20 +3227,34 @@ try {
                 # three tickets" from "something genuinely new." Fingerprint
                 # this bucket the same way tracked tickets already are: only
                 # count it as changed if a ticket ID here wasn't seen last
-                # cycle (genuinely new), or an already-seen one's last_update
-                # moved (something happened to it). A ticket simply leaving
-                # this bucket (claimed for real, resolved) isn't itself a
-                # signal - there's nothing left for the classifier to do
-                # about it - so that alone doesn't trigger a run, only prunes
-                # it from $unassignedLastSeen below.
+                # cycle (genuinely new), or an already-seen one's
+                # last_action_date moved (something happened to it). A
+                # ticket simply leaving this bucket (claimed for real,
+                # resolved) isn't itself a signal - there's nothing left for
+                # the classifier to do about it - so that alone doesn't
+                # trigger a run, only prunes it from $unassignedLastSeen
+                # below.
+                #
+                # Real incident: this fingerprint used to compare Halo's raw
+                # `last_update` field, which moves on its own for any
+                # on-hold ticket (Halo recomputes slaholdtime continuously,
+                # with zero real activity) - confirmed live via ticket #22033
+                # sitting untouched in AI Waiting Approval for hours while
+                # `last_update` still drifted, which made this gate see
+                # "changed" on nearly every cycle and reprocess it through
+                # the full classifier+resolver about 28 times in one day at
+                # real Sonnet cost, chasing a change that never happened.
+                # `last_action_date` (halopsa-mcp's `lastactiondate`) only
+                # moves when a real Action - a note, reply, or status change
+                # - is actually added, so it's immune to that drift.
                 $anyUnassignedChanged = $false
                 $seenUnassignedIds = @{}
                 foreach ($u in @($gate.unassigned)) {
                     $key = [string]$u.id
                     $seenUnassignedIds[$key] = $true
                     $previousSeen = $unassignedLastSeen[$key]
-                    if (-not $previousSeen -or $previousSeen -ne $u.last_update) { $anyUnassignedChanged = $true }
-                    $unassignedLastSeen[$key] = $u.last_update
+                    if (-not $previousSeen -or $previousSeen -ne $u.last_action_date) { $anyUnassignedChanged = $true }
+                    $unassignedLastSeen[$key] = $u.last_action_date
                 }
                 foreach ($key in @($unassignedLastSeen.Keys)) {
                     if (-not $seenUnassignedIds.ContainsKey($key)) { $unassignedLastSeen.Remove($key) }
