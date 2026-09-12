@@ -2003,6 +2003,39 @@ by the time this was checked. See v2.10.48 below for the actual fix -
 `delete_ticket_note`, called before writing a new draft whenever one
 replaces an old one, so this shouldn't recur.
 
+**A superseded draft is deleted, not just superseded (v2.10.48).** Direct
+follow-on from Roger's correction above: since notes really can be deleted,
+added `delete_ticket_note` to halopsa-mcp - deliberately narrow, not a
+general-purpose delete. It fetches the target action first and refuses (no
+delete happens) unless it belongs to the given ticket_id, is private
+(`hiddenfromuser: true`), and its note starts with the exact literal
+`[DRAFT PENDING APPROVAL]` marker - structurally incapable of removing a
+human's note or a real client-facing reply even if pointed at the wrong
+action by mistake, the same "safe by construction" pattern
+`update_ticket_draft_only` already uses. Wired into the two places a new
+draft actually replaces an old one, per Roger's literal request ("delete
+any prior drafts if a new draft is suggested to keep the ticket flow
+clean"): FLOW B's own draft-writing step, and resolver-prompt.md's "If a
+human left a note on your own pending draft" revision flow - both now
+delete any prior draft note before writing the new one. Deliberately left
+FLOW A step 6 (the "Approved and sent" bookkeeping note added once a draft
+is actually sent) unchanged at the time - a different case (a real reply
+superseding a draft, not a draft superseding a draft) Roger hadn't asked
+about yet.
+
+**FLOW A's own bookkeeping note extended the same way (v2.10.49).** Roger
+asked directly to extend the cleanup to this case too. Once the real reply
+is sent (step 5), the draft note is no longer pending and has nothing left
+to document that the sent reply doesn't already show - so step 6 now
+deletes it (`delete_ticket_note`) instead of adding a second private note
+marking it "historical, not pending." Safe for the same structural reason
+as the FLOW B/revision-flow case: the tool refuses unless the target is
+still a private, `[DRAFT PENDING APPROVAL]`-prefixed note, which this one
+still is at the moment of deletion (its text hasn't changed, only what's
+happened around it) - and if the tool ever does refuse for some reason,
+the instruction is explicit not to fight it or block ticket completion
+over a cosmetic leftover note.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

@@ -73,6 +73,27 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.49 - Roger asked to extend v2.10.48's draft-cleanup to
+    FLOW A's own bookkeeping note too. Previously, once the real approved
+    reply was sent (step 5), step 6 added a second private note ("Approved
+    and sent - see the reply above. (The draft note above is now
+    historical, not pending.)") rather than deleting the original draft,
+    since at the time v2.10.48 shipped that felt like a different case
+    (Roger hadn't asked about it) from a draft superseding a draft. Now that
+    he's asked directly: step 6 deletes the draft note instead
+    (delete_ticket_note) - once the real reply is posted, the draft has
+    nothing left to document that the sent reply doesn't already show, so
+    there's no reason to leave it (or a second note about it) behind. Safe
+    for the same reason as the FLOW B/revision-flow case: the tool refuses
+    unless the target is still a private note starting with the exact
+    `[DRAFT PENDING APPROVAL]` marker, which it still is at this point (only
+    what's happened around it changed, not its own text) - if it ever does
+    refuse, the instruction is explicit not to fight it or block completing
+    the ticket over a cosmetic leftover note. Prompt-only change (this
+    script's own FLOW A banner text); no halopsa-mcp change needed since
+    delete_ticket_note already existed. Re-verified by extracting and
+    rendering the edited PowerShell string array end to end, not just
+    re-parsing the file.
     Version: 2.10.48 - feature requested by Roger, correcting a claim from
     this same day: notes CAN be deleted in HaloPSA - Roger deleted #22033's
     duplicate drafts himself, by hand, trying to get it to reprocess. The
@@ -3121,14 +3142,18 @@ try {
             "   verify: true - note_is_private alone does not email the client, see",
             "   resolver-prompt.md's `"Sending a real, client-facing reply`" section) - its",
             "   own call, unchanged from what was drafted.",
-            "6. update_ticket/update_ticket_draft_only still can't edit or delete a note -",
-            "   only mcp__Halo__delete_ticket_note can, and it's deliberately scoped to a",
-            "   still-pending `"[DRAFT PENDING APPROVAL]`" draft (see its own description),",
-            "   which this one no longer is once it's been acted on. So instead of deleting",
-            "   it, add one more private note in the same final call as step 7:",
-            "   `"Approved and sent - see the reply above. (The draft note above is now`"",
-            "   `"historical, not pending.)`" - this keeps the record unambiguous for anyone",
-            "   reading the ticket later.",
+            "6. Delete the draft note: mcp__Halo__delete_ticket_note (ticket_id, the draft",
+            "   note's own action_id from step 1). Per Roger's request, extending the same",
+            "   cleanup FLOW B and the revision flow already do for a superseded draft - now",
+            "   that the real reply from step 5 is posted, this draft is no longer pending",
+            "   and the reply above is the actual record a human reads, so there's nothing",
+            "   left for it to document. The tool refuses (no delete happens) unless the",
+            "   target is still a private note starting with the exact literal",
+            "   `"[DRAFT PENDING APPROVAL]`" marker, so it's safe to call even moments after",
+            "   sending. If it refuses for any reason, don't fight it or guess at a",
+            "   workaround - just leave the draft in place and continue to step 7 anyway;",
+            "   a leftover draft note here is cosmetic, not a reason to stop completing",
+            "   this ticket.",
             "7. Check the ticket's current agent_id (from step 1's data, or a fresh",
             "   mcp__Halo__get_ticket if you don't already have it) before this call.",
             "   Workflow decision from Roger: never take a ticket away from a real human",
