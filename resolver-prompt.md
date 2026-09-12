@@ -726,36 +726,62 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    a hypothetical).
 
    **Check Hudu first for this client's network stack - a cached fact, not a
-   substitute for verifying it's still true.** Hudu companies aren't the same
-   ID space as Halo clients - find this client's Hudu `company_id` first via
-   `mcp__Hudu__company_index_tool` with `q` set to the client's name, then
-   search `mcp__Hudu__article_index_tool` with that `company_id` and
-   `q: "Network Stack"` before searching all three vendor systems blind. If a
-   matching article exists, use it to skip straight to
-   the vendor(s) it names instead of querying all three - but confirm the
-   specific device/role you actually need still resolves there via a real
-   call (`get_device`, `list_devices`, etc.) before relying on it for
-   anything you're about to act on or tell a client. **The article is a
-   starting point, never ground truth on its own** - hardware gets swapped
-   (this client's Peplink APs could become UniFi or Meraki ones later; that's
-   exactly why this isn't a permanent fact to hardcode anywhere) and the live
-   systems are what's actually true right now. If what you find live
-   contradicts the article - a vendor it names no longer has this client's
-   gear, or a vendor it doesn't mention now does - update the article
-   (`mcp__Hudu__article_edit_tool`) to match reality before moving on, so the
-   next ticket isn't sent looking in the wrong place by a stale cache you
-   already know is wrong.
+   substitute for verifying it's still true.** This uses Hudu's real, existing
+   Asset Layouts (`Firewalls`, `Switches`, `Wireless`) - never the
+   `AI-Documented Fixes` article folder from "Check for prior art" above.
+   That folder name/pattern is reserved exclusively for the central
+   documented-fix KB; do not create or search articles for network-stack
+   caching. Hudu companies aren't the same ID space as Halo clients - find
+   this client's Hudu `company_id` first via `mcp__Hudu__company_index_tool`
+   with `q` set to the client's name.
 
-   If no such article exists yet, and this investigation ends up determining
-   the real stack (which vendor(s) actually have this client's firewall/
-   switches/APs), write one: `mcp__Hudu__article_create_tool` with this
-   client's `company_id`, name exactly `"Network Stack (AI-verified)"` (so
-   future lookups can find it by that same search string), body naming each
-   role found and which vendor/org/site/group provides it, plus the date
-   verified. Skip writing one for a ticket that only touched a single,
-   already-obvious vendor with nothing ambiguous to record - this is for
-   genuinely saving a future ticket the same three-system search, not a
-   mandatory step on every network ticket.
+   Then, before searching all three vendor systems blind, check for an
+   existing asset recording the vendor for the specific role(s) this ticket
+   concerns: `mcp__Hudu__asset_index_tool` with that `company_id` and the
+   matching `asset_layout_id` - `Firewalls` for a firewall finding,
+   `Switches` for a switch finding, `Wireless` for an access-point finding
+   (resolve the current numeric layout IDs by name with
+   `mcp__Hudu__asset_layout_index_tool` rather than hardcoding them - a
+   layout can be renamed or renumbered). Pass `include: ["fields"]` to read
+   the `manufacturer` field directly. If a matching asset exists, its
+   `manufacturer` value is a starting hint, never ground truth on its own -
+   confirm the specific device/role you actually need still resolves live
+   (`get_device`, `list_devices`, etc., in whatever vendor system it names)
+   before relying on it for anything you're about to act on or tell a
+   client. **Hardware gets swapped** - this client's Peplink APs could
+   become UniFi or Meraki ones later, which is exactly why this is a cache
+   to re-confirm, not a permanent fact to hardcode anywhere.
+
+   If what you find live contradicts the asset - it names a vendor that no
+   longer has this client's gear for that role, or omits one that now does -
+   update it with `mcp__Hudu__asset_edit_tool` so the next ticket isn't sent
+   looking in the wrong place by a cache you already know is wrong.
+
+   If no asset exists yet for a role and this investigation determines the
+   real vendor, record it: `mcp__Hudu__asset_create_tool` with this client's
+   `company_id`, the role's `asset_layout_id`, a plain descriptive name (e.g.
+   `"Firewall"`, `"Switches"`, `"Wireless"` - the company scoping already
+   identifies whose it is), and `custom_fields` setting `manufacturer` to the
+   matching list item for that layout - always check
+   `mcp__Hudu__asset_layout_show_tool` for the exact current spelling rather
+   than assuming, since it differs slightly per layout (confirmed live:
+   Firewalls/Switches use `"Meraki"` and `"Ubiquiti"`; Wireless instead uses
+   `"Meraki (Cisco)"` and `"Ubiquiti"`). **None of these three layouts'
+   `manufacturer` list includes "Peplink" as an option** (confirmed live -
+   only `"Other"` fits) - for a Peplink finding, set `manufacturer` to
+   `["Other"]` and put "Peplink" explicitly in the `model` field
+   (Firewalls/Switches) or the `description/notes` field (Wireless, which
+   has no `model` field), so it's still findable by a human or a future
+   ticket even though the structured dropdown can't name the vendor
+   directly. Put the verification date and what was checked in the asset's
+   `notes`/`description/notes` field (e.g. "Vendor confirmed live via
+   Peplink MCP, 2026-09-12"), so a future ticket can see how fresh the cache
+   is, not just what it claims.
+
+   Skip writing one for a ticket that only touched a single, already-obvious
+   vendor with nothing ambiguous to record - this is for genuinely saving a
+   future ticket the same three-system search, not a mandatory step on every
+   network ticket.
 
    Search each of the three systems for this client by name
    (`mcp__Unifi__list_sites`, `mcp__Meraki__list_organizations`,

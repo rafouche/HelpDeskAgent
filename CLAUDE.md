@@ -2162,6 +2162,58 @@ there for the next ticket to trust. No new tool grants needed - reuses
 Hudu tools already granted for the existing prior-art-search and
 fix-documentation patterns.
 
+**CIPP confirmation strengthened, and the v2.10.54 Hudu design rejected and
+redone (v2.10.55).** Two fixes from the same Roger message. First, easy: he
+asked to confirm `list_message_trace` still exists on cipp-mcp, and clarified
+the actual CIPP history directly - CIPP-ng's built-in MCP was tried and
+abandoned ("beta and extremely limited"); the custom `cipp-mcp` Cloudflare
+Worker (built in a separate chat, using CIPP's own documented APIs) is the
+real, current, intentionally-maintained tool, not a legacy holdover pending
+replacement. `rafouche/MCPs` turned out to be a monorepo - `cipp-mcp/` is a
+sibling of `halopsa-mcp/` in the same repo, both reachable from this
+environment. Grepped its source directly rather than trusting the v2.10.53
+note's own hedge: both `list_mailboxes` and `list_message_trace` are present
+in `cipp-mcp/src`, schema and handler both, exactly as resolver-prompt.md and
+the v2.10.53 allowlist fix assumed. This also means the "In-flight /
+not-yet-built" CIPP-migration note below (which still framed this same
+worker as "the original, supposedly-retired" tool awaiting cutover to
+CIPP-ng) was stale and has been corrected - see that section.
+
+Second, larger: Roger rejected the v2.10.54 design outright, not just a
+detail of it - "Do not use a[sic] that sing[sic] Network Stack AI approved
+thing. Only the central KB actual documented fixes use the AI-Documented
+Fixes type naming. ... use any of the existing Hudu categories, cards, or
+whatever they are called (firewalls, ipam, network devices, switches)."
+v2.10.54 had invented a single custom KB article type
+(`"Network Stack (AI-verified)"`) and reused the same `article_create_tool`/
+`article_edit_tool` mechanism as the actual central fix-documentation
+feature - conflating two different concerns under one ad-hoc naming
+convention that was never checked against what Hudu already has. Same shape
+of mistake as v2.10.51 (a plausible-sounding design shipped without
+verifying it against real data/real conventions first) - this time caught
+by Roger before any real ticket exercised it, not after. Fetched Hudu's real
+Asset Layout list and field schemas live before redesigning anything:
+Firewalls (id 20), Switches (27), Wireless (6), Network Devices (2),
+ISP/WAN Circuits (21), and LAN (22, confirmed to be per-VLAN/subnet
+documentation - not a vendor-identity fit, so not used for this). Rewrote
+resolver-prompt.md to check/create a real Asset under the matching layout
+(by hardware role - Firewalls/Switches/Wireless) instead of a KB article,
+using each layout's own actual `manufacturer` field - confirmed live that
+the exact list_items spelling differs per layout (Firewalls/Switches use
+`"Meraki"`/`"Ubiquiti"`; Wireless instead uses `"Meraki (Cisco)"`/
+`"Ubiquiti"`) and that none of the three layouts lists "Peplink" as an
+option at all (only `"Other"` fits - documented as "Other" plus an explicit
+note in the model/notes field). Added the four new Hudu tools this needs to
+`$resolverTools`; unlike the article tools, `asset_create_tool`/
+`asset_edit_tool` write to a client's real, team-visible Firewalls/Switches/
+Wireless records rather than an isolated internal folder, so they're in
+`$mutatingTools` and get simulated under `-WhatIf` like everything else that
+touches real client-facing state - see the allowlist comments for the
+reasoning. The underlying goal Roger asked for in the original message (cache
+a finding, but never trust it blind, since hardware gets swapped) didn't
+change - only the storage mechanism did, because the first one was invented
+rather than checked against what Hudu already had.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
@@ -2174,23 +2226,30 @@ multiple resolver processes in flight at once, not just sequential), not a
 config tweak. Not worth building preemptively.
 
 ## In-flight / not-yet-built
-- **CIPP MCP migration — NOT actually cut over yet, despite an earlier note here
-  claiming otherwise.** `claude mcp list` on the production server still shows
-  `CIPP` pointed at `cipp-mcp.young-math-a33a.workers.dev` — the original,
-  supposedly-retired custom Cloudflare Worker, not CIPP-ng's built-in MCP
-  (`cipp.altecusa.com`). Roger chose to keep using the old worker for now rather
-  than block on registering the new one. When CIPP-ng is registered on that
-  machine and you're ready to cut over: register it under a clear name (e.g.
-  `claude mcp add CIPPNG https://cipp.altecusa.com/... ...`), re-verify its tool
-  names match (`get_user`, `healthcheck`, `reset_user_password`, `enable_user`,
-  `cipp_api_get` — these carried over unchanged from the old worker as far as
-  could be verified from a separate Claude session hitting the CIPP-ng instance
-  directly, but re-check against production), then update the `mcp__CIPP__...`
-  entries in `Invoke-HaloResponseAgent.ps1` and `resolver-prompt.md` to the new
-  server name.
-- **Email/bounce diagnostics**: the CIPP server (old worker, see above) now has a
-  dedicated `list_message_trace` tool (added v2.10.38, `rafouche/MCPs` commit
-  `c8aa744`) with verified real param names — wired into `resolver-prompt.md`.
+- **CIPP MCP migration — CORRECTED (v2.10.55): there is no pending migration.
+  The custom `cipp-mcp` Worker is the intended, permanent tool, not a legacy
+  holdover.** This entry previously framed `cipp-mcp.young-math-a33a.workers.dev`
+  as "the original, supposedly-retired custom Cloudflare Worker" awaiting
+  cutover to CIPP-ng's built-in MCP (`cipp.altecusa.com`) once registered.
+  Roger corrected this directly: CIPP-ng's built-in MCP was tried and
+  abandoned ("beta and extremely limited"); `cipp-mcp` - built in a separate
+  chat, using CIPP's own directly-documented APIs, and maintained/updated
+  across sessions including this one - is the real, current, intentionally-
+  chosen tool. There is no cutover to plan for. `rafouche/MCPs` is a
+  monorepo; `cipp-mcp/` is a sibling of `halopsa-mcp/` in it, and its source
+  is directly readable/editable from this environment - Roger deploys
+  whichever Worker's changes to Cloudflare himself from that Worker's own
+  chat context after they're committed/pushed here. Unlike the versioned
+  "Design decisions and why" entries above (each a dated historical record,
+  never rewritten), this "In-flight" section is a living status note, so the
+  stale framing is corrected in place rather than left standing - the mistake
+  itself, and the CIPP MCP source confirmation that caught it, are recorded
+  in the v2.10.55 entry above instead.
+- **Email/bounce diagnostics**: the `cipp-mcp` Worker (the real, current CIPP
+  tool - see above) has a dedicated `list_message_trace` tool (added v2.10.38,
+  `rafouche/MCPs` commit `c8aa744`) with verified real param names — wired into
+  `resolver-prompt.md`, and directly reconfirmed present in the live source at
+  v2.10.55.
   **Known unresolved gap, not fixable from either MCP repo's code**: verified live
   that this worker's tenant-scoping doesn't actually work for message trace
   specifically — a query for a real client tenant (bcfo.org) silently returned the

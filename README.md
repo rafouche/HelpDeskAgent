@@ -384,27 +384,21 @@ read access to it (`mcp__HUDU__asset_index_tool`/`asset_show_tool`). That keeps 
 "no IDs in config" pattern: the agent looks up the client's 3CX connection details
 from Hudu by company name, same as it looks up Halo team/status IDs by name today.
 
-## CIPP MCP swap — not actually cut over yet
-The plan is to move from the self-built CIPP Worker to CIPP-ng's built-in MCP
-server, but as of the last check (`claude mcp list` on the production server),
-the registered `CIPP` connector still points at the original custom Worker
-(`cipp-mcp.young-math-a33a.workers.dev`), not CIPP-ng (`cipp.altecusa.com`) — the
-production machine hasn't been switched over. That's fine for now: the script
-uses whatever's registered as `CIPP` and the old worker is still connected and
-working, so there's no rush.
-
-When you're ready to cut over: register the CIPP-ng MCP server under a clear,
-distinct name (e.g. `CIPPNG` — see "Registering MCP servers" below), confirm its
-tool names (`get_user`, `healthcheck`, `reset_user_password`, `enable_user`,
-`cipp_api_get` all carried over unchanged when checked against a CIPP-ng instance
-directly, but re-verify against your own — run `.\Invoke-HaloResponseAgent.ps1
--DryRun` or ask `claude` interactively to list that server's tools), then update
-every `mcp__CIPP__...` entry in `Invoke-HaloResponseAgent.ps1` and
-`resolver-prompt.md` to the new server name. Nothing in `config.json` needs to
-change either way — remember Claude Code matches MCP tools as
-`mcp__<ServerName>__<tool>` (see "Registering MCP servers" below for why this
-matters), so the rename has to happen in both the allowlist and the prompt, not
-just one.
+## CIPP MCP — the custom Worker is the permanent tool, not a migration in progress
+**Corrected (v2.10.55) — this section previously described a planned cutover
+to CIPP-ng's built-in MCP that Roger says is not happening.** CIPP-ng's
+built-in MCP was tried and abandoned (beta, extremely limited). The `CIPP`
+connector (`cipp-mcp.young-math-a33a.workers.dev`) is the custom Cloudflare
+Worker built specifically for this, using CIPP's own directly-documented
+APIs, and it's the real, intentionally-chosen, ongoing tool — not a legacy
+holdover awaiting replacement. `rafouche/MCPs` is a monorepo; `cipp-mcp/` is
+a sibling of `halopsa-mcp/` in it, so its source can be read and edited from
+the same environment as this project when a fix or new tool is needed
+(confirmed directly at v2.10.55: `list_message_trace`/`list_mailboxes` both
+genuinely exist in its source, exactly as `resolver-prompt.md` assumes) —
+Roger deploys the change to Cloudflare himself from that Worker's own chat
+context afterward. There is no `CIPPNG` server to register and no cutover
+to plan for.
 
 ## Registering MCP servers (command line / PowerShell)
 Run once per Windows account that will execute the scheduled task (see the note

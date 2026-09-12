@@ -73,6 +73,56 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.55 - two fixes from the same Roger message. First: directly
+    confirmed mcp__CIPP__list_message_trace and mcp__CIPP__list_mailboxes
+    still exist in the real production cipp-mcp Worker source
+    (/home/user/mcps/cipp-mcp/src - rafouche/MCPs is a monorepo, cipp-mcp is
+    a sibling of halopsa-mcp in it), not just inferred from this file's own
+    v2.10.37/.38 history as v2.10.53's note hedged - Roger clarified CIPP-ng's
+    built-in MCP was tried and abandoned (beta, extremely limited) and this
+    custom cipp-mcp using documented APIs is the real, current, maintained
+    tool. Grepped its source directly: list_mailboxes (schema + handler
+    calling ListMailboxes) and list_message_trace (schema + handler calling
+    ListMessageTrace) both present exactly as resolver-prompt.md and
+    v2.10.53's fix assumed. v2.10.53's hedge is superseded; no code change
+    needed here, the allowlist fix already shipped was correct.
+    Second, and the larger piece: Roger rejected v2.10.54's Hudu design
+    outright - "Do not use a[sic] that sing[sic] Network Stack AI approved
+    thing. Only the central KB actual documented fix[es] use the
+    AI-Documented Fixes type naming." v2.10.54 invented a single custom KB
+    article type ("Network Stack (AI-verified)") for per-client network-stack
+    caching, reusing the same article_create_tool/article_edit_tool mechanism
+    as the actual fix-documentation feature - conflating two different things
+    under one naming convention, exactly the kind of unforced, unverified
+    design choice this project's discipline exists to catch (same shape as
+    v2.10.51's mistake, this time caught by Roger before any real ticket used
+    it rather than after). Replaced with Hudu's real, pre-existing Asset
+    Layout system: fetched the live layout list (mcp__Hudu__asset_layout_index_tool,
+    27 layouts total) and field schemas (mcp__Hudu__asset_layout_show_tool)
+    for Firewalls (id 20), Switches (27), Wireless (6), Network Devices (2),
+    ISP/WAN Circuits (21), and LAN (22, confirmed to be per-VLAN/subnet
+    documentation, not a vendor-identity fit, so not used here) before writing
+    a single line of guidance, rather than guessing at field names.
+    resolver-prompt.md's network section now checks/creates a real asset
+    under the matching layout (Firewalls/Switches/Wireless, by role) instead
+    of a KB article - manufacturer set via mcp__Hudu__asset_create_tool's
+    custom_fields to the exact list_items spelling for that layout (confirmed
+    live: Firewalls/Switches use "Meraki"/"Ubiquiti", Wireless instead uses
+    "Meraki (Cisco)"/"Ubiquiti" - not interchangeable, always re-check via
+    asset_layout_show_tool rather than assuming one layout's spelling applies
+    to another). Also confirmed live: none of these three layouts' manufacturer
+    list includes "Peplink" as an option (only "Other" fits) - documented that
+    a Peplink finding needs "Other" plus an explicit note in the model/notes
+    field, an open detail from the prior turn that's now resolved. Added
+    mcp__HUDU__asset_layout_index_tool/asset_layout_show_tool (read-only) and
+    asset_create_tool/asset_edit_tool (write) to $resolverTools; unlike
+    article_create_tool/article_edit_tool, the asset write tools ARE in
+    $mutatingTools (simulated under -WhatIf) since they write real client-
+    facing Hudu records, not an isolated internal-only folder - see the
+    allowlist comments at each tool's declaration for the full reasoning.
+    The underlying goal from v2.10.54 (cache a finding, never trust it blind,
+    since hardware gets swapped) is unchanged - only the storage mechanism
+    was wrong, and Roger corrected the mechanism, not the goal.
     Version: 2.10.54 - feature requested by Roger following the v2.10.52
     UniFi/Meraki/Peplink correction: cache a client's actual network stack in
     Hudu once discovered, so a future network ticket doesn't repeat the same
@@ -2314,11 +2364,10 @@ $resolverTools = @(
 
     # --- M365 / CIPP identity: read + the two whitelisted remediation actions ---
     # Server registered here as "CIPP" (cipp-mcp.young-math-a33a.workers.dev) -
-    # this is still the ORIGINAL custom CIPP Worker; the migration to CIPP-ng's
-    # built-in MCP (cipp.altecusa.com) hasn't been cut over on this machine yet.
-    # Once you register the CIPP-ng server and are ready to switch, update the
-    # server name here (and re-verify these tool names against it) - see
-    # README's "CIPP MCP swap" section.
+    # this is the custom CIPP Worker, using CIPP's own documented APIs, and it's
+    # the real, permanent, intentionally-chosen tool (CORRECTED v2.10.55 - Roger
+    # confirmed CIPP-ng's built-in MCP was tried and abandoned; there is no
+    # cutover in progress or planned). See README's "CIPP MCP" section.
     "mcp__CIPP__get_user", "mcp__CIPP__healthcheck", "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     # Real incident, found the same day as v2.10.52's UniFi/Meraki/Peplink
     # correction, this time from directly cross-checking every mcp__CIPP__*
@@ -2434,16 +2483,30 @@ $resolverTools = @(
     # (config's hudu_fix_folder_name) instead of relying only on keyword search,
     # which can miss an existing fix article that doesn't share search terms.
     "mcp__HUDU__article_folder_index_tool",
-    # --- Documentation, write. Only ever writes to the "AI-Documented Fixes" folder
-    #     from config.json (never edits client-facing docs), so this doesn't need a
-    #     remediation_whitelist entry - it never touches a client's live systems.
-    #     Deliberately absent from $mutatingTools below, unlike every other tool in
-    #     this file that changes something: a -WhatIf run keeps these two live so
-    #     testing runs build real, reusable KB content instead of just describing
-    #     what they would have written - see resolver-prompt.md's "Documenting a
-    #     fix that worked" section for how a simulation-sourced article gets
-    #     labeled so it's never mistaken for a confirmed fix. ---
-    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
+    # asset_layout_index_tool/asset_layout_show_tool (v2.10.55): read-only, resolve
+    # a real Asset Layout's current numeric ID by name (Firewalls/Switches/Wireless)
+    # and its field schema (the exact `manufacturer` list_items spelling, which
+    # differs slightly per layout) - see resolver-prompt.md's network-stack-caching
+    # section for why this replaced the v2.10.54 custom-KB-article design.
+    "mcp__HUDU__asset_layout_index_tool", "mcp__HUDU__asset_layout_show_tool",
+    # --- Documentation, write. article_create_tool/article_edit_tool only ever
+    #     write to the "AI-Documented Fixes" folder from config.json (never edit
+    #     client-facing docs), so they don't need a remediation_whitelist entry -
+    #     they never touch a client's live systems. Deliberately absent from
+    #     $mutatingTools below, unlike every other tool in this file that changes
+    #     something: a -WhatIf run keeps these two live so testing runs build real,
+    #     reusable KB content instead of just describing what they would have
+    #     written - see resolver-prompt.md's "Documenting a fix that worked"
+    #     section for how a simulation-sourced article gets labeled so it's never
+    #     mistaken for a confirmed fix.
+    #     asset_create_tool/asset_edit_tool (v2.10.55) are different: they write
+    #     to a client's REAL Firewalls/Switches/Wireless asset records, the same
+    #     documentation the whole team relies on - not an isolated internal-only
+    #     folder - so unlike the article tools above, these two ARE in
+    #     $mutatingTools below and get simulated under -WhatIf like everything
+    #     else that touches real client-facing state. ---
+    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool",
+    "mcp__HUDU__asset_create_tool", "mcp__HUDU__asset_edit_tool"
 )
 # --- 3CX (not yet built): add its tool names as their own block inside the array
 #     above once the multi-tenant 3CX MCP worker exists, e.g.
@@ -2466,7 +2529,12 @@ $mutatingTools = @(
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
-    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
+    # v2.10.55: writes to a client's real Hudu asset records (Firewalls/Switches/
+    # Wireless), not the isolated "AI-Documented Fixes" folder - see the note where
+    # $resolverTools declares these two for why they're treated differently from
+    # article_create_tool/article_edit_tool, which stay live under -WhatIf.
+    "mcp__HUDU__asset_create_tool", "mcp__HUDU__asset_edit_tool"
 )
 
 # Subset of $mutatingTools that -RequireApproval strips from a non-APPROVED-tier
