@@ -2071,6 +2071,28 @@ to `verifyWrite`'s confirmation check) in the same pass, so the guidance
 being written and the tool capability to follow it landed together instead
 of one arriving without the other.
 
+**Peplink was registered but never actually wired in (v2.10.51).** Roger caught
+this by reading the Capabilities Brief and noticing Peplink wasn't listed
+alongside UniFi/Meraki in §05 - not from a ticket hitting a tool denial, unlike
+every other gap in this document's Network section. Confirmed directly: Peplink
+(InControl2) had been a registered MCP server the whole time, but grepping the
+entire codebase for "Peplink" came back with zero matches anywhere before this
+fix - not in the resolver's tool allowlist, not in resolver-prompt.md, nowhere.
+Added the full toolset (every Peplink tool is a GET/LIST, no mutating tool
+exists at all, same as UniFi) and documented what it's actually for: Peplink is
+InControl2's WAN/uplink-failover view of a site's internet connection itself, a
+distinct layer from UniFi/Meraki's local-network view (switches, APs,
+per-client status) - a "call quality" or "internet keeps dropping" complaint
+specifically needs `get_device_wan_status`, not just Meraki's own uplink tools,
+and the two views aren't interchangeable. Also documented Peplink's hierarchy
+(org -> group -> device - `get_device`/`get_device_wan_status` both require
+org_id and group_id, not just a device_id) since it's structurally different
+from UniFi/Meraki's flatter model - confirmed against the real tool schemas,
+not assumed to match. Worth naming the pattern here plainly: this is the
+Capabilities Brief doing exactly the job it was built for - catching a real
+capability gap by being read critically, not just kept as a status document
+nobody double-checks against what's actually wired in.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

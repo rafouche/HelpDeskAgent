@@ -73,6 +73,31 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.51 - real gap, caught by Roger reading the Capabilities
+    Brief rather than by a ticket hitting a denial (unlike every other entry
+    in this script's Network tool section): Peplink (InControl2) has been a
+    registered MCP server on this machine the whole time, but was never
+    added to the resolver's tool allowlist and never mentioned in
+    resolver-prompt.md at all - confirmed directly (grepped the entire
+    codebase for "Peplink", zero matches anywhere before this fix). Added
+    the full Peplink toolset (every tool is a GET/LIST, no mutating tool
+    exists, same as UniFi) to $resolverTools, and added it to
+    resolver-prompt.md's three UniFi/Meraki mentions plus a fourth, more
+    specific note on when to actually reach for it: Peplink is InControl2's
+    WAN/uplink-failover view for a site's internet connection itself, a
+    distinct layer from UniFi/Meraki's local-network view (switches, APs,
+    per-client status) - worth calling out explicitly since a call-quality
+    or "internet is slow/dropping" complaint is exactly the ticket type that
+    needs Peplink's get_device_wan_status, not just Meraki's uplink-loss
+    tools, and the two aren't interchangeable. Also noted Peplink's own
+    org -> group -> device hierarchy (list_organizations -> list_groups ->
+    list_devices, since get_device/get_device_wan_status both require
+    org_id and group_id, not just a device_id) - structurally different from
+    UniFi/Meraki's flatter site/network model, confirmed directly against
+    the tool schemas rather than assumed to match. Prompt/allowlist-only
+    change; re-parsed the whole script before shipping (no dynamically-built
+    string array touched this time, so no backtick-rendering risk the way
+    the FLOW A/B banner edits earlier this session had).
     Version: 2.10.50 - real incident, reported by Roger: ticket #22107. He
     said Allie wrongly claimed Gold Mechanical doesn't exist in NinjaOne,
     when it does and had been matched correctly before. Confirmed live: real
@@ -2281,6 +2306,20 @@ $resolverTools = @(
     # get_network_client, which needs one client's ID/MAC already known) - denied
     # because it hadn't been added yet.
     "mcp__Meraki__list_network_clients",
+
+    # Real incident: Peplink (InControl2) was registered as an MCP server on this
+    # machine the whole time but never added to any tool allowlist here, and
+    # resolver-prompt.md never mentioned it either - a real gap found by Roger
+    # reading the Capabilities Brief and noticing it wasn't listed alongside
+    # UniFi/Meraki, not by a ticket actually hitting a denial (unlike every
+    # other entry in this Network section). Every Peplink tool is a GET/LIST -
+    # no mutating tool exists at all, same as UniFi - so the full set is
+    # included. Peplink's own hierarchy is org -> group -> device (unlike
+    # UniFi/Meraki's flatter site/network model), so get_device/
+    # get_device_wan_status need org_id and group_id resolved first via
+    # list_organizations -> list_groups, not just a device_id alone.
+    "mcp__Peplink__list_organizations", "mcp__Peplink__list_groups", "mcp__Peplink__list_devices",
+    "mcp__Peplink__get_device", "mcp__Peplink__get_device_wan_status", "mcp__Peplink__healthcheck",
 
     # --- Security context, read-only ---
     # get_escalation/list_identities/list_organizations: a real run working a
