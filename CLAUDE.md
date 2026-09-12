@@ -2093,6 +2093,31 @@ Capabilities Brief doing exactly the job it was built for - catching a real
 capability gap by being read critically, not just kept as a status document
 nobody double-checks against what's actually wired in.
 
+**Same-day correction: UniFi/Meraki/Peplink are competing vendors, not
+network layers (v2.10.52).** The v2.10.51 entry above framed Peplink as "a
+site's WAN/internet uplink" distinct from UniFi/Meraki's "local network" -
+a plausible-sounding assumption about how three network vendors typically
+divide responsibility, never actually checked against Altec's real client
+sites before being written into resolver-prompt.md. Roger corrected it
+directly: UniFi, Meraki, and Peplink are three independent, competing
+ecosystems - any of the three can be the firewall, the switches, or the
+access points at a given site, and more than one can coexist at once. His
+example: a site could run a Meraki firewall, UniFi switches, and Peplink
+APs together. Confirmed live rather than taken on his word alone: Thompson
+Sales - a real Altec client already seen this session (ticket #22067) -
+exists as a real Meraki organization, a real UniFi site, AND a real Peplink
+group (under the "ASG Direct Clients" Peplink org), all three,
+simultaneously. Rewrote the guidance: check Hudu documentation for this
+client's actual stack first if it exists, otherwise search all three
+systems by client name rather than assuming the ticket's symptom points to
+one vendor - a match in more than one system is the normal case, not a sign
+of having picked the wrong one. Worth being honest about the shape of this
+mistake, not just the fix: v2.10.51 shipped an assumption dressed up as a
+finding, the exact failure this project's own "verify against real data,
+never guess" discipline exists to catch - and this time it took Roger's own
+domain knowledge to catch it, not this pipeline's own verification habits
+catching it first.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

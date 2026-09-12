@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.52 - same-day correction to v2.10.51, caught by Roger: that
+    version's framing (Peplink = a site's WAN/internet uplink layer, UniFi/
+    Meraki = the local network layer) was wrong. UniFi, Meraki, and Peplink
+    are three independent, competing network hardware ecosystems, not three
+    layers of one stack - any of the three can fill any role (firewall,
+    switch, access point, router), and a single site can genuinely run more
+    than one vendor at once. Confirmed directly, not just taken on Roger's
+    word: Thompson Sales exists as a real Meraki organization
+    (id 3661426497052213602), a real UniFi site, AND a real Peplink group
+    (id 3, under the "ASG Direct Clients" Peplink org) - all three,
+    simultaneously, on live data pulled from each system. Rewrote
+    resolver-prompt.md's network-investigation guidance: check Hudu
+    documentation first for this client's real stack if it exists, otherwise
+    search all three systems by client name rather than picking one based on
+    what the ticket's symptom "sounds like" - a match in more than one system
+    is normal, not a sign of picking wrong. Kept Peplink's own org -> group ->
+    device hierarchy note (still accurate, unrelated to the layer-framing
+    mistake). Worth naming plainly: v2.10.51 shipped a plausible-sounding but
+    unverified assumption about how the three vendors divide responsibility,
+    the exact category of mistake this project's own discipline is supposed
+    to catch before shipping - it took Roger's domain knowledge, not this
+    pipeline's own verification habits, to catch it this time.
     Version: 2.10.51 - real gap, caught by Roger reading the Capabilities
     Brief rather than by a ticket hitting a denial (unlike every other entry
     in this script's Network tool section): Peplink (InControl2) has been a
@@ -2318,6 +2340,12 @@ $resolverTools = @(
     # UniFi/Meraki's flatter site/network model), so get_device/
     # get_device_wan_status need org_id and group_id resolved first via
     # list_organizations -> list_groups, not just a device_id alone.
+    # CORRECTED same day (v2.10.52): UniFi/Meraki/Peplink are three
+    # independent, competing vendor ecosystems, not three layers of one stack
+    # (an original v2.10.51 framing was wrong - see resolver-prompt.md's own
+    # network section and CLAUDE.md for the real-data correction, confirmed
+    # via Thompson Sales existing as a real org/site/group in all three
+    # simultaneously).
     "mcp__Peplink__list_organizations", "mcp__Peplink__list_groups", "mcp__Peplink__list_devices",
     "mcp__Peplink__get_device", "mcp__Peplink__get_device_wan_status", "mcp__Peplink__healthcheck",
 

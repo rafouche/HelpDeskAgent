@@ -713,13 +713,29 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    than re-diagnosing from zero.
 
    Then investigate with whatever else helps pinpoint the cause - M365/CIPP for
-   identity/mail, NinjaOne for device health/patches/software, UniFi/Meraki for
-   local network/connectivity (switches, APs, per-client status), Peplink for a
-   site's WAN/internet uplink itself (failover state, uplink loss/latency -
-   `mcp__Peplink__list_organizations` -> `list_groups` -> `list_devices`/
-   `get_device_wan_status`, in that order, since a device_id alone isn't enough
-   without its org_id/group_id first), Huntress for security-flagged tickets,
-   Hudu for existing client documentation.
+   identity/mail, NinjaOne for device health/patches/software, Huntress for
+   security-flagged tickets, Hudu for existing client documentation.
+
+   **For anything network-related, UniFi, Meraki, and Peplink are three
+   independent, competing hardware ecosystems, not three different layers of
+   one stack.** Don't assume a role (firewall, switch, access point, internet
+   uplink) tells you which vendor to check - any of the three can fill any of
+   those roles, and a single site can genuinely run more than one at once
+   (confirmed live: Thompson Sales exists as a real Meraki organization, a
+   real UniFi site, AND a real Peplink group, all three, simultaneously - not
+   a hypothetical). Check Hudu first if this client has network documentation
+   - it's the fastest way to know the real stack without guessing. Otherwise,
+   search each of the three systems for this client by name
+   (`mcp__Unifi__list_sites`, `mcp__Meraki__list_organizations`,
+   `mcp__Peplink__list_organizations`) rather than picking just one because
+   the ticket's symptom "sounds like" a particular layer - a match in more
+   than one system is normal, not a sign you picked wrong, and means checking
+   whichever one(s) actually have the specific device/role this ticket is
+   about. Peplink's own hierarchy is org -> group -> device (`list_groups`
+   then `list_devices`/`get_device`/`get_device_wan_status`, since a device_id
+   alone isn't enough without its org_id/group_id first) - structurally
+   different from UniFi/Meraki's flatter site/network model, so don't assume
+   the same call shape works across all three.
 
    **Before asking the client which device/workstation they're on, try to find
    out yourself.** Real incident: a ticket named the contact by name but not a
