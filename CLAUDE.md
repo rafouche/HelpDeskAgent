@@ -220,14 +220,24 @@ status to approved on a later cycle. Design decisions worth recording:
   unsupervised (ticket-ownership checks, remediation-whitelist compliance).
   Worth knowing plainly, not glossing over: this one piece is not physically
   guaranteed the way the remediation-tool stripping is.
-- **No delete-note tool exists - confirmed directly, not assumed.**
-  `mcp__Halo__update_ticket`'s real schema (agent_id/note/note_is_private/
-  status_id/team_id/ticket_id) can only ADD a note, never edit or delete one -
-  same fact already established when the priority/impact/urgency gap was
-  investigated. Roger's original ask ("delete the private note") therefore
-  becomes "add a new note marking the old draft historical, right after
-  sending the real reply" - the record stays unambiguous for a human reading
-  the ticket later, without a delete that isn't actually possible.
+- **Update, corrected in v2.10.48: a delete-note tool does exist - the
+  original "confirmed directly" conclusion below checked the wrong layer.**
+  `mcp__Halo__update_ticket`'s own schema genuinely has no edit/delete
+  parameter, and that part was verified correctly - but that only shows the
+  *tool* couldn't delete a note, not that HaloPSA's underlying REST API
+  can't. It can: `DELETE /Actions/{id}` is a real, documented HaloPSA
+  endpoint (confirmed against HaloPSA's own API reference), just never
+  wired into this MCP server. halopsa-mcp now exposes it as
+  `delete_ticket_note`, deliberately scoped (refuses unless the target is a
+  private note starting with the literal `[DRAFT PENDING APPROVAL]` marker)
+  so it can only ever remove this pipeline's own pending drafts, never a
+  human's note or a real reply. FLOW A's "add a note marking the old draft
+  historical" behavior (described below, for the send-completes-a-draft
+  case) is unchanged by this - it's kept deliberately, not because delete
+  still isn't possible there anymore, see v2.10.48's own entry further
+  down for why. What DID change: a *new* draft superseding an old one (FLOW
+  B, and the "human left a note on your own pending draft" revision flow)
+  now deletes the superseded draft instead of leaving it behind.
 - **The two-phase note protocol is plain-text, not a structured API.** A
   first-pass draft note is a private note starting with the literal line
   `[DRAFT PENDING APPROVAL]`, followed by the exact reply text, then
@@ -1979,13 +1989,19 @@ existing at all (the first being v2.10.41's TryParse overload-resolution
 failure) - a real incident with a real log was needed to catch it either
 time, not just re-reading the code.
 
-Also surfaced in the same log review, not chased to a fix: one resolver
-pass on #22033 reported finding "3 separate [DRAFT PENDING APPROVAL]
-notes" in the ticket's history, but the ticket's actual, complete action
-log (read directly) has only ever contained one - and since Halo notes
-can't be deleted, a real second or third draft would still be sitting
-there. Recorded as an apparent resolver miscount rather than papered over,
-but not acted on further without more evidence of how it happened.
+**Correction, same day: the "3 separate drafts" finding above was real, not
+a hallucination.** Roger clarified directly: Halo notes CAN be deleted (he
+deleted the previous duplicates himself, by hand, trying to get the ticket
+to reprocess) - the "since Halo notes can't be deleted" reasoning above was
+simply wrong, built on the same incomplete "tool has no delete parameter"
+conclusion this document's approval-mode section above also had to correct.
+So the resolver's "3 separate drafts" report was almost certainly accurate
+at the time - a real architectural gap (nothing ever cleaned up a
+superseded draft when a revised one replaced it) had genuinely let three
+pile up, and Roger's manual deletions are what brought it back down to one
+by the time this was checked. See v2.10.48 below for the actual fix -
+`delete_ticket_note`, called before writing a new draft whenever one
+replaces an old one, so this shouldn't recur.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

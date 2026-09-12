@@ -73,6 +73,42 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.48 - feature requested by Roger, correcting a claim from
+    this same day: notes CAN be deleted in HaloPSA - Roger deleted #22033's
+    duplicate drafts himself, by hand, trying to get it to reprocess. The
+    long-standing "no delete-note tool exists" conclusion (v2.7.2, CLAUDE.md)
+    only ever verified that mcp__Halo__update_ticket's own schema has no
+    edit/delete parameter - true, but never the question of whether
+    HaloPSA's underlying REST API has a dedicated delete endpoint. It does:
+    `DELETE /Actions/{id}`, confirmed directly against HaloPSA's own API
+    reference. That also reframes v2.10.47's own "3 separate drafts" finding
+    (recorded there as an apparent resolver hallucination) - it wasn't one;
+    a real architectural gap had let 3 genuine draft notes pile up on one
+    ticket, and Roger's manual deletions are what brought it back down to 1
+    by the time it was checked. See CLAUDE.md for the full correction.
+    Added `delete_ticket_note` to halopsa-mcp: deliberately narrow, not a
+    general-purpose delete - it fetches the target action first and refuses
+    (no delete performed) unless it belongs to the given ticket_id, is
+    private (hiddenfromuser: true), and its note starts with the exact
+    literal `[DRAFT PENDING APPROVAL]` marker, so it structurally cannot
+    remove a human's note or a real client-facing reply even if pointed at
+    the wrong action by mistake - same "safe by construction, not by
+    instruction" pattern update_ticket_draft_only already uses. Wired into
+    two places per Roger's request ("delete any prior drafts if a new draft
+    is suggested to keep the ticket flow clean"): FLOW B's own draft-writing
+    step (new step 0, before writing the note) and resolver-prompt.md's "If
+    a human left a note on your own pending draft" revision flow - both now
+    delete any prior `[DRAFT PENDING APPROVAL]` note before writing a new
+    one, so a ticket carries at most one at a time instead of accumulating
+    superseded copies. Deliberately did NOT change FLOW A step 6 (the
+    "Approved and sent" bookkeeping note added once a draft is actually
+    sent) - that's a different case (a real reply superseding a draft, not
+    a draft superseding a draft) that Roger didn't ask about; flagged as an
+    option for later rather than expanded into on my own. Typechecked the
+    Worker change clean; Roger deploys it separately. Re-verified the edited
+    FLOW A/B PowerShell string arrays by extracting and rendering them end
+    to end, not just re-parsing the file - this project's own recurring
+    lesson about backtick-escaping bugs in this exact code.
     Version: 2.10.47 - real incident, cost-overrun investigation requested by
     Roger against today's actual run log: ticket #22033 alone was
     reprocessed by the full classifier+resolver pipeline roughly 28 times
@@ -2081,6 +2117,14 @@ $resolverTools = @(
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
     "mcp__Halo__list_kb_articles", "mcp__Halo__get_kb_article",
     "mcp__Halo__update_ticket",
+    # delete_ticket_note: structurally narrow (see its own tool description) -
+    # can only remove a private note that starts with the literal
+    # "[DRAFT PENDING APPROVAL]" marker on the exact ticket given, never a
+    # human's note or a real client-facing reply. Added per Roger's request
+    # to delete a superseded draft when a revised one replaces it, instead of
+    # leaving the old one behind - see resolver-prompt.md's "If a human left
+    # a note on your own pending draft" section and this script's own FLOW B.
+    "mcp__Halo__delete_ticket_note",
     # get_client/list_clients/get_contact/list_contacts: a real run showed the
     # resolver denied on get_client while investigating which company a ticket
     # belonged to - never added despite being the same kind of read-only
@@ -3077,12 +3121,14 @@ try {
             "   verify: true - note_is_private alone does not email the client, see",
             "   resolver-prompt.md's `"Sending a real, client-facing reply`" section) - its",
             "   own call, unchanged from what was drafted.",
-            "6. There is no tool that can delete or edit an existing Halo note -",
-            "   update_ticket can only add a new one. So instead of literally deleting the",
-            "   draft, add one more private note in the same final call as step 7:",
+            "6. update_ticket/update_ticket_draft_only still can't edit or delete a note -",
+            "   only mcp__Halo__delete_ticket_note can, and it's deliberately scoped to a",
+            "   still-pending `"[DRAFT PENDING APPROVAL]`" draft (see its own description),",
+            "   which this one no longer is once it's been acted on. So instead of deleting",
+            "   it, add one more private note in the same final call as step 7:",
             "   `"Approved and sent - see the reply above. (The draft note above is now`"",
             "   `"historical, not pending.)`" - this keeps the record unambiguous for anyone",
-            "   reading the ticket later, without a delete that isn't actually possible.",
+            "   reading the ticket later.",
             "7. Check the ticket's current agent_id (from step 1's data, or a fresh",
             "   mcp__Halo__get_ticket if you don't already have it) before this call.",
             "   Workflow decision from Roger: never take a ticket away from a real human",
@@ -3114,6 +3160,21 @@ try {
             "instead, in one update_ticket_draft_only call (not update_ticket - that tool",
             "is not in your allowlist for this ticket; see the top of resolver-prompt.md's",
             "`"Which update_ticket tool do you actually have?`" section if you're unsure why):",
+            "0. Before writing a new draft, delete any prior one(s) still on this ticket -",
+            "   scan the action history you already pulled for every private note",
+            "   starting with the exact line `"[DRAFT PENDING APPROVAL]`" and call",
+            "   mcp__Halo__delete_ticket_note (ticket_id, action_id) on each one, before",
+            "   step 1 below. Per Roger's request: a ticket should only ever carry one",
+            "   pending draft at a time, not an accumulating pile of superseded ones -",
+            "   real incident, ticket #22033 ended up with 3 separate",
+            "   `"[DRAFT PENDING APPROVAL]`" notes left behind across several revision",
+            "   rounds (nothing ever removed the old one when a new draft replaced it),",
+            "   which tripped FLOW A's own `"exactly one draft note or stop`" safety check",
+            "   and needed a human to clean up by hand. The tool refuses (no delete",
+            "   happens) unless the note is private and starts with that exact marker, so",
+            "   it cannot remove a human's note or a real reply even if pointed at the",
+            "   wrong action by mistake - if it refuses, don't fight it or guess at a",
+            "   workaround, just proceed to step 1 and leave the old note as-is.",
             "1. note: a single private note, in this exact structure - `"[DRAFT PENDING",
             "   APPROVAL]`" on its own line, then the full client-facing reply text you",
             "   would have sent, verbatim, exactly as you'd have sent it live; then a line",

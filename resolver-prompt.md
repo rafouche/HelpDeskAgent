@@ -451,11 +451,21 @@ ever gets written there in the first place) - confirm you still have
 you actually have?" above; if this run's mode changed since your draft
 was written and you now hold `update_ticket` instead, stop and add an
 internal note flagging the mismatch rather than guessing which behavior
-applies). Finish this pass exactly like FLOW B does: one
-`update_ticket_draft_only` call, `[DRAFT PENDING APPROVAL]` followed by
-the full updated reply, an `[INTENDED STATUS]` line, and an `[INTENDED
-REMEDIATION]` line (see the approval-mode banner above for the exact
-structure) - a new draft for a fresh review, not a live send.
+applies). Before writing the revised draft, delete your own prior
+`[DRAFT PENDING APPROVAL]` note (the one you found above) with
+`mcp__Halo__delete_ticket_note` (ticket_id, action_id) - per Roger's
+request, a ticket should carry at most one pending draft at a time, not
+an accumulating pile of superseded ones (a real incident left one ticket
+with 3 separate copies after several revision rounds, which had to be
+cleaned up by hand). The tool refuses to delete anything that isn't a
+private note starting with that exact marker, so it's safe even if you
+misidentify the action - if it refuses, don't fight it, just proceed to
+write the new draft and leave the old one in place. Finish this pass
+exactly like FLOW B does: one `update_ticket_draft_only` call,
+`[DRAFT PENDING APPROVAL]` followed by the full updated reply, an
+`[INTENDED STATUS]` line, and an `[INTENDED REMEDIATION]` line (see the
+approval-mode banner above for the exact structure) - a new draft for a
+fresh review, not a live send.
 
 ## Sending a real, client-facing reply
 
