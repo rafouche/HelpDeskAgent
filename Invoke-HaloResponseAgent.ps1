@@ -73,6 +73,58 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.54 - feature requested by Roger following the v2.10.52
+    UniFi/Meraki/Peplink correction: cache a client's actual network stack in
+    Hudu once discovered, so a future network ticket doesn't repeat the same
+    three-system search - but never trust the cache alone, since the real
+    hardware can change (his own example: Peplink APs swapped for UniFi or
+    Meraki ones later). Added to resolver-prompt.md's network section: check
+    Hudu for a `"Network Stack (AI-verified)"` article under this client's
+    Hudu company (found by name via mcp__Hudu__company_index_tool - a
+    different ID space than Halo's client_id) before searching all three
+    vendor systems blind; if found, use it to go straight to the named
+    vendor(s) but still confirm the specific device/role resolves there via
+    a real call before acting on or telling a client anything based on it;
+    if live reality contradicts the article, update it
+    (mcp__Hudu__article_edit_tool) before moving on rather than leaving a
+    cache that's now known to be wrong; if no article exists and this
+    investigation determines the real stack, write one
+    (mcp__Hudu__article_create_tool) - skipped for a ticket that only
+    touched one obvious vendor with nothing ambiguous worth recording, since
+    this is meant to save a future genuinely multi-system search, not to run
+    on every ticket. No allowlist changes needed - company_index_tool/
+    article_index_tool/article_create_tool/article_edit_tool were already
+    granted for the existing prior-art-search and fix-documentation patterns
+    this reuses the same mechanism as.
+    Version: 2.10.53 - Roger asked for the same wiring check just done for
+    Peplink to be run against Huntress and CIPP too. Huntress came back
+    clean: cross-checked every mcp__Huntress__* name resolver-prompt.md
+    references by name against $resolverTools and found no mismatches (it
+    doesn't reference Huntress tools by specific name at all, unlike CIPP -
+    nothing to be inconsistent with). CIPP did not come back clean: found
+    mcp__CIPP__list_message_trace and mcp__CIPP__list_mailboxes both
+    referenced as load-bearing in resolver-prompt.md's "Email delivery /
+    bounce issues" section - the same section documenting ticket #21900 as
+    the real incident that justified building list_message_trace as a
+    dedicated tool in the first place (see v2.10.37/.38 history above) - but
+    neither was ever actually added to $resolverTools. The comment at this
+    exact spot still described the OLD generic cipp_api_get passthrough as
+    the mechanism, stale since the dedicated tool was built specifically to
+    replace that guessed-params approach. Net effect: the documented,
+    incident-justified fix has been structurally unable to run since it
+    shipped - every real "email not arriving" ticket since then had both
+    calls silently denied under --permission-mode dontAsk, reproducing
+    #21900's own original failure shape (reporting a plausible cause without
+    ever confirming delivery actually failed) invisibly, because a denied
+    tool call doesn't announce itself as "the fix didn't apply" any more
+    than a wrong-tenant trace result announces itself as wrong. Added both
+    tools; kept cipp_api_get as a generic fallback since resolver-prompt.md
+    doesn't reference it by name for anything specific. Could not directly
+    test against the production "CIPP" MCP server from this session (only a
+    newer, differently-named CIPP-ng server is connected here) - relying on
+    this file's own v2.10.37/.38 history that list_message_trace was
+    actually built and shipped in cipp-mcp, not re-verifying that
+    independently; flag to Roger if that's since changed.
     Version: 2.10.52 - same-day correction to v2.10.51, caught by Roger: that
     version's framing (Peplink = a site's WAN/internet uplink layer, UniFi/
     Meraki = the local network layer) was wrong. UniFi, Meraki, and Peplink
@@ -2268,10 +2320,25 @@ $resolverTools = @(
     # server name here (and re-verify these tool names against it) - see
     # README's "CIPP MCP swap" section.
     "mcp__CIPP__get_user", "mcp__CIPP__healthcheck", "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
-    # Email delivery diagnostics via CIPP's generic read-endpoint wrapper
-    # (endpoint "ListMessageTrace" - see resolver-prompt.md). Falls back to
-    # outlook_email_search when that doesn't turn up enough.
-    "mcp__CIPP__cipp_api_get",
+    # Real incident, found the same day as v2.10.52's UniFi/Meraki/Peplink
+    # correction, this time from directly cross-checking every mcp__CIPP__*
+    # name resolver-prompt.md actually instructs calling against this array,
+    # not from a live ticket hitting a denial: mcp__CIPP__list_message_trace
+    # and mcp__CIPP__list_mailboxes are both referenced as load-bearing in
+    # resolver-prompt.md's "Email delivery / bounce issues" section - the
+    # SAME section that documents ticket #21900 as the real incident that
+    # justified building list_message_trace as a dedicated tool in the first
+    # place (v2.10.37/.38 .NOTES history) - but neither tool was ever added
+    # here. The comment this replaced still described the OLD generic
+    # cipp_api_get passthrough as the mechanism, stale ever since the
+    # dedicated tool was built to replace exactly that guessed-params
+    # approach. Net effect: the documented, incident-justified fix has been
+    # unable to actually run - every real "email not arriving" ticket since
+    # then had both calls silently denied under --permission-mode dontAsk,
+    # the same failure shape #21900 was supposed to have already fixed.
+    # cipp_api_get kept as a generic fallback for anything without its own
+    # dedicated tool - not otherwise referenced by name in resolver-prompt.md.
+    "mcp__CIPP__list_message_trace", "mcp__CIPP__list_mailboxes", "mcp__CIPP__cipp_api_get",
     # list_tenants/list_mfa_users/list_conditional_access: a real run investigating
     # a security-flagged ticket wanted to confirm which tenant it was checking and
     # whether MFA/conditional access was actually enforced for the affected user -

@@ -2118,6 +2118,50 @@ never guess" discipline exists to catch - and this time it took Roger's own
 domain knowledge to catch it, not this pipeline's own verification habits
 catching it first.
 
+**A documented, incident-justified CIPP fix was never actually reachable
+(v2.10.53).** Roger asked for the same wiring check just run for Peplink to
+be repeated against Huntress and CIPP. Huntress came back clean - it isn't
+referenced by specific tool name in resolver-prompt.md at all, so there was
+nothing to be inconsistent with. CIPP did not: `mcp__CIPP__list_message_trace`
+and `mcp__CIPP__list_mailboxes` are both referenced as load-bearing in
+resolver-prompt.md's "Email delivery / bounce issues" section - the same
+section documenting ticket #21900 as the real incident that justified
+building `list_message_trace` as a dedicated tool in the first place (see
+the v2.10.37/.38 entries) - but neither tool had ever actually been added to
+the resolver's own allowlist. The comment at that exact spot in the script
+still described the old, pre-fix generic `cipp_api_get` passthrough as the
+mechanism, stale ever since the dedicated tool was built specifically to
+replace it. Net effect, worth stating plainly: the documented fix for a real
+incident has been structurally unable to run since it shipped - every real
+"email not arriving" ticket since then had both calls silently denied, quietly
+reproducing #21900's own original failure (reporting a plausible cause
+without ever confirming delivery actually failed), because a denied tool
+call doesn't announce itself as "the fix didn't apply" any more than a
+wrong-tenant trace result announces itself as wrong. Fixed by adding both
+tools to `$resolverTools`. Could not independently re-verify against the
+actual production "CIPP" MCP server that `list_message_trace` still exists
+there as documented - only a newer, differently-named CIPP-ng server is
+reachable from this environment - so this relies on the file's own prior
+history rather than a fresh live check; worth Roger confirming directly.
+
+**Network-stack findings get cached in Hudu, but never trusted blind
+(v2.10.54).** Direct follow-on from v2.10.52: once a ticket's investigation
+determines which of UniFi/Meraki/Peplink actually serves a client (findings
+that took a three-system search to establish), write it to a per-client Hudu
+article (`"Network Stack (AI-verified)"`, found via a Hudu company lookup
+by name - a different ID space than Halo's client_id) so a future ticket can
+skip straight to the right vendor(s) instead of repeating that search from
+zero. Roger's own framing, kept intact rather than softened into "trust the
+cache": hardware gets swapped (his example - Peplink APs replaced with
+UniFi or Meraki ones later) so the article is a starting point, never ground
+truth on its own - always confirm the specific device/role still resolves
+there via a real call before acting on or telling a client anything based on
+it, and if live reality contradicts what's cached, update the article before
+moving on rather than leaving a cache already known to be wrong sitting
+there for the next ticket to trust. No new tool grants needed - reuses
+Hudu tools already granted for the existing prior-art-search and
+fix-documentation patterns.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

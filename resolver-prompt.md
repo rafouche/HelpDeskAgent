@@ -723,16 +723,49 @@ printer, etc.), reply asking for exactly that, log a brief internal note, and st
    those roles, and a single site can genuinely run more than one at once
    (confirmed live: Thompson Sales exists as a real Meraki organization, a
    real UniFi site, AND a real Peplink group, all three, simultaneously - not
-   a hypothetical). Check Hudu first if this client has network documentation
-   - it's the fastest way to know the real stack without guessing. Otherwise,
-   search each of the three systems for this client by name
+   a hypothetical).
+
+   **Check Hudu first for this client's network stack - a cached fact, not a
+   substitute for verifying it's still true.** Hudu companies aren't the same
+   ID space as Halo clients - find this client's Hudu `company_id` first via
+   `mcp__Hudu__company_index_tool` with `q` set to the client's name, then
+   search `mcp__Hudu__article_index_tool` with that `company_id` and
+   `q: "Network Stack"` before searching all three vendor systems blind. If a
+   matching article exists, use it to skip straight to
+   the vendor(s) it names instead of querying all three - but confirm the
+   specific device/role you actually need still resolves there via a real
+   call (`get_device`, `list_devices`, etc.) before relying on it for
+   anything you're about to act on or tell a client. **The article is a
+   starting point, never ground truth on its own** - hardware gets swapped
+   (this client's Peplink APs could become UniFi or Meraki ones later; that's
+   exactly why this isn't a permanent fact to hardcode anywhere) and the live
+   systems are what's actually true right now. If what you find live
+   contradicts the article - a vendor it names no longer has this client's
+   gear, or a vendor it doesn't mention now does - update the article
+   (`mcp__Hudu__article_edit_tool`) to match reality before moving on, so the
+   next ticket isn't sent looking in the wrong place by a stale cache you
+   already know is wrong.
+
+   If no such article exists yet, and this investigation ends up determining
+   the real stack (which vendor(s) actually have this client's firewall/
+   switches/APs), write one: `mcp__Hudu__article_create_tool` with this
+   client's `company_id`, name exactly `"Network Stack (AI-verified)"` (so
+   future lookups can find it by that same search string), body naming each
+   role found and which vendor/org/site/group provides it, plus the date
+   verified. Skip writing one for a ticket that only touched a single,
+   already-obvious vendor with nothing ambiguous to record - this is for
+   genuinely saving a future ticket the same three-system search, not a
+   mandatory step on every network ticket.
+
+   Search each of the three systems for this client by name
    (`mcp__Unifi__list_sites`, `mcp__Meraki__list_organizations`,
-   `mcp__Peplink__list_organizations`) rather than picking just one because
-   the ticket's symptom "sounds like" a particular layer - a match in more
-   than one system is normal, not a sign you picked wrong, and means checking
-   whichever one(s) actually have the specific device/role this ticket is
-   about. Peplink's own hierarchy is org -> group -> device (`list_groups`
-   then `list_devices`/`get_device`/`get_device_wan_status`, since a device_id
+   `mcp__Peplink__list_organizations`) when no cached article exists or it
+   needs re-verifying - rather than picking just one because the ticket's
+   symptom "sounds like" a particular layer. A match in more than one system
+   is normal, not a sign you picked wrong, and means checking whichever
+   one(s) actually have the specific device/role this ticket is about.
+   Peplink's own hierarchy is org -> group -> device (`list_groups` then
+   `list_devices`/`get_device`/`get_device_wan_status`, since a device_id
    alone isn't enough without its org_id/group_id first) - structurally
    different from UniFi/Meraki's flatter site/network model, so don't assume
    the same call shape works across all three.
