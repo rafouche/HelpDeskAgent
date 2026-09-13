@@ -2284,6 +2284,38 @@ separately), so there's nothing to verify a warranty value against yet,
 and guessing at reply text again with the same unverified confidence would
 repeat the exact mistake being corrected.
 
+**A known, costly bug got named but not fixed - Roger called that out
+directly, and it's fixed now (v2.10.58).** While reviewing two full days of
+real production logs for the #22114 investigation, this session noticed
+(and reported to Roger) that several resolver/classifier calls tried a
+denied "PowerShell" tool call before falling back to the correct MCP tool -
+but stopped at reporting it instead of fixing it. Roger's response,
+verbatim: "If it's costing money and failing, it's a bug and costing money
+for no purpose. If you saw this, you should have fixed it." Right - noticing
+a costly, reproducible bug and only describing it back is half a job.
+This exact pattern already had real history in this file: v2.10.39/v2.10.40
+found the same thing and added explicit prompt wording (both prompts'
+opening paragraphs already say "you have no Bash, no PowerShell"),
+deliberately choosing not to escalate further at the time - "prompt fix
+with real but limited confidence... not a lever to pull further blind"
+without more evidence it was actually needed. Roger's fresh logs were
+exactly that missing evidence: the identical pattern recurred at least 4
+times across two days despite the existing wording, twice spiraling into a
+fully wasted turn - proof the prompt-only approach had already been tried
+and had not worked, not a reason to reword it a third time. This file had
+direct precedent for exactly this situation: v2.10.34 hit the identical
+denied-but-still-attempted shape for Claude Code's built-in Agent/Task tool
+and fixed it structurally with `--disallowedTools`, independently confirmed
+still working (`subagent_stats.spawned: 0` in every single ticket across
+both of Roger's fresh logs - real evidence the same class of fix holds up
+over time). Applied the same fix to Bash: `--disallowedTools` now also
+carries `Bash,PowerShell` (both names - `permission_denials` shows it
+registered as "PowerShell" specifically on this Windows host), removing the
+tool from what Claude Code offers the model at all instead of relying on
+attempt-then-deny. Did not invent a matching environment-variable fallback
+(the way `CLAUDE_CODE_DISABLE_BUILTIN_AGENTS` exists for Agent/Task) since
+no equivalent documented variable for Bash specifically is confirmed real.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

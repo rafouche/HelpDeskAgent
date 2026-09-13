@@ -73,6 +73,36 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.58 - Roger reviewed two full days of production logs
+    (2026-09-12/13) while this session was investigating ticket #22114, and
+    separately flagged a pattern this session had noticed in passing but not
+    fixed: several resolver/classifier calls tried a denied "PowerShell"
+    tool call before using the correct MCP tool - "if it's costing money and
+    failing, it's a bug and costing money for no purpose. If you saw this,
+    you should have fixed it." Fair - flagging a known-costly bug without
+    fixing it isn't done here. This exact failure shape already has real
+    history: v2.10.39/40 found the same pattern and added prompt wording
+    (resolver-prompt.md/classifier-prompt.md's opening paragraphs already
+    say explicitly "you have no Bash, no PowerShell") on the reasoning that
+    it was "prompt fix with real but limited confidence... not a lever to
+    pull further blind" without more evidence. Roger's fresh logs are that
+    evidence: the exact same pattern recurred at least 4 times across those
+    two days despite the existing prompt wording, sometimes recovering after
+    one denial, twice fully spiraling into a no-op turn - proving the
+    prompt-only fix was insufficient, not that it needs different wording a
+    third time. This file has direct precedent for exactly this situation:
+    v2.10.34 found the same denied-but-still-attempted shape for Claude
+    Code's built-in Agent/Task (subagent-spawning) tool and fixed it
+    structurally with `--disallowedTools "Agent,Task"`, confirmed working
+    (subagent_stats.spawned: 0 in every ticket across both of Roger's fresh
+    logs). Applied the identical fix to Bash: `--disallowedTools` now also
+    includes `Bash,PowerShell` (both names, since permission_denials shows
+    it registered as "PowerShell" specifically on this Windows host) -
+    removing the tool from what Claude Code even offers the model for the
+    call, rather than relying on it being attempted and then denied. No
+    equivalent env-var fallback added (unlike CLAUDE_CODE_DISABLE_BUILTIN_AGENTS
+    for Agent/Task) since no such documented variable for Bash specifically
+    is confirmed to exist - not guessing one into the script.
     Version: 2.10.57 - same ticket, #22114, second correction from Roger the
     same day: v2.10.56's own fix was still wrong. Investigating the original
     complaint, this session proposed a corrected reply for Roger to send
@@ -2876,7 +2906,27 @@ function Invoke-ClaudeCLI {
     $claudeArgs = @(
         "-p",
         "--allowedTools", $toolsArg,
-        "--disallowedTools", "Agent,Task",
+        # Bash/PowerShell (v2.10.58): same belt-and-suspenders reasoning as
+        # Agent/Task above - Claude Code registers its built-in Bash tool
+        # (renamed "PowerShell" in permission_denials on this Windows host)
+        # regardless of --allowedTools, so the model can see it and attempt
+        # it even though it was never granted; --permission-mode dontAsk then
+        # auto-denies the call, but only after a wasted turn. Real incidents,
+        # confirmed directly from two full days of Roger's own production
+        # logs (2026-09-12/13): at least 4 separate resolver/classifier calls
+        # tried a PowerShell probe first - sometimes recovering after one
+        # denial, twice fully spiraling into a no-op turn per the v2.10.39/40
+        # history above - despite resolver-prompt.md/classifier-prompt.md
+        # already stating explicitly, since before those versions, "you have
+        # no Bash, no PowerShell" in their very first paragraphs. Two rounds
+        # of stronger prompt wording (v2.10.39, v2.10.40) did not stop it, so
+        # per this same file's own v2.10.34 precedent for Agent/Task, this is
+        # now enforced structurally instead of re-worded again: explicitly
+        # disallowing the tool by both names removes it from what Claude Code
+        # even registers for the call, the same fix that took subagent_stats
+        # to a confirmed 0 for Agent/Task in every ticket across both of
+        # those same two days' logs.
+        "--disallowedTools", "Agent,Task,Bash,PowerShell",
         "--output-format", "json",
         "--permission-mode", "dontAsk"
     )
