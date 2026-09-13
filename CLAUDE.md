@@ -2214,6 +2214,48 @@ a finding, but never trust it blind, since hardware gets swapped) didn't
 change - only the storage mechanism did, because the first one was invented
 rather than checked against what Hudu already had.
 
+**TRIVIAL_UNCERTAIN's "ask for what's missing" skipped a lookup it should
+have made first, and a second bug meant the client never even got asked
+(v2.10.56).** Real incident, ticket #22114: Jill Barron (Missouri Sports
+Hall of Fame) asked whether her laptop was still under warranty. Roger's
+report - "you turned right around and asked her if her computer was under
+warranty... you have that information accessible to you already in Ninja" -
+was confirmed exactly right, not just taken on his word: pulled the
+ticket's real action log and the device itself (NinjaOne id 3284) directly,
+and found the laptop's manufacturer/model/serial (Lenovo, 20RY0001US,
+PF272LST) sitting one `get_device` call away, never called. Root cause
+wasn't a missing tool grant like every other gap this project has found -
+checked the tier-to-tools mapping directly and TRIVIAL_UNCERTAIN gets the
+exact same full allowlist as every other tier (just a cheaper model). The
+gap was entirely in resolver-prompt.md's own TRIVIAL_UNCERTAIN instruction:
+"reply asking for exactly that" with no step to check whether Altec's own
+systems already had the answer first - it treated "the client didn't say"
+as identical to "nobody knows," which isn't true for a device already named
+in the ticket. Fixed by adding a required cheap-lookup step before asking
+the client anything, using whatever identity tools the full investigation
+flow already uses (Ninja for a device, CIPP for an account, etc.).
+
+Investigating that turned up a second, independent bug in the same ticket:
+this run had no `-RequireApproval` active at all (config's
+`ai_waiting_approval_status_name` is blank, which hard-errors before that
+switch could ever engage), and the resolver's own tool list confirms it had
+the real `mcp__Halo__update_ticket`, not the draft-only variant - yet it
+wrote its clarifying question as a private, unemailed note formatted like a
+`-RequireApproval` draft (the exact `[DRAFT PENDING APPROVAL]`/
+`[INTENDED STATUS]` tags that belong to a flow this run structurally wasn't
+in) and set the ticket to `waiting_on_client_status_name` anyway - as if
+Jill had been asked something she never actually received. Reinforced both
+"Which update_ticket tool do you actually have?" and the TRIVIAL_UNCERTAIN
+section directly: having the real tool means sending for real is expected,
+and `waiting_on_client_status_name` should only ever mean the client really
+was emailed, never that a private note merely says so.
+Tried to fix ticket #22114 itself while this was fresh - delete the stale
+draft note, send Jill a corrected reply with her laptop's real model/serial
+- but Claude Code's own auto-mode classifier denied the external-system
+write. Left the ticket exactly as found rather than working around the
+denial, and reported the specific corrected reply to Roger to send or
+approve himself.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

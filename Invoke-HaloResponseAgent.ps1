@@ -73,6 +73,46 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.56 - real incident, ticket #22114 (Missouri Sports Hall of
+    Fame): Jill Barron asked whether her laptop was still under warranty;
+    Roger's report - "you turned right around and asked her if her computer
+    was under warranty... you have that information accessible to you
+    already in Ninja" - was confirmed exactly right by pulling the ticket's
+    own action log (mcp__Halo__get_ticket_time_entries) and the device
+    directly (mcp__Ninja__get_device, id 3284): NinjaOne already had the
+    laptop's manufacturer/model/serial (Lenovo, 20RY0001US, PF272LST) one
+    call away, and the resolver never called it. Root cause: resolver-
+    prompt.md's TRIVIAL_UNCERTAIN section told the resolver to skip
+    investigation entirely and "reply asking for exactly that" whenever
+    something looked missing - treating "missing information" as always
+    meaning "the client has to supply it," which isn't true for anything
+    already sitting in a system Altec itself controls. Confirmed this
+    wasn't a tool-access gap like the others this project has found - the
+    tier-to-tools mapping in this file gives TRIVIAL_UNCERTAIN the same
+    full allowlist as every other tier, just a cheaper model/lower effort -
+    so the fix is entirely in resolver-prompt.md: before asking the client
+    anything, do a quick lookup on whatever's already named in the ticket
+    (device, account, company) and use what it turns up, only asking for
+    what's genuinely still unknown afterward.
+    A second, independent bug turned up investigating the first: this run
+    had no `-RequireApproval` active (config's ai_waiting_approval_status_name
+    is blank, which hard-errors before that switch could even run) and the
+    resolver's own tool list confirmed it had the real mcp__Halo__update_ticket,
+    not the draft-only one - yet it wrote its clarifying question as a
+    private, unemailed note formatted like a `-RequireApproval` draft
+    ("[DRAFT PENDING APPROVAL]"/"[INTENDED STATUS]" tags that belong to a
+    flow this run wasn't in) and set the ticket to waiting_on_client_status_name
+    regardless, as if Jill had actually been asked something she never
+    received. Reinforced both "Which update_ticket tool do you actually
+    have?" and the TRIVIAL_UNCERTAIN section: having mcp__Halo__update_ticket
+    means sending for real is expected, and waiting_on_client_status_name
+    should only ever mean the client really was emailed, not that a private
+    note merely claims they were. Tried to correct ticket #22114 itself
+    directly (delete the stale draft note, send Jill the corrected reply
+    with her laptop's real model/serial) but Claude Code's own auto-mode
+    classifier denied the external-system write - left the ticket as found
+    and reported the specific fix to Roger to send or approve himself
+    instead of working around the denial.
     Version: 2.10.55 - two fixes from the same Roger message. First: directly
     confirmed mcp__CIPP__list_message_trace and mcp__CIPP__list_mailboxes
     still exist in the real production cipp-mcp Worker source
