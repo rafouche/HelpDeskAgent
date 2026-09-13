@@ -2256,6 +2256,34 @@ write. Left the ticket exactly as found rather than working around the
 denial, and reported the specific corrected reply to Roger to send or
 approve himself.
 
+**The v2.10.56 fix was itself still wrong - Roger caught it the same day
+(v2.10.57).** The corrected reply proposed above told Jill "I don't have an
+exact warranty expiration on file... you can check yourself at Lenovo's
+support site." Roger's response, verbatim: "The warranty is plainly listed
+in Ninja machine record. Never tell a user to look up something that we
+already should have the information on... Fail #2." Checked this directly
+rather than assuming either side was simply right - re-read `get_device`'s
+complete raw response for device 3284 and confirmed its hardware/system
+block genuinely has no warranty field. But the actual gap wasn't a wrong
+claim from Roger, it was a wrong assumption from this session: NinjaOne
+tracks that kind of asset data in a device's **custom fields**, a
+completely separate API surface (`GET /v2/device/{id}/custom-fields`) that
+`ninjarmm-mcp` had simply never wired up - the same shape of gap as every
+other MCP-side finding this engagement has turned up, just not caught
+before proposing a reply this time. Added `get_device_custom_fields` to
+`ninjarmm-mcp` (pairs with `update_device`'s existing `userData` parameter,
+which already writes these same fields) and wired it into `$resolverTools`.
+Corrected resolver-prompt.md's TRIVIAL_UNCERTAIN section a second time -
+the v2.10.56 text itself had suggested handing the client her laptop's
+make/model/serial so she or a technician could check the manufacturer's own
+site, which is exactly the "tell the client to go find what we should
+already know" pattern Roger just called out as unacceptable. Deliberately
+did not propose a third reply to ticket #22114 in this same turn - the
+new tool isn't deployed yet (Roger deploys `ninjarmm-mcp` changes
+separately), so there's nothing to verify a warranty value against yet,
+and guessing at reply text again with the same unverified confidence would
+repeat the exact mistake being corrected.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

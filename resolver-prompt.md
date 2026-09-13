@@ -682,23 +682,29 @@ guess or investigate broadly. But "missing information" is not automatically
 "information only the client can supply." **Before asking the client anything, do a
 quick, cheap lookup on whatever's already named in the ticket** (a device, an
 account, a company) using the same read-only tools the full flow below would use for
-identity - `mcp__Ninja__get_device`/`list_devices_detailed` when a device is named,
-`mcp__CIPP__get_user` when an account is named, etc. - and use whatever it turns up.
+identity - `mcp__Ninja__get_device`/`list_devices_detailed` when a device is named
+(plus `mcp__Ninja__get_device_custom_fields` for anything warranty/purchase/asset-
+tracking related - see below, that data isn't in `get_device`'s plain hardware
+block), `mcp__CIPP__get_user` when an account is named, etc. - and use whatever it
+turns up.
 Only ask the client for whatever's genuinely still missing after that.
 
 Real incident, ticket #22114: Jill Barron asked "is my laptop still under warranty?"
 about a device the ticket named by hostname (with a direct NinjaOne device ID and
 link already in the ticket's own body). The resolver treated the warranty question as
-the one missing piece, skipped straight to asking her the same question back, and
-never called a single Ninja tool - even though NinjaOne already had the device's
-manufacturer, model, and serial number (Lenovo, 20RY0001US, PF272LST) sitting one
-`get_device` call away. None of that alone proves a warranty end date, but it's
-exactly the kind of thing that should be handed to the client (or a technician
-checking the manufacturer's own warranty-lookup page) rather than asked of her -
-she's not the one who'd know her laptop's model number offhand either. If a quick
-lookup doesn't fully answer the client's question, say what you found (make/model/
-serial, or an account's real name/status) plus what's still unknown, rather than
-ignoring what's already available and asking as if starting from nothing.
+the one missing piece and skipped straight to asking her the same question back,
+never calling a single Ninja tool. **Warranty/purchase-date questions specifically:
+call `mcp__Ninja__get_device_custom_fields`, not just `get_device`** - `get_device`'s
+plain hardware/system block has manufacturer/model/serial but no warranty field at
+all; NinjaOne tracks warranty and purchase-date as a device custom field instead, a
+completely different call. A prior version of this section suggested handing the
+client the make/model/serial so she (or a technician) could check the manufacturer's
+own site - Roger corrected that directly: the warranty status itself is plainly
+tracked in the Ninja record already, so answer from that, don't redirect the client
+to go find out what Altec's own system already knows. If a quick lookup doesn't
+fully answer the client's question, say what you found plus what's still unknown,
+rather than ignoring what's already available and asking as if starting from
+nothing.
 
 Skip straight to the "Tone for anything client-facing" and "When you finish" sections
 below once you've asked for whatever's actually still missing. **Asking the client a

@@ -73,6 +73,34 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.57 - same ticket, #22114, second correction from Roger the
+    same day: v2.10.56's own fix was still wrong. Investigating the original
+    complaint, this session proposed a corrected reply for Roger to send
+    that shared the device's make/model/serial but told Jill "I don't have
+    an exact warranty expiration on file... you can check yourself at
+    Lenovo's support site" - Roger: "The warranty is plainly listed in Ninja
+    machine record. Never tell a user to look up something that we already
+    should have the information on." Checked directly rather than taking
+    either side's word for it: mcp__Ninja__get_device's plain hardware/
+    system block genuinely has no warranty field (confirmed by re-reading
+    its full raw response) - but that's because warranty/purchase-date data
+    lives in a device's NinjaOne *custom fields*, a completely different
+    API call this Worker never wired up at all, not because Ninja lacks the
+    data Roger described. Real gap, not a wrong claim on either side: added
+    mcp__Ninja__get_device_custom_fields to ninjarmm-mcp (GET /v2/device/
+    {id}/custom-fields, pairing with update_device's existing userData
+    parameter which already writes these same fields) and wired it into
+    $resolverTools here. Corrected resolver-prompt.md's TRIVIAL_UNCERTAIN
+    section again: the v2.10.56 text itself suggested handing the client
+    make/model/serial so she or a technician could check the manufacturer's
+    site - exactly the "tell the client to go find out what we should
+    already know" pattern Roger just named as unacceptable - replaced with
+    a direct instruction to check get_device_custom_fields for warranty/
+    purchase-date questions specifically and answer from it. Not yet
+    re-verified against a live deployment (Roger deploys this Worker's
+    changes separately) - did not propose a third reply to ticket #22114
+    until that's confirmed, rather than guess again with the same kind of
+    unverified confidence that caused this and the prior turn's mistake.
     Version: 2.10.56 - real incident, ticket #22114 (Missouri Sports Hall of
     Fame): Jill Barron asked whether her laptop was still under warranty;
     Roger's report - "you turned right around and asked her if her computer
@@ -2451,7 +2479,16 @@ $resolverTools = @(
     # set/end_device_maintenance, acknowledge/resolve_alert, approve/
     # reject_os_patch, Ninja's own create/update_ticket) is left out, since
     # none of that is something this agent should ever do.
-    "mcp__Ninja__get_device", "mcp__Ninja__get_device_os_info", "mcp__Ninja__get_device_software",
+    # get_device_custom_fields (v2.10.57): real incident, ticket #22114 - a
+    # client asked whether her laptop was under warranty, and get_device's
+    # plain hardware/system block has no warranty/purchase-date field at
+    # all. NinjaOne tracks that kind of asset data in a device's custom
+    # fields instead (the same fields update_device's userData parameter
+    # already writes to) - added the matching read tool so warranty-type
+    # questions can actually be answered from what Altec already has,
+    # instead of asking the client or telling them to check the
+    # manufacturer's site themselves.
+    "mcp__Ninja__get_device", "mcp__Ninja__get_device_custom_fields", "mcp__Ninja__get_device_os_info", "mcp__Ninja__get_device_software",
     "mcp__Ninja__get_device_software_patches", "mcp__Ninja__get_device_disks", "mcp__Ninja__get_device_processors",
     "mcp__Ninja__get_device_maintenance", "mcp__Ninja__list_devices_detailed",
     "mcp__Ninja__list_device_alerts", "mcp__Ninja__list_alerts", "mcp__Ninja__list_device_antivirus_status",
