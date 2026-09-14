@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.63 - no code change; follow-up on v2.10.62's Peplink gap.
+    Roger relayed a claim from a different chat session that Peplink IC2
+    does support triggering a speed test after all, via an undocumented-
+    sounding "Device API Proxy" (`devapi`) passthrough: `POST /rest/o/
+    {org_id}/d/{device_id}/devapi/{command}`. Checked directly rather than
+    taking it on trust, the same way this project checks everything:
+    fetched both the public IC2 API doc page (peplink.com/ic2-api-doc/) and
+    what appears to be the canonical live doc (incontrol2.peplink.com/api/
+    ic2-api-doc), searched each thoroughly for "devapi"/"Device API Proxy" -
+    neither page contains it, at all. Two other things point the same way:
+    the claimed URL skips the group segment every other confirmed IC2
+    device endpoint requires (`/rest/o/{org}/g/{group}/d/{device}`), and a
+    live Peplink community forum thread ("Ability to run and Log Speed
+    Tests in Incontrol2 - Feature Requests") shows users asking Peplink for
+    exactly this capability, which cuts against it already existing.
+    Gave Roger three ways to resolve the discrepancy (get a concrete
+    worked example from the other chat, test one live call and report what
+    comes back, or drop it) rather than silently deciding for him - he
+    chose to drop it, so Peplink stays unimplemented for speed testing,
+    same as UniFi, pending real confirmed evidence either way. Recorded
+    here so a future session doesn't have to re-investigate the same claim
+    from zero.
     Version: 2.10.62 - feature requested by Roger: a new NinjaOne script,
     "Speedtest (JSON)", for troubleshooting "internet/network is slow"
     complaints - writes its result to the device's activity log, and Roger

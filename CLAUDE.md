@@ -2469,6 +2469,23 @@ no lasting change - it still pulls real bandwidth on a client's live
 connection for several seconds, the same category of real-world effect
 every other gated tool exists to hold back for approval.
 
+**A second-hand API claim, checked and not confirmed (v2.10.63, no code
+change).** Roger relayed a claim from a different chat that Peplink IC2
+does support speed testing after all, via an undocumented-sounding
+"Device API Proxy" (`devapi`) passthrough. Checked it the same way this
+project checks everything rather than taking it on trust: fetched both
+the public and what appears to be the canonical live IC2 API doc pages
+and searched each thoroughly for "devapi" - neither contains it. The
+claimed URL also skips the group segment every other confirmed IC2 device
+endpoint requires, and a live Peplink forum thread shows users requesting
+this exact capability as something InControl2 doesn't do yet - both point
+the same direction. Gave Roger the choice (get a concrete example from
+the other chat, test one live call, or drop it) rather than deciding
+unilaterally; he chose to drop it. Peplink speed testing stays
+unimplemented, same as UniFi, pending real evidence either way - recorded
+here so this specific claim doesn't need re-investigating from zero next
+time it comes up.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
