@@ -73,6 +73,61 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.62 - feature requested by Roger: a new NinjaOne script,
+    "Speedtest (JSON)", for troubleshooting "internet/network is slow"
+    complaints - writes its result to the device's activity log, and Roger
+    wanted it run and its output actually read back in the same pass, plus
+    equivalent firewall-level speed testing on Meraki/UniFi/Peplink where
+    available.
+    Confirmed rather than assumed this needed more than a config.json line:
+    every existing remediation_whitelist entry is a one-shot fix (ran or it
+    didn't, no result to read), so run_script_on_device (confirmed from its
+    own implementation: POST /device/{id}/script/run, fire-and-forget,
+    never returns the script's actual output) was never going to be enough
+    on its own. Added mcp__Ninja__run_script_and_wait to ninjarmm-mcp -
+    queues the same way, then polls GET /device/{id}/activities
+    (activityType SCRIPT) every 5s for a new matching entry until it
+    appears or maxWaitSeconds (default 60, capped 120) elapses, returning
+    the real result (or an honest not-done-yet signal, not an error) -
+    doesn't over-parse NinjaOne's own SCRIPT activity schema, which isn't
+    independently pinned down here.
+    For firewall-level testing, checked live documentation before writing
+    anything rather than guessing at three vendors' worth of API shape:
+    - Meraki: confirmed against Cisco's own official API docs - a real,
+      documented Live Tools endpoint (POST /devices/{serial}/liveTools/
+      throughputTest, an async job you poll via its own returned url,
+      result.speeds.downstream in Mbps, rate-limited to one request/5s/
+      device). Added mcp__Meraki__run_throughput_test to meraki-mcp using
+      the identical queue-then-poll shape as the Ninja tool above.
+    - UniFi: NOT added. The only speedtest command found (`cmd/devmgr`
+      speedtest/speedtest-status) belongs to the legacy classic local-
+      controller API - a completely different path shape than
+      unifi-mcp's actual Network Integration API proxy
+      (/v1/connector/consoles/{hostId}/proxy/network/integration{path}).
+      Could not confirm the modern API this Worker actually uses has an
+      equivalent action from what's publicly documented. Guessing an
+      endpoint against live client firewalls isn't an acceptable way to
+      find out.
+    - Peplink: NOT added. InControl2's own API documentation shows no
+      bandwidth/speed-test trigger endpoint at all under the device
+      resource, and a Peplink community forum thread ("Ability to run and
+      Log Speed Tests in Incontrol2 - Feature Requests") suggests this may
+      genuinely not exist via their API yet, not just be undocumented.
+    Added two new remediation_whitelist entries ("Run NinjaOne script:
+    Speedtest (JSON)", "Run Meraki throughput test") and a new
+    resolver-prompt.md section: when to test at the workstation vs.
+    firewall level (or both, to isolate one machine from the connection
+    itself), how to read back whichever tool's real result rather than
+    assuming a specific field shape, and how to handle a legitimate
+    not-done-yet outcome (track the ticket for a later recheck, don't
+    treat it as a failure or retry blindly). Both new tools are gated
+    exactly like every other action this pipeline takes on a client's live
+    system - $mutatingTools (simulated under -WhatIf) and
+    $remediationMutatingTools (stripped under -RequireApproval for a
+    non-APPROVED ticket) - even though a speed test is transient/non-
+    destructive, it does pull real bandwidth on a client's live connection
+    for several seconds, the same category every other gated tool exists
+    for.
     Version: 2.10.61 - Roger reported a real reply on ticket #22067 went to
     the wrong email address: the contact (Thomas Wilder, Thompson Sales) is
     correctly linked, has no company email address, and uses a personal
@@ -2710,6 +2765,17 @@ $resolverTools = @(
     "mcp__Ninja__get_device_volumes", "mcp__Ninja__get_device_network_interfaces",
     "mcp__Ninja__get_device_windows_services",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device", "mcp__Ninja__list_automation_scripts",
+    # run_script_and_wait (v2.10.62): same remediation-whitelist gating as
+    # run_script_on_device - it queues and runs the exact same way, just
+    # also polls for a result. Needed for the new "Speedtest (JSON)"
+    # NinjaOne script (troubleshooting a client's "internet is slow"
+    # complaint) - run_script_on_device alone can't be used for this, since
+    # it never returns the script's actual output (fire-and-forget), and
+    # there'd be nothing to tell the client without reading the result back
+    # in the same pass, per Roger's own request ("run the script and wait
+    # for the output"). See resolver-prompt.md's network-speed-testing
+    # section for when to use this over the plain fire-and-forget tool.
+    "mcp__Ninja__run_script_and_wait",
 
     # --- Network, read-only --- (every UniFi tool is a GET/LIST - no
     # mutating UniFi tool exists at all, so the full set is included)
@@ -2732,6 +2798,25 @@ $resolverTools = @(
     # get_network_client, which needs one client's ID/MAC already known) - denied
     # because it hadn't been added yet.
     "mcp__Meraki__list_network_clients",
+    # run_throughput_test (v2.10.62): the first Meraki tool that actively DOES
+    # something rather than just reading - runs a live WAN throughput test on
+    # an MX appliance (Meraki's own Live Tools API), for firewall-level
+    # network-slowness troubleshooting alongside the new NinjaOne workstation
+    # speed test. Gated the same way as every other action this pipeline can
+    # take on a client's live system (remediation whitelist + $mutatingTools/
+    # $remediationMutatingTools below), even though it's transient/read-only
+    # in effect (no lasting config change) - it does consume real bandwidth on
+    # the client's live connection for ~10s, the same category of "touches a
+    # client's live system" every other gated tool is gated for, not a passive
+    # GET. UniFi/Peplink don't have an equivalent tool yet - Roger asked for
+    # them to be wired up too, but neither vendor's current API could be
+    # confirmed to actually support triggering a speed test (UniFi: the only
+    # command found is the legacy classic-controller API, not the modern
+    # Network Integration API this Worker actually proxies through; Peplink:
+    # InControl2's docs show no such endpoint at all, and it looks like a
+    # still-outstanding feature request on Peplink's own community forum) -
+    # not wired up rather than guessed at.
+    "mcp__Meraki__run_throughput_test",
 
     # Real incident: Peplink (InControl2) was registered as an MCP server on this
     # machine the whole time but never added to any tool allowlist here, and
@@ -2818,6 +2903,11 @@ $mutatingTools = @(
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
+    # v2.10.62: same reasoning as run_script_on_device/reboot_device above -
+    # both actively touch a client's live system (runs code on a device /
+    # pulls real bandwidth on a live WAN link for ~10s), so both get
+    # simulated under -WhatIf like everything else in this list.
+    "mcp__Ninja__run_script_and_wait", "mcp__Meraki__run_throughput_test",
     # v2.10.55: writes to a client's real Hudu asset records (Firewalls/Switches/
     # Wireless), not the isolated "AI-Documented Fixes" folder - see the note where
     # $resolverTools declares these two for why they're treated differently from
@@ -2846,7 +2936,13 @@ $mutatingTools = @(
 # with only the client-facing reply/remediation itself held back for sign-off.
 $remediationMutatingTools = @(
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
-    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device"
+    "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
+    # v2.10.62: both new speed-test diagnostics are remediation-whitelist
+    # entries (config.json), so both get stripped from a non-APPROVED
+    # ticket's allowlist the same way run_script_on_device already is -
+    # see the $resolverTools/$mutatingTools comments for why, even for a
+    # transient/non-destructive action like this.
+    "mcp__Ninja__run_script_and_wait", "mcp__Meraki__run_throughput_test"
 )
 
 # Base allowlist plus one pre-filtered variant for -RequireApproval, computed

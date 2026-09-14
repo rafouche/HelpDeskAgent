@@ -2423,6 +2423,52 @@ place for the same class of drift to hide unnoticed. Couldn't correct
 ticket #22067 itself from this session (the same auto-mode write denial
 as the #22114 draft-deletion attempt) - reported the fix to Roger instead.
 
+**Network speed testing - one vendor added with real docs, two flagged as
+unverified rather than guessed (v2.10.62).** Roger asked for a new NinjaOne
+script ("Speedtest (JSON)," writes results to the device's activity log)
+to be wired in for "internet is slow" tickets, plus equivalent firewall-
+level testing on Meraki/UniFi/Peplink where it exists. Two real findings
+here, from actually checking rather than assuming:
+
+First: `run_script_on_device` (confirmed from its own implementation -
+`POST /device/{id}/script/run`) only ever queues a script; it never
+returns output, no matter how long a caller waits after calling it. Roger
+explicitly wanted the result read back in the same pass ("run the script
+and wait for the output"), so the existing remediation-whitelist pattern
+(list every script by name in config.json, resolver matches and runs it)
+wasn't sufficient on its own for a *diagnostic* script for the first time
+- every prior whitelist entry was fix-and-move-on, nothing to read back.
+Added `mcp__Ninja__run_script_and_wait` to `ninjarmm-mcp`: queues the same
+way, then polls the device's activity log every 5 seconds for a matching
+new entry until it appears or a wait budget (default 60s) elapses,
+returning the real result or an honest "not done yet" rather than nothing
+useful.
+
+Second: for firewall-level testing, checked each vendor's actual current
+API before writing anything, rather than assuming symmetry across the
+three network vendors this project already treats as "three independent
+ecosystems, not three layers" (see the v2.10.52 entry above). Meraki has
+a real, well-documented one - its Live Tools API (`POST /devices/{serial}/
+liveTools/throughputTest`, an async job you poll) - confirmed against
+Cisco's own official docs, so `mcp__Meraki__run_throughput_test` was added
+using the identical queue-then-poll shape as the Ninja tool. UniFi and
+Peplink were **not** added: the only UniFi speedtest command found belongs
+to the legacy classic-controller API, a different shape than the modern
+Network Integration API `unifi-mcp` actually proxies through, and
+Peplink's InControl2 API documentation shows no bandwidth-test endpoint at
+all (a Peplink community forum thread requesting this as a missing
+feature suggests it may genuinely not exist via their API yet). Reported
+both gaps to Roger instead of guessing an endpoint shape against live
+client firewalls to find out the hard way.
+
+Both new tools are gated the same as every other action this pipeline
+takes on a client's live system (`$mutatingTools`/
+`$remediationMutatingTools`, same as `reboot_device`/
+`run_script_on_device`) even though a speed test is transient and leaves
+no lasting change - it still pulls real bandwidth on a client's live
+connection for several seconds, the same category of real-world effect
+every other gated tool exists to hold back for approval.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

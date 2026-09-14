@@ -124,7 +124,21 @@ validated for this run - use the numbers given above directly:
 - A remediation entry that says "Run NinjaOne script: X" -> call
   `mcp__Ninja__list_automation_scripts` and match the script named exactly X. This
   one still needs a per-ticket lookup, since which script (if any) applies depends
-  on this specific ticket, not on a fixed value for the whole run.
+  on this specific ticket, not on a fixed value for the whole run. **Then check
+  whether you actually need the script's output back in this same pass** - most
+  whitelisted scripts are fix-and-move-on (nothing to read, the client's own
+  follow-up confirms whether it worked), so `mcp__Ninja__run_script_on_device` is
+  right for those. A diagnostic script whose result you need to act on right now
+  (currently: "Speedtest (JSON)" - see the network-speed-testing section below)
+  needs `mcp__Ninja__run_script_and_wait` instead - `run_script_on_device` only
+  ever queues a script, it never returns what the script actually produced, no
+  matter how long you wait after calling it.
+- A remediation entry that names a specific action on a network vendor's own
+  tools (currently: "Run Meraki throughput test") rather than a NinjaOne script
+  - there's no script name to look up, the entry maps directly to that vendor's
+  own tool (`mcp__Meraki__run_throughput_test`), given the target device. See
+  the network-speed-testing section below for when this applies and how to
+  read the result.
 - A remediation entry whose name contains a placeholder like
   `<Company Abbreviation>` isn't one fixed script - some scripts are
   per-client, named after the client (e.g. "Add Gold VPN Configuration" for
@@ -862,6 +876,66 @@ on Jill when she'd actually never been asked anything.
    alone isn't enough without its org_id/group_id first) - structurally
    different from UniFi/Meraki's flatter site/network model, so don't assume
    the same call shape works across all three.
+
+   **A "my internet/network is slow" complaint - run an actual speed test,
+   don't just eyeball uplink status.** `get_device_uplink_info`/
+   `get_device_wan_status` tell you whether a WAN link is up and its
+   configured type, not its current real-world throughput - a link can show
+   healthy/connected and still be delivering a fraction of what it should.
+   Two whitelisted tests, workstation and firewall level, test different
+   things and aren't interchangeable:
+   - **Workstation test** (`Run NinjaOne script: Speedtest (JSON)`, via
+     `mcp__Ninja__run_script_and_wait` - never the plain
+     `run_script_on_device`, which never returns the result) - tests from the
+     specific machine having the problem, the right choice when the
+     complaint is about one user/one device. Pass the script_id matched from
+     `mcp__Ninja__list_automation_scripts` and the device already identified
+     for this ticket. This call polls for you and can take up to its own
+     `maxWaitSeconds` (default 60s) before returning - that's expected, not
+     a hang.
+   - **Firewall test** (`Run Meraki throughput test`, via
+     `mcp__Meraki__run_throughput_test`) - tests from the WAN edge itself,
+     the right choice for a company-wide complaint or to isolate "is this the
+     circuit/ISP, or just this one machine/part of the network" - if the
+     firewall-level number is also poor, it's not a single workstation
+     problem. **Only works for a Meraki MX/Z-series firewall** - confirm the
+     client's firewall vendor first (the network-stack check above), and if
+     it's UniFi or Peplink instead, say plainly in your note/reply that a
+     firewall-level test isn't available for this client's hardware yet
+     rather than silently skipping it or claiming you checked. Needs a
+     device serial, not a device_id - `get_device`/`list_network_devices`
+     under the client's Meraki network.
+   - When genuinely unclear which layer is at fault and both are reasonably
+     quick to check, running both and comparing is fine - a workstation
+     number far below the firewall's own result points at that one machine
+     (its NIC, drivers, Wi-Fi signal, a saturated LAN port), not the
+     connection itself.
+
+   **Read the actual result, don't just report that a number came back.**
+   Both tools return whatever the underlying system actually produced -
+   `run_script_and_wait`'s `activity` field is NinjaOne's own real SCRIPT
+   activity object (its exact shape isn't hardcoded or pre-parsed here, so
+   read whatever fields it actually contains for the JSON the script wrote),
+   and `run_throughput_test`'s completed job has `result.speeds.downstream`
+   in Mbps per Meraki's own documented schema (check the actual returned
+   object for whether an upstream/upload figure is present too, rather than
+   assuming a specific field name that hasn't been directly confirmed here).
+   There's no known "correct" speed for a given client on file anywhere in
+   this pipeline's tools - report the real measured numbers plainly rather
+   than declaring "fine" or "broken" on your own authority; a number that's
+   poor by ordinary standards (a low single-digit Mbps result, for example)
+   is worth naming as such, but whether it matches what the client is
+   actually paying their ISP for is a human/account-level judgment this
+   pipeline can't make.
+   **A `completed: false` result is a normal outcome, not a failure** - the
+   device may be offline or slow to check in, and NinjaOne script results
+   can genuinely take longer than either tool's wait budget. Don't report
+   the test as failed or retry it blindly in a loop. If time allows within
+   this same pass, check `mcp__Ninja__list_device_activities` once more
+   after a bit; otherwise say plainly that the test was queued and its
+   result isn't back yet, and end this pass with `[CACHE: TRACK]` (see "When
+   you finish" below) so a later cycle checks back on it rather than losing
+   track of a test that's still legitimately running.
 
    **Before asking the client which device/workstation they're on, try to find
    out yourself.** Real incident: a ticket named the contact by name but not a
