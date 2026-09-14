@@ -73,6 +73,40 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.61 - Roger reported a real reply on ticket #22067 went to
+    the wrong email address: the contact (Thomas Wilder, Thompson Sales) is
+    correctly linked, has no company email address, and uses a personal
+    Gmail address on file - but the ticket's own send-to field used a
+    different, wrong address instead. Confirmed directly rather than
+    guessing at the cause: pulled the ticket (user_id 786, `emailtolist`:
+    "twilder@thompsonsales.com") and the actual linked contact record
+    (`mcp__Halo__get_contact` 786: `emailaddress`: "thomaswilder84@gmail.com",
+    no other email on file) - the contact record was correct the whole time;
+    the ticket's own `emailtolist` field was a stale, guessed company-domain
+    address left over from before Roger manually relinked the ticket to this
+    contact (action history shows the relink, "User Changed," three days
+    earlier) that never got refreshed by that relink. HaloPSA apparently
+    doesn't keep a ticket's stored send-to address in sync with its linked
+    contact automatically - confirmed this is a real, structural HaloPSA gap,
+    not something this pipeline's own tool calls caused (halopsa-mcp's
+    update_ticket had no `emailto`/`emailtolist` parameter at all before this
+    version, so nothing in this pipeline could have set or changed it).
+    Added `emailto` to update_ticket/update_ticket_draft_only in halopsa-mcp
+    (writes HaloPSA's `emailtolist` field via the same POST-with-id
+    convention already used for client_id/site_id/user_id - field name
+    confirmed from a live GET response, not yet independently confirmed
+    accepted on write). resolver-prompt.md's "Sending a real, client-facing
+    reply" section now requires comparing the ticket's `emailtolist` against
+    the linked contact's real `get_contact` email before every real send,
+    and correcting it (with `verify: true`) when they disagree - the same
+    "don't trust a ticket-level field that can silently drift from the real
+    linked record" lesson this project already learned once for client_id/
+    site_id consistency (ticket #22107), just for the send-to address this
+    time. Could not correct ticket #22067 itself directly - Claude Code's
+    own auto-mode classifier denies external-system writes from this
+    session, same as the ticket #22114 draft-deletion attempt - so this was
+    reported to Roger to fix (or approve) himself: set `emailtolist` to
+    thomaswilder84@gmail.com on ticket #22067.
     Version: 2.10.60 - Roger sent a full day's production log (2026-09-14)
     after noticing the day was already near $20 by early afternoon and asked
     whether there was a leak. There was: analyzed all 40 cycle summaries in

@@ -504,6 +504,29 @@ real, non-draft reply: you want to know your client-facing send actually
 landed before you tell anyone (including yourself, in your own summary)
 that it did.
 
+**Before this call, confirm the reply will actually reach the right
+address - a ticket's stored send-to address and its linked contact's real
+email can disagree, and Halo doesn't reconcile them for you.** Real
+incident, ticket #22067: a ticket had been correctly relinked to its real
+contact (Thomas Wilder, whose only email on file is a personal Gmail
+address - he has no company address), and `get_contact` confirmed that
+record was right - but the ticket's own `emailtolist` field still held a
+stale, guessed company-domain address from before the relink, and never
+got refreshed by that relink. The real reply went out to the stale,
+likely-nonexistent address instead of the client's actual inbox, and
+nobody would have known short of the client saying they never got
+anything. Before sending, get the ticket's current `user_id` and
+`emailtolist`, then `mcp__Halo__get_contact` for that `user_id` and
+compare its `emailaddress` against `emailtolist` - if they differ, pass
+`emailto: <the contact's real emailaddress>` on this same `update_ticket`
+call (alongside `note`/`note_is_private`/`send_email`) to correct it, and
+include `verify: true` so you know the correction actually landed before
+trusting it. This correction is new (v2.10.61) and not yet independently
+confirmed against a live write - if `verified.fields_confirmed` comes back
+false for the `emailto` you set, don't assume the reply still reached the
+client; say so plainly in your summary and flag it for a human rather than
+reporting the ticket as handled.
+
 The reverse also matters: never pass `send_email: true` on a private,
 internal-only note (a draft under `-RequireApproval`, an internal note
 documenting findings, a stuck-ticket flag, etc.) - those stay

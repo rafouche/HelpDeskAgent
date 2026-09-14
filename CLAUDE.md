@@ -2393,6 +2393,36 @@ facing reply on any of it. Both leaks were entirely upstream, in the
 classifier over-nominating and mis-tiering candidates the resolver would
 always handle right, just at a price that didn't need to be paid.
 
+**A real reply went to the wrong email address - HaloPSA's own data, not
+this pipeline's doing (v2.10.61).** Roger reported ticket #22067's real
+reply reached the wrong address: the contact (Thomas Wilder) is correctly
+linked and has no company email, using a personal Gmail address instead -
+and that's exactly what's on file for him. Confirmed directly: `get_contact`
+786 showed `emailaddress: "thomaswilder84@gmail.com"`, the only address on
+file, correct. The ticket's own `emailtolist` field, separately, held
+`"twilder@thompsonsales.com"` - a guessed company-domain address left over
+from before Roger manually relinked the ticket to this contact three days
+earlier, which the relink never refreshed. HaloPSA keeps a ticket-level
+send-to field that doesn't automatically stay in sync with whichever
+contact is actually linked - confirmed this is a genuine HaloPSA data gap,
+not something this pipeline caused (halopsa-mcp's `update_ticket` had no
+way to even read or write that field before this version, so nothing in
+this pipeline's own calls could have set it wrong).
+
+Added `emailto` to `update_ticket`/`update_ticket_draft_only` (writes
+HaloPSA's `emailtolist` via the same POST-with-id convention already used
+for `client_id`/`site_id`/`user_id` - the field name is confirmed from a
+live read, not yet independently confirmed accepted on write). Required a
+new check before every real send: compare the ticket's `emailtolist`
+against the linked contact's actual `get_contact` email, correct it (with
+`verify: true`) if they disagree. This is the same lesson this project
+already learned once, for a different pair of fields - ticket #22107's
+`client_id`/`site_id` consistency gap - now applied to the field that
+decides where a reply actually goes, which is a considerably higher-stakes
+place for the same class of drift to hide unnoticed. Couldn't correct
+ticket #22067 itself from this session (the same auto-mode write denial
+as the #22114 draft-deletion attempt) - reported the fix to Roger instead.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
