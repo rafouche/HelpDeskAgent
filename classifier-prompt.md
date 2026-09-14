@@ -53,9 +53,12 @@ output format section at the end of this document).
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
 - Blocked ticket_id(s) - a prior cycle hit a structural dead end on these, see call 1 below: {{BLOCKED_TICKET_IDS}}
+- Human-owned ticket_id(s) - a prior cycle confirmed a real human agent already owns these, see call 1 below: {{HUMAN_OWNED_TICKET_IDS}}
 - `halo.waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
 - `halo.follow_up_status_name` status_id: {{FOLLOWUP_STATUS_ID}}
 - `halo.ready_for_ai_status_name` status_id (or "none" if not configured): {{READY_FOR_AI_STATUS_ID}}
+- `halo.ai_waiting_approval_status_name` status_id (or "none" if `-RequireApproval` isn't configured): {{AI_WAITING_APPROVAL_STATUS_ID}}
+- `halo.ai_approved_status_name` status_id (or "none" if `-RequireApproval` isn't configured): {{AI_APPROVED_STATUS_ID}}
 
 Read the config file first with the Read tool. It has `halo.help_desk_team_name`
 and `halo.agent_username` - the two names behind the team_id/agent_id above. A
@@ -115,6 +118,25 @@ version history for the real case this was fixed from):
      becomes a candidate again automatically once enough time has passed
      (see config's `blocked_ticket_retry_hours`) - you don't need to do
      anything to make that happen, it just stops appearing in this list.
+   - **Drop any ticket whose ID is in the human-owned list above.** A prior
+     cycle's resolver already confirmed - via the ticket's own action log,
+     not just its current status or assignment - that a real human agent
+     already owns this ticket. Real incident: tickets #22114/#22067 were
+     each reprocessed 6 times in one day at real Sonnet-tier cost, every
+     single pass correctly re-discovering "a human already owns this" the
+     expensive way, because a human's own habit of resetting a ticket's
+     status back to "New" while working it by hand (which also clears
+     `agent_id` back to `1`) makes it indistinguishable from a genuinely
+     fresh candidate to every check available at this stage - status name,
+     status_id, assignment, all of it. Only the actual action log settles
+     it, and a prior resolver call already paid for that lookup once; no
+     need to pay for it again every cycle. It becomes a candidate again
+     automatically once `human_owned_retry_hours` has passed (much longer
+     than `blocked_ticket_retry_hours`, since a human working a ticket by
+     hand isn't in a hurry to hand it back) - or immediately, regardless of
+     that window, the moment a human sets `ready_for_ai_status_name` on it
+     (call 4 below), the deliberate override mechanism for exactly this
+     situation.
    - **Drop any ticket whose `status_id` is {{WAITING_STATUS_ID}} or
      {{FOLLOWUP_STATUS_ID}}** - a plain numeric comparison, same as the
      tracked/blocked-list checks above, not a status-name judgment call.
@@ -202,18 +224,46 @@ version history for the real case this was fixed from):
      reads the ticket; your only job is noticing the status changed to a
      closed one.
    - **Still open, but now assigned to a real human agent (`agent_id` is
-     neither `1`/Unassigned nor `{{AGENT_ID}}`):** someone else is actively
-     working it and it isn't resolved yet, nothing to learn - emit
-     `{"ticket_id": <id>, "tier": "UNTRACK"}` and move on, no further
-     investigation needed. `UNTRACK` is not a real tier - it never reaches
-     the resolver, it's purely how you tell the process that maintains this
-     list to drop that ID.
-   - **Otherwise (still open, still unassigned):** call
+     neither `1`/Unassigned nor `{{AGENT_ID}}`) - UNLESS its current
+     `status_id` is `{{AI_WAITING_APPROVAL_STATUS_ID}}` or
+     `{{AI_APPROVED_STATUS_ID}}`, see the exception right below:** someone
+     else is actively working it and it isn't resolved yet, nothing to
+     learn - emit `{"ticket_id": <id>, "tier": "UNTRACK"}` and move on, no
+     further investigation needed. `UNTRACK` is not a real tier - it never
+     reaches the resolver, it's purely how you tell the process that
+     maintains this list to drop that ID.
+   - **Exception: still on `{{AI_WAITING_APPROVAL_STATUS_ID}}` or
+     `{{AI_APPROVED_STATUS_ID}}`, even if reassigned to a real human agent -
+     treat this the same as "still open, still unassigned" below, not the
+     bullet above.** A human claiming a pending draft to review or approve
+     it isn't the same as taking the ticket over - see resolver-prompt.md's
+     "If a human left a note on your own pending draft" section for why. Real
+     incident, ticket #22145: Erick Gonzales (a real human agent) reassigned
+     and triaged the ticket to review this pipeline's own pending draft, with
+     no note text at all - the literal reading of the bullet above would have
+     called that "assigned to a real human agent" and UNTRACKed it
+     immediately, which is wrong (the draft would then sit forever with no
+     human ever having actually reviewed it, since nothing would check on it
+     again). But without this written exception, nothing here said otherwise
+     either, so behavior was inconsistent from cycle to cycle - sometimes
+     right, sometimes tiering it as a fresh MEDIUM/COMPLEX investigation
+     anyway, both wrong for what should be a cheap "did anything actually
+     change?" recheck. Route it to the action-log check below instead.
+   - **Otherwise (still open, still unassigned - or on
+     `{{AI_WAITING_APPROVAL_STATUS_ID}}`/`{{AI_APPROVED_STATUS_ID}}` per the
+     exception above):** call
      `mcp__Halo__get_ticket_time_entries` and check the action log the same
      way you would for any re-check: if the most recent substantive entry is
      already a note/reply from us with nothing after it, nothing has changed
      - do nothing at all for this ticket_id, don't include it in your output
-     array in any form. Saying nothing is what keeps it tracked and
+     array in any form. **A bare reassignment/triage entry with no free-text
+     note counts as nothing substantive too** - resolver-prompt.md's "If a
+     human left a note on your own pending draft" section calls this exact
+     case "only a reassignment, no note text at all": a human claiming or
+     triaging a pending draft to look at it later isn't itself new
+     information (ticket #22145 above is exactly this case: Erick
+     reassigned/triaged with no note text - nothing had actually changed).
+     Saying nothing is what keeps it tracked and
      unbothered until something actually changes; there is no "still waiting,
      no update" tier to emit. Otherwise - the client has posted something
      since (an entry from them, not from an agent - `hiddenfromuser: false`

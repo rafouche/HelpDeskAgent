@@ -2341,6 +2341,58 @@ treatment there - kept the two "touches only this pipeline's own draft"
 tools symmetric rather than deciding a new `-WhatIf` policy for one and not
 the other without an actual incident to justify it either way.
 
+**A real cost leak, found by actually analyzing the numbers instead of
+guessing (v2.10.60).** Roger sent a full day's production log after noticing
+the day was already near $20 by early afternoon and asked if something was
+leaking. Rather than eyeballing it, parsed all 40 cycle summaries in the log
+directly: $17.75 logged so far, with three tickets - #22067 (6x/$2.08),
+#22145 (6x/$1.89), #22114 (6x/$1.40) - accounting for roughly 30% of it,
+almost all of that reprocessing making zero forward progress. Two distinct,
+real, separately-fixed causes:
+
+*#22114/#22067* - Roger's own habit of resetting a ticket's status back to
+"New" while working it by hand (which also clears `agent_id` back to `1`)
+makes it indistinguishable from a genuinely fresh candidate to every
+classifier-side signal that exists - status_id, status name (deliberately
+never excluded by name, since real fresh work legitimately sits in "New"
+too), assignment. Only the action log settles it, and the resolver was
+already doing that correctly every time, at full Sonnet cost, then emitting
+`[CACHE: UNTRACK]` - which turned out to do nothing here, since these
+tickets were never in the tracked list `UNTRACK` prunes; they're freshly
+rediscovered as Unassigned candidates each cycle. Added a fourth cache
+marker, `[CACHE: HUMAN_OWNED]`, the same shape as `[CACHE: BLOCKED]` (its
+own `human_owned_tickets` map, excluded from the classifier's Unassigned
+list for `human_owned_retry_hours` - defaulted to 24h, much longer than
+`blocked_ticket_retry_hours`'s 4h, since a human working a ticket by hand
+isn't in a hurry to get it back; `ready_for_ai_status_name` still overrides
+it immediately).
+
+*#22145* - assigned to a real human (Erick, reviewing this pipeline's own
+pending draft with no note text yet) but reaching the resolver at
+inconsistent, mostly expensive tiers every cycle for what should have cost
+nothing. Root cause: classifier-prompt.md's call 3 literally said "assigned
+to a real human agent -> `UNTRACK`, no further investigation," with no
+written exception for a ticket sitting on `ai_waiting_approval_status_id`/
+`ai_approved_status_id` - a human claiming a pending draft to review isn't
+the same as taking the ticket over. The classifier was clearly applying
+*some* unwritten exception (it never actually got `UNTRACK`ed, which would
+have been wrong), just inconsistently, which explains both why it kept
+reaching the resolver and why its tier bounced around. These two status IDs
+weren't even exposed to the classifier before this version - added them and
+wrote the exception explicitly, routing tickets in either status to the
+existing action-log check instead, and made a bare reassignment/triage
+entry with no free-text note count as "nothing substantive" there too
+(matching resolver-prompt.md's own "only a reassignment, no note text at
+all" case) - the free "nothing changed" outcome that branch already had
+just needed to actually be reached for this case.
+
+Worth naming what *wasn't* the problem: the resolver's own judgment was
+correct on every single one of these 18 reprocessing passes - it never
+misdiagnosed ownership, never lost track of a draft, never spent a client-
+facing reply on any of it. Both leaks were entirely upstream, in the
+classifier over-nominating and mis-tiering candidates the resolver would
+always handle right, just at a price that didn't need to be paid.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

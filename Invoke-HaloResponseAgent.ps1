@@ -73,6 +73,68 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.60 - Roger sent a full day's production log (2026-09-14)
+    after noticing the day was already near $20 by early afternoon and asked
+    whether there was a leak. There was: analyzed all 40 cycle summaries in
+    the log directly rather than guessing - $17.75 logged by the time the
+    file was sent, concentrated in three tickets reprocessed far more than
+    anything else that day (#22067 x6/$2.08, #22145 x6/$1.89, #22114 x6/
+    $1.40 - roughly 30% of the day's total spend, on tickets that made zero
+    forward progress across nearly all of those passes). Two distinct, real
+    causes, both fixed:
+    (1) #22114/#22067: Roger's own habit of resetting a ticket's status back
+    to "New" while working it by hand (which also clears agent_id back to 1
+    as a side effect) makes it indistinguishable from a genuinely fresh
+    candidate to every classifier-side signal that exists today - status_id,
+    status name (classifier-prompt.md deliberately never excludes "New" by
+    name, since real fresh work legitimately sits there too), assignment.
+    Only the action log (human_touch) tells them apart, and the resolver was
+    already discovering that correctly every single time at full MEDIUM/
+    COMPLEX Sonnet cost, then emitting [CACHE: UNTRACK] - which, it turns
+    out, does nothing for a ticket that was never in the tracked list to
+    begin with (these are freshly rediscovered as Unassigned candidates each
+    cycle, not through the tracked-ticket recheck path). Added a fourth
+    cache marker, [CACHE: HUMAN_OWNED], mirroring [CACHE: BLOCKED]'s own
+    established shape (a new human_owned_tickets map in agent-cache.json,
+    ticket_id -> when last confirmed, excluded from the classifier's
+    Unassigned candidate list for config's new human_owned_retry_hours,
+    defaulted considerably longer than blocked_ticket_retry_hours's 4h since
+    a human working a ticket by hand isn't in a hurry to get it back -
+    ready_for_ai_status_name still overrides this immediately, same as
+    everything else). resolver-prompt.md's "Is this ticket actually
+    available to you?" checks 1/2 and "When you finish" section now specify
+    HUMAN_OWNED for exactly this case, split out from UNTRACK's own listed
+    cases.
+    (2) #22145: assigned to Erick Gonzales (a real human agent) reviewing
+    this pipeline's own still-pending [DRAFT PENDING APPROVAL] note, with no
+    note text from him yet - correctly not resolved/replied-to on any of
+    these passes, but reaching the resolver at inconsistent, mostly
+    expensive tiers (TRIVIAL_UNCERTAIN once, MEDIUM four times, COMPLEX
+    once) for what should have been a free "did anything actually change?"
+    recheck. Root cause: classifier-prompt.md's call 3 literally says
+    "still open, assigned to a real human agent -> UNTRACK, no further
+    investigation" with no written exception for a ticket sitting on
+    ai_waiting_approval_status_id/ai_approved_status_id - a human claiming a
+    pending draft to review isn't the same as taking the ticket over (see
+    resolver-prompt.md's own "If a human left a note on your own pending
+    draft" section), so the classifier was evidently applying an unwritten,
+    inconsistent exception rather than a documented one, explaining both why
+    it kept reaching the resolver at all and why its tier varied cycle to
+    cycle. These two IDs (ai_waiting_approval_status_id/ai_approved_status_id)
+    were never even exposed to the classifier before this version - added
+    them (rendering "none" when -RequireApproval isn't configured, same
+    pattern as ready_for_ai_status_id) and wrote the exception explicitly:
+    a ticket on either status routes to the existing action-log check
+    instead of the unconditional UNTRACK, and a bare reassignment/triage
+    entry with no free-text note now explicitly counts as "nothing
+    substantive" there (matching resolver-prompt.md's own "only a
+    reassignment, no note text at all" case) - the existing "nothing
+    changed -> exclude entirely, zero cost" outcome that branch already had
+    just needed to actually be reached for this case instead of drifting
+    into an ad hoc MEDIUM/COMPLEX guess. No change needed to the resolver's
+    own already-correct behavior here - both bugs were entirely on the
+    classifier side, over-nominating and mis-tiering candidates the
+    resolver was, each time, already handling correctly once it saw them.
     Version: 2.10.59 - Roger asked whether FLOW A could delete the draft
     note once it's been approved and sent, to keep ticket history cleaner,
     or alternatively relabel it to something like "Approved draft" instead
@@ -2222,6 +2284,7 @@ elseif ((Test-Path $legacyIdCachePath) -or (Test-Path $legacyTrackedPath)) {
         tracked_last_seen    = [PSCustomObject]@{}
         unassigned_last_seen = [PSCustomObject]@{}
         blocked_tickets      = [PSCustomObject]@{}
+        human_owned_tickets  = [PSCustomObject]@{}
         remembered_notes     = @()
         last_real_cycle_at   = $null
     }
@@ -2238,6 +2301,7 @@ if (-not $agentCache) {
         tracked_last_seen    = [PSCustomObject]@{}
         unassigned_last_seen = [PSCustomObject]@{}
         blocked_tickets      = [PSCustomObject]@{}
+        human_owned_tickets  = [PSCustomObject]@{}
         remembered_notes     = @()
         last_real_cycle_at   = $null
     }
@@ -2295,6 +2359,53 @@ if ($agentCache.blocked_tickets) {
         if ([datetime]::TryParse($prop.Value, [ref]$blockedAt)) {
             if (((Get-Date) - $blockedAt).TotalHours -lt $blockedTicketRetryHours) {
                 $blockedTickets[$prop.Name] = $prop.Value
+            }
+        }
+    }
+}
+
+# v2.10.60: same cost shape as blocked_tickets above, different cause. Real
+# incident, confirmed directly from a full day's production log Roger sent
+# after noticing the day was already near $20 by early afternoon: tickets
+# #22114 and #22067 were each reprocessed 6 times in one day, at MEDIUM/
+# COMPLEX (Sonnet) tier every time, and every single pass reached the exact
+# same conclusion - a real human agent (Roger) had already acted on the
+# ticket, so the resolver correctly claimed and did nothing. The classifier's
+# own "New"/"In Progress"/"Updated" statuses are deliberately never excluded
+# by name (see classifier-prompt.md - real Help Desk work legitimately sits
+# in all three), and Roger's own habit of manually resetting a ticket's
+# status back to "New" while working it by hand - which also clears
+# agent_id back to 1 as a side effect, already documented elsewhere in this
+# file - means neither the status-id check nor the status-name judgment call
+# can ever catch this case; only the actual action log (human_touch) can.
+# The resolver was already discovering that correctly every time (emitting
+# [CACHE: UNTRACK], per resolver-prompt.md's own documented case for "someone
+# else's ticket") - the gap was that UNTRACK only ever prunes tracked_tickets,
+# which these tickets were never in to begin with (they're freshly
+# rediscovered as Unassigned candidates each cycle, not through the tracked-
+# ticket recheck path at all), so nothing about that conclusion carried
+# forward to the next cycle's classifier call. Same fix shape as
+# blocked_tickets: a human-confirmed-elsewhere ticket now gets its own
+# [CACHE: HUMAN_OWNED] marker (resolver-prompt.md's "Is this ticket actually
+# available to you?" checks 1/2, "When you finish" section) and goes in
+# human_owned_tickets (ticket_id -> when last confirmed) instead of silently
+# costing a full resolver call to re-derive the same answer every 15-30
+# minutes. Given a human working a ticket by hand is in no hurry to hand it
+# back to this pipeline, and ready_for_ai_status_name already exists as the
+# correct, immediate way to signal "actually, take this one" regardless of
+# this cache, defaulted the retry window considerably longer than
+# blocked_ticket_retry_hours's 4h (that one exists to recover from a
+# transient platform bug ASAP; this one exists to stop re-asking a question
+# whose answer isn't expected to change soon).
+$humanOwnedRetryHours = 24
+if ($config.claude.human_owned_retry_hours) { $humanOwnedRetryHours = [double]$config.claude.human_owned_retry_hours }
+$humanOwnedTickets = @{}
+if ($agentCache.human_owned_tickets) {
+    foreach ($prop in $agentCache.human_owned_tickets.PSObject.Properties) {
+        [datetime]$humanOwnedAt = 0
+        if ([datetime]::TryParse($prop.Value, [ref]$humanOwnedAt)) {
+            if (((Get-Date) - $humanOwnedAt).TotalHours -lt $humanOwnedRetryHours) {
+                $humanOwnedTickets[$prop.Name] = $prop.Value
             }
         }
     }
@@ -3329,6 +3440,27 @@ try {
         $blockedTicketIdsText = (@($blockedTickets.Keys) -join ", ")
     }
 
+    # Same "none" rendering, same reason - see the human_owned_tickets
+    # loading/pruning comment above for what this list means and why it
+    # exists (v2.10.60).
+    $humanOwnedTicketIdsText = "none"
+    if ($humanOwnedTickets.Count -gt 0) {
+        $humanOwnedTicketIdsText = (@($humanOwnedTickets.Keys) -join ", ")
+    }
+
+    # Same "none" rendering as ready_for_ai_status_id below - these are only
+    # ever set when -RequireApproval's two config names are both configured
+    # (see config's halo._comment), so a run that doesn't use approval mode
+    # renders literal "none" here rather than a blank/0 the classifier could
+    # misread as a real status_id. Needed here (v2.10.60) so the classifier's
+    # call 3 can recognize a ticket sitting in one of these two statuses and
+    # not unconditionally UNTRACK it just because a human reassigned it to
+    # review the pending draft - see "Find candidate tickets" below.
+    $aiWaitingApprovalStatusIdText = "none"
+    if ($null -ne $ids.ai_waiting_approval_status_id) { $aiWaitingApprovalStatusIdText = $ids.ai_waiting_approval_status_id }
+    $aiApprovedStatusIdText = "none"
+    if ($null -ne $ids.ai_approved_status_id) { $aiApprovedStatusIdText = $ids.ai_approved_status_id }
+
     # Same "none" rendering, same reason - see the remembered_notes loading
     # comment above. Rendered as a plain bullet list (not JSON) since this is
     # meant to be read and weighed by the resolver, not parsed.
@@ -3396,9 +3528,12 @@ try {
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{TRACKED_TICKET_IDS\}\}', $trackedTicketIdsText `
         -replace '\{\{BLOCKED_TICKET_IDS\}\}', $blockedTicketIdsText `
+        -replace '\{\{HUMAN_OWNED_TICKET_IDS\}\}', $humanOwnedTicketIdsText `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
-        -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText
+        -replace '\{\{READY_FOR_AI_STATUS_ID\}\}', $readyForAiStatusIdText `
+        -replace '\{\{AI_WAITING_APPROVAL_STATUS_ID\}\}', $aiWaitingApprovalStatusIdText `
+        -replace '\{\{AI_APPROVED_STATUS_ID\}\}', $aiApprovedStatusIdText
     $resolverPromptTemplate = $resolverPromptTemplate `
         -replace '\{\{TEAM_ID\}\}', $ids.team_id `
         -replace '\{\{AGENT_ID\}\}', $ids.agent_id `
@@ -3958,7 +4093,7 @@ try {
             }
 
             $cacheMarker = $null
-            if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK|BLOCKED)\s*\]') {
+            if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK|BLOCKED|HUMAN_OWNED)\s*\]') {
                 $cacheMarker = $Matches[1].ToUpperInvariant()
             }
             switch ($cacheMarker) {
@@ -3973,6 +4108,19 @@ try {
                     # tracked_tickets either if it got there first.
                     $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId })
                     $blockedTickets[[string]$ticketId] = (Get-Date).ToString("o")
+                }
+                'HUMAN_OWNED' {
+                    # v2.10.60 - see human_owned_tickets loading comment
+                    # above. A real human agent already confirmed to own this
+                    # ticket, not this pipeline's own tracked/pending-draft
+                    # ticket - same "not tracked either" reasoning as BLOCKED
+                    # above, different cache/cooldown (human_owned_tickets /
+                    # human_owned_retry_hours, not blocked_tickets /
+                    # blocked_ticket_retry_hours), since the underlying
+                    # reason for exclusion is completely different (a human
+                    # genuinely working it by hand, not a platform failure).
+                    $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId })
+                    $humanOwnedTickets[[string]$ticketId] = (Get-Date).ToString("o")
                 }
                 default {
                     if (-not $WhatIf) {
@@ -3993,7 +4141,7 @@ try {
                         # marker discipline would normally record anything at all).
                         $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId })
                         $blockedTickets[[string]$ticketId] = (Get-Date).ToString("o")
-                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK|BLOCKED] marker found in resolver output; treating as BLOCKED (backing off for blocked_ticket_retry_hours) rather than leaving it unprotected for next cycle." -Encoding UTF8
+                        Add-Content -Path $logFile -Value "TICKET ${ticketId}: WARNING - no [CACHE: TRACK|UNTRACK|BLOCKED|HUMAN_OWNED] marker found in resolver output; treating as BLOCKED (backing off for blocked_ticket_retry_hours) rather than leaving it unprotected for next cycle." -Encoding UTF8
                     }
                 }
             }
@@ -4058,6 +4206,7 @@ finally {
                 tracked_last_seen    = $prunedTrackedLastSeen
                 unassigned_last_seen = $unassignedLastSeen
                 blocked_tickets      = $blockedTickets
+                human_owned_tickets  = $humanOwnedTickets
                 remembered_notes     = @($rememberedNotes)
                 last_real_cycle_at   = (Get-Date).ToString("o")
             }

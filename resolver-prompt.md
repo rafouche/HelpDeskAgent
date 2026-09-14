@@ -1303,9 +1303,10 @@ three markers below you're about to print, not a fourth alternative to
 choose between.
 
 **Then, as the very last line of your entire response, print exactly one of
-these three lines - no exceptions, this applies to every path in this
+these four lines - no exceptions, this applies to every path in this
 document, including every early-stop case above (compliance exclusion,
-belongs to a different agent, `agent_id: 1` not actually free):**
+belongs to a different agent, `agent_id: 1` not actually free - the last
+two are `HUMAN_OWNED`, see below, not `UNTRACK`):**
 
 - `[CACHE: TRACK]` - you still expect to look at this ticket again without a
   human needing to act on it first: it's on `waiting_on_client_status_name`
@@ -1343,9 +1344,32 @@ belongs to a different agent, `agent_id: 1` not actually free):**
   the emergency/compromise paths, FLOW A completing a send, a draft held
   for `-RequireApproval` sign-off (that status is tracked separately by the
   classifier's own approval-mode logic, not this list), or an early-stop
-  case that isn't a structural dead end (compliance exclusion, someone
-  else's ticket). This tells that same process to take this ticket_id off
-  its list, if it was on it - there's nothing left to check it for.
+  case that isn't a structural dead end and isn't someone else's ticket
+  either (compliance exclusion). This tells that same process to take this
+  ticket_id off its list, if it was on it - there's nothing left to check
+  it for.
+- `[CACHE: HUMAN_OWNED]` - checks 1 or 2 above stopped you: this ticket is
+  (or was, at some point) a real human colleague's, confirmed either by
+  `agent_id` pointing at someone else or by `human_touch.found` being
+  `true`. Real incident, ticket #22114/#22067: a human's own habit of
+  working a ticket by hand and resetting its status back to "New" between
+  touches (which also clears `agent_id` back to `1` as a side effect,
+  already documented elsewhere in this file) made it look like a fresh,
+  never-touched candidate to every cheaper signal the classifier has -
+  each ticket got reprocessed 6 times in one day, on the expensive tier,
+  correctly reaching this exact stop every single time at real cost with
+  zero new information. `[CACHE: UNTRACK]` doesn't fix this - it only ever
+  prunes the tracked-ticket list, and a ticket discovered this way was
+  never on it to begin with, so nothing about the conclusion would carry
+  forward to the next cycle without a dedicated marker. This tells the
+  calling process to hold this ticket_id out of the classifier's Unassigned
+  candidate list for a while (see config's `human_owned_retry_hours`, much
+  longer than `blocked_ticket_retry_hours` since a human working a ticket
+  by hand isn't in a hurry to hand it back) rather than re-deriving the
+  identical answer at the identical cost every cycle. A human wanting this
+  ticket handled by you again doesn't need to wait out that window - setting
+  it to `ready_for_ai_status_name` (check 0 above) overrides this exclusion
+  immediately, the same as it overrides everything else.
 
 If you're genuinely unsure whether something is a real structural dead end
 (`BLOCKED`) versus just needing another look later (`TRACK`), use `TRACK` -
