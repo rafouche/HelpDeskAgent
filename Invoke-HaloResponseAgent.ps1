@@ -73,6 +73,34 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.59 - Roger asked whether FLOW A could delete the draft
+    note once it's been approved and sent, to keep ticket history cleaner,
+    or alternatively relabel it to something like "Approved draft" instead
+    of leaving the whole draft text sitting there. Checked first rather
+    than assuming: FLOW A step 6 has deleted the draft note in this exact
+    situation since v2.10.49, already per an earlier Roger request - so
+    this wasn't a net-new ask, it was reopening that decision. Asked which
+    of his own two options he wanted (delete, already live, vs. relabel);
+    he chose a third variant: relabel to "[APPROVED DRAFT]" but strip the
+    rest of the text entirely, since it already lives in the real sent
+    reply and doesn't need to sit twice in the ticket's history. HaloPSA
+    has no note-edit endpoint of its own - delete_ticket_note only ever
+    calls DELETE /Actions/{id} - so added a new halopsa-mcp tool,
+    mark_draft_approved, using the same update-via-POST convention
+    update_ticket already relies on for /Tickets (POST /Actions with the
+    action's own id edits it in place rather than creating a new one) -
+    not yet independently re-verified that this convention also holds for
+    /Actions specifically, flagged for Roger to confirm once deployed.
+    Same safety scoping as delete_ticket_note (fetches the action first,
+    refuses unless it's private, belongs to this ticket, and starts with
+    the exact "[DRAFT PENDING APPROVAL]" marker) so it can't touch a
+    human's note or a real reply either. Wired into $resolverTools and
+    swapped into FLOW A step 6 in place of delete_ticket_note. Left
+    mark_draft_approved out of $mutatingTools, matching delete_ticket_note's
+    own existing (pre-dating this change) treatment - keeping the two
+    "own draft only" tools symmetric rather than introducing a new
+    -WhatIf policy for one but not the other without a specific incident
+    driving it.
     Version: 2.10.58 - Roger reviewed two full days of production logs
     (2026-09-12/13) while this session was investigating ticket #22114, and
     separately flagged a pattern this session had noticed in passing but not
@@ -2429,6 +2457,14 @@ $resolverTools = @(
     # leaving the old one behind - see resolver-prompt.md's "If a human left
     # a note on your own pending draft" section and this script's own FLOW B.
     "mcp__Halo__delete_ticket_note",
+    # mark_draft_approved (v2.10.59): same safety scoping as
+    # delete_ticket_note right above, but edits the sent draft note down to
+    # a short "[APPROVED DRAFT]" marker in place instead of deleting it -
+    # Roger wanted a visible trace that a draft existed and was approved,
+    # without the full reply text sitting twice in the ticket's history
+    # (it's already in the real sent reply). Used by FLOW A step 6 below in
+    # place of delete_ticket_note now.
+    "mcp__Halo__mark_draft_approved",
     # get_client/list_clients/get_contact/list_contacts: a real run showed the
     # resolver denied on get_client while investigating which company a ticket
     # belonged to - never added despite being the same kind of read-only
@@ -3507,12 +3543,13 @@ try {
             "   verify: true - note_is_private alone does not email the client, see",
             "   resolver-prompt.md's `"Sending a real, client-facing reply`" section) - its",
             "   own call, unchanged from what was drafted.",
-            "6. Delete the draft note: mcp__Halo__delete_ticket_note (ticket_id, the draft",
-            "   note's own action_id from step 1). Per Roger's request, extending the same",
-            "   cleanup FLOW B and the revision flow already do for a superseded draft - now",
-            "   that the real reply from step 5 is posted, this draft is no longer pending",
-            "   and the reply above is the actual record a human reads, so there's nothing",
-            "   left for it to document. The tool refuses (no delete happens) unless the",
+            "6. Collapse the draft note: mcp__Halo__mark_draft_approved (ticket_id, the",
+            "   draft note's own action_id from step 1). Per Roger's request: once the real",
+            "   reply from step 5 is posted, the full draft text sitting in its own note is",
+            "   redundant - it's already visible in the sent reply above - but he wants a",
+            "   short trace left behind (`"[APPROVED DRAFT]`") rather than the note vanishing",
+            "   entirely, so a human scanning history still sees this ticket went through",
+            "   the draft/approval flow. The tool refuses (no edit happens) unless the",
             "   target is still a private note starting with the exact literal",
             "   `"[DRAFT PENDING APPROVAL]`" marker, so it's safe to call even moments after",
             "   sending. If it refuses for any reason, don't fight it or guess at a",

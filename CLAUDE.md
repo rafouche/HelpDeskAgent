@@ -2316,6 +2316,31 @@ attempt-then-deny. Did not invent a matching environment-variable fallback
 (the way `CLAUDE_CODE_DISABLE_BUILTIN_AGENTS` exists for Agent/Task) since
 no equivalent documented variable for Bash specifically is confirmed real.
 
+**Draft-collapse-after-send: reopened a decision that was actually already
+shipped, landed somewhere new (v2.10.59).** Roger asked whether an approved,
+sent draft's note could be deleted for a cleaner ticket history, or
+relabeled to something like "Approved draft" instead. Checked before
+assuming this was net-new: FLOW A step 6 has deleted the draft note in
+exactly this situation since v2.10.49 (also Roger's own earlier request) -
+worth surfacing that rather than silently re-implementing something already
+live. Asked which of his two options he wanted; his actual answer was a
+third one - relabel to `"[APPROVED DRAFT]"` but strip the rest of the text
+entirely, since it's already sitting in the real sent reply and doesn't
+need to appear twice. HaloPSA has no dedicated note-edit endpoint -
+`delete_ticket_note` only ever calls `DELETE /Actions/{id}` - so this
+needed a new tool: `mark_draft_approved` in `halopsa-mcp`, using the same
+update-via-POST convention `update_ticket` already relies on for
+`/Tickets` (a payload with the resource's own `id` updates it in place
+rather than creating a new one) - not yet independently re-verified that
+convention holds for `/Actions` specifically, flagged for Roger to confirm
+after deploying. Same safety scoping as `delete_ticket_note` (fetches the
+action first, refuses unless private/this-ticket/starts-with-the-exact-
+marker), swapped into FLOW A step 6 in its place. Left it out of
+`$mutatingTools`, matching `delete_ticket_note`'s own pre-existing
+treatment there - kept the two "touches only this pipeline's own draft"
+tools symmetric rather than deciding a new `-WhatIf` policy for one and not
+the other without an actual incident to justify it either way.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
