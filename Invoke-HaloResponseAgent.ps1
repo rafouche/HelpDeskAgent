@@ -73,6 +73,29 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.64 - no code change in this script; fix lives in
+    halopsa-mcp. Roger reported the v2.10.45 client-email-formatting bug
+    ("every paragraph break collapsed into one run-on block") back on ticket
+    #22231, specifically after a human moved a draft to AI Approved (FLOW A).
+    Root cause, confirmed live: HaloPSA's GET /Actions reconstructs the plain
+    `note` field from `note_html` (tags stripped, no whitespace substituted)
+    whenever `note_html` is present on that action - a Halo AI Triage note on
+    the same ticket with no note_html set preserved its \r\n perfectly on the
+    same GET call, while this pipeline's own note (note_html set) came back
+    with every line break gone entirely, not even a space. FLOW A step 1 reads
+    the private "[DRAFT PENDING APPROVAL]" note back with exactly this call
+    to resend it "verbatim" (step 2 above) - so the note_html the v2.10.45 fix
+    added to update_ticket_draft_only's write was silently corrupting its own
+    later read-back, and FLOW A faithfully copied the already-mangled text
+    into the real client email, note_html included (nothing left to convert
+    into `<br>` by the time it got there). Fixed in halopsa-mcp: removed
+    note_html from update_ticket_draft_only's write only - that note is
+    always private and never emailed directly, and Halo's own ticket UI
+    already renders bare `\n` forgivingly (the original justification in
+    v2.10.45's own comment), so note_html served no purpose there. Left
+    update_ticket's note_html alone (the real, later, client-facing send
+    still needs it, and now reads fresh, uncorrupted draft text at that
+    point). Roger deploys the Worker separately, same as always.
     Version: 2.10.63 - no code change; follow-up on v2.10.62's Peplink gap.
     Roger relayed a claim from a different chat session that Peplink IC2
     does support triggering a speed test after all, via an undocumented-

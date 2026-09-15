@@ -2486,6 +2486,40 @@ unimplemented, same as UniFi, pending real evidence either way - recorded
 here so this specific claim doesn't need re-investigating from zero next
 time it comes up.
 
+**The v2.10.45 formatting fix corrupted its own future read-back
+(v2.10.64).** Roger reported the exact same symptom as v2.10.45 - a
+client-facing reply with every paragraph break collapsed into one run-on
+block - back again on ticket #22231, specifically after a human moved a
+draft to AI Approved. That specificity was the clue: only the approval
+(FLOW A) path re-reads a previously-written draft note and resends it
+verbatim; a ticket resolved directly in one pass never re-reads its own
+note. Confirmed live rather than guessed: on the same ticket, a Halo AI
+Triage note (never touched by this pipeline's code, no `note_html` set)
+came back from `get_ticket_time_entries` with its `\r\n` line breaks
+perfectly intact, while this pipeline's own note - written with the
+v2.10.45 `note_html` field set alongside `note` - came back with every
+line break gone entirely, not even a space between sentences or before the
+signature block. Root cause: HaloPSA's GET `/Actions` reconstructs the
+plain `note` field from `note_html` (tags stripped, no whitespace
+inserted) whenever `note_html` is present on that action, rather than
+returning the literal text originally written. FLOW A's step 1 reads the
+private `[DRAFT PENDING APPROVAL]` note back through exactly that call to
+resend it "verbatim" - so the very fix that made the real emailed note
+carry proper formatting was, at the same time, silently corrupting the
+draft note's own later read-back, and FLOW A faithfully copied the
+already-mangled text into the real send (with nothing left in it for
+`noteToHtml()` to convert into `<br>` either, since the newlines were
+already gone by the time that text reached `update_ticket`). Fixed in
+halopsa-mcp: removed `note_html` from `update_ticket_draft_only`'s write
+only, not from `update_ticket`'s. The draft note is always private
+(`hiddenfromuser` forced true) and never emailed directly, and Halo's own
+ticket UI already renders bare `\n` forgivingly - v2.10.45's own comment
+said as much - so `note_html` served no purpose on that specific write in
+the first place, only actively harmed it. The real, later, client-facing
+send still gets `note_html` from `update_ticket` as before, and now reads
+fresh, uncorrupted draft text at that point since the draft itself is no
+longer round-tripped through HTML first.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
