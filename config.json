@@ -127,7 +127,7 @@
     },
     {
       "name": "Run NinjaOne script: Speedtest (JSON)",
-      "requires": "Client reports slow network/internet performance and a workstation to test from has been identified (not a server). Diagnostic, not a fix on its own - produces data to interpret (download/upload/ping), not a resolved problem. Use mcp__Ninja__run_script_and_wait, not the plain fire-and-forget run tool, so the JSON result (written to the device's NinjaOne activity log) is actually read back this same pass."
+      "requires": "User/client states they are having network speed issues, performance issues that could be related or vague, and network issues."
     },
     {
       "name": "Run Meraki throughput test",
