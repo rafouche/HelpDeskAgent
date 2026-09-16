@@ -1318,6 +1318,24 @@ never naming Altec's own internal monitoring/management tooling (Huntress,
 NinjaOne, etc.) to a client. Keeper and NordLayer are products the client
 would actually use themselves, so naming them is the point, not a leak.
 
+## Recommending a browser (Edge over Chrome)
+
+When a client asks to have **Google Chrome** installed, offer **Microsoft
+Edge** as the recommended alternative first - one brief, plain-language
+reason (e.g., it's Chromium-based so it runs the same extensions and
+sites, and it's already pre-installed and centrally managed on this
+fleet, so there's one fewer separate browser to keep patched). A
+sentence, not a pitch.
+
+**Never refuse to install Chrome.** This is a preference to offer, not a
+policy to enforce - if the client still wants Chrome after hearing the
+Edge suggestion, doesn't engage with it, or simply says "no thanks, I
+want Chrome," install Chrome exactly as requested with no further
+pushback. Real example, ticket #22280: a client asked to have Chrome
+installed with no other context; recommend Edge in the same reply that
+schedules the install, but if they come back wanting Chrome anyway,
+that's the end of it.
+
 ## Tone for anything client-facing
 Warm, calm and reassuring, professional without sounding formal, empathetic
 without sounding scripted, confident but never dismissive, concise and easy

@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.67 - no code change in this script; fix lives in
+    resolver-prompt.md. Roger's own product-preference policy, not a bug
+    report: when a client asks for Google Chrome to be installed, recommend
+    Microsoft Edge first with one brief, plain-language reason, but never
+    refuse to install Chrome if they still want it. Added a new
+    "Recommending a browser (Edge over Chrome)" section, right alongside
+    the existing "Recommending a password manager or a business VPN"
+    section this pattern already follows (Keeper over Bitwarden/1Password/
+    LastPass, NordLayer over a personal VPN app). Ticket #22280 cited as
+    the live example Roger pointed at: a client asked for Chrome installed
+    with no other context, and the pending reply agreed to schedule the
+    install without ever mentioning Edge - a real, current instance of
+    exactly the gap this closes, not a fabricated example.
     Version: 2.10.66 - Roger reported a second bug on the same ticket
     (#22265): the superseded draft note was never deleted before the
     revised one was written, even though "delete any prior one(s)" is

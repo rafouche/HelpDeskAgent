@@ -2570,6 +2570,19 @@ recorded ahead of it. Updated the FLOW A/FLOW B banner text in
 Invoke-HaloResponseAgent.ps1 and the two tools' own descriptions to match,
 so nothing describing this behavior still claims the stricter rule.
 
+**Recommend Edge over Chrome, but never refuse Chrome (v2.10.67).** A
+product-preference policy from Roger, not a bug fix - same pattern as the
+existing Keeper-over-Bitwarden and NordLayer-over-a-personal-VPN rules in
+"Recommending a password manager or a business VPN": when a client asks
+for Google Chrome, offer Microsoft Edge first with one brief, plain
+reason, but if they still want Chrome after that, install Chrome with no
+further pushback - the recommendation is an offer, not a gate. Roger
+pointed at ticket #22280 as a live example: a client asked to have Chrome
+installed with no other context, and the pending draft agreed to schedule
+the install without ever mentioning Edge - confirmed live, not a
+hypothetical, so the new "Recommending a browser (Edge over Chrome)"
+section cites it directly.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
