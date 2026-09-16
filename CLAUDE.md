@@ -2544,6 +2544,32 @@ flagged actually changing. Cited #22265 directly in resolver-prompt.md so
 this exact failure mode has a concrete example to check against, not just
 an abstract rule.
 
+**The superseded-draft delete safety check was too strict about where the
+marker could sit (v2.10.66).** Same ticket, a second bug: Roger noted the
+old draft was never deleted before the revised one was written, despite
+this pipeline's own "delete any prior one(s)" instruction. Root cause,
+confirmed live: ticket #22265's draft note had been written as
+`"[INTERNAL NOTE - Relinked] ... --- [DRAFT PENDING APPROVAL] ..."` - the
+resolver had relinked the ticket's contact moments earlier and recorded
+that fact in the same private note ahead of the draft, rather than as a
+separate note. Nothing in resolver-prompt.md ever told it to do that
+specifically, but nothing forbade it either, and it's a reasonable thing
+for a model to do on its own. The problem was entirely downstream:
+halopsa-mcp's `delete_ticket_note` and `mark_draft_approved` both required
+the exact literal marker to be the very first characters of the note
+(`note.startsWith(...)`), so the delete call was refused - and this
+pipeline's own instructions explicitly say not to fight a refusal, just
+proceed and leave the old note in place, which is exactly what a human
+reviewing the ticket then sees as "it didn't delete the original draft."
+Fixed in halopsa-mcp with a shared `hasDraftMarker()` helper: the marker
+now only has to appear as its own line anywhere in the note, not
+necessarily as the first characters - still an exact, specific match (no
+real client-facing reply or human note would ever coincidentally contain
+this literal line), just no longer fragile against reasonable content
+recorded ahead of it. Updated the FLOW A/FLOW B banner text in
+Invoke-HaloResponseAgent.ps1 and the two tools' own descriptions to match,
+so nothing describing this behavior still claims the stricter rule.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

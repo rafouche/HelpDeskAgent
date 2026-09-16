@@ -73,6 +73,30 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.66 - Roger reported a second bug on the same ticket
+    (#22265): the superseded draft note was never deleted before the
+    revised one was written, even though "delete any prior one(s)" is
+    exactly what this script's own FLOW B step 0 instructs. Root cause,
+    confirmed live: that ticket's draft note had been written as
+    "[INTERNAL NOTE - Relinked] ... --- [DRAFT PENDING APPROVAL] ..." - the
+    resolver had also just relinked the ticket's contact and recorded that
+    in the same private note ahead of the draft marker, which is reasonable
+    on its own, but halopsa-mcp's delete_ticket_note/mark_draft_approved
+    both required the marker to be the literal first characters of the note
+    (`note.startsWith(...)`) - so the delete was refused, and this script's
+    own instructions say not to fight a refusal, just proceed and leave the
+    old note in place; that's exactly what a human watching the ticket then
+    sees as "it didn't delete the original draft." Fixed in halopsa-mcp: a
+    shared `hasDraftMarker()` helper now accepts the marker appearing as its
+    own line anywhere in the note, not only as the very first characters,
+    used by both tools' safety checks; still an exact, specific match,
+    just not fragile against reasonable content recorded ahead of it.
+    Updated this script's own FLOW A step 1 / FLOW B step 0 banner text
+    (`"starting with the exact line"` -> `"containing the exact line ...
+    on its own line"`) to match, and the tool descriptions in halopsa-mcp
+    themselves, so nothing describing this behavior still claims the
+    stricter, now-inaccurate rule. Roger deploys the Worker separately,
+    same as always.
     Version: 2.10.65 - no code change in this script; fix lives in
     resolver-prompt.md's "If a human left a note on your own pending draft"
     section. Roger reported ticket #22265: he wrote a private note on a
@@ -3822,10 +3846,12 @@ try {
             "this:",
             "1. Get this ticket's notes/actions (mcp__Halo__get_ticket_time_entries -",
             "   despite the name, this is HaloPSA's ticket conversation/notes endpoint)",
-            "   and find the ONE private note starting with the exact line",
-            "   `"[DRAFT PENDING APPROVAL]`". If you find zero or more than one, stop -",
-            "   add an internal note flagging the mismatch and do nothing else; don't",
-            "   guess which draft is the real one.",
+            "   and find the ONE private note containing the exact line",
+            "   `"[DRAFT PENDING APPROVAL]`" (on its own line - it doesn't have to be the",
+            "   very first thing in the note; a relink or other bookkeeping recorded",
+            "   ahead of it in the same note still counts). If you find zero or more",
+            "   than one, stop - add an internal note flagging the mismatch and do",
+            "   nothing else; don't guess which draft is the real one.",
             "1.5. **Before trusting this status, check what's actually after that draft",
             "   note.** A human can move a ticket to AI Approved and leave an",
             "   instructional note at essentially the same moment - the status change",
@@ -3914,7 +3940,8 @@ try {
             "`"Which update_ticket tool do you actually have?`" section if you're unsure why):",
             "0. Before writing a new draft, delete any prior one(s) still on this ticket -",
             "   scan the action history you already pulled for every private note",
-            "   starting with the exact line `"[DRAFT PENDING APPROVAL]`" and call",
+            "   containing the exact line `"[DRAFT PENDING APPROVAL]`" on its own line",
+            "   (not necessarily as the very first thing in the note) and call",
             "   mcp__Halo__delete_ticket_note (ticket_id, action_id) on each one, before",
             "   step 1 below. Per Roger's request: a ticket should only ever carry one",
             "   pending draft at a time, not an accumulating pile of superseded ones -",
