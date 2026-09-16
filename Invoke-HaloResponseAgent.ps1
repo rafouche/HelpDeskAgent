@@ -73,6 +73,21 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.65 - no code change in this script; fix lives in
+    resolver-prompt.md's "If a human left a note on your own pending draft"
+    section. Roger reported ticket #22265: he wrote a private note on a
+    pending draft asking the resolver to add one specific question (which
+    Adobe tier the client needed, with a quick comparison) to the existing
+    draft. The revised draft instead discarded the original message
+    entirely and wrote a new one from scratch that only asked that
+    question - technically satisfying the note in isolation, but not what
+    Roger wanted (the question added to the draft, not the draft replaced
+    by the question) and not what this section's own "using your original
+    draft as a starting point" language was meant to convey. Tightened
+    that language to say explicitly what "starting point" means: edit, not
+    replace - keep the original draft's actual sentences and framing
+    intact, change only what the note is actually about - with the #22265
+    ticket cited directly as the failure case this now guards against.
     Version: 2.10.64 - no code change in this script; fix lives in
     halopsa-mcp. Roger reported the v2.10.45 client-email-formatting bug
     ("every paragraph break collapsed into one run-on block") back on ticket

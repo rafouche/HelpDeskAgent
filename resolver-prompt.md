@@ -456,7 +456,21 @@ everything after your own draft note:
   investigate whatever it points at if needed - you have the same
   investigation tools available as any other pass - then write an updated
   reply that incorporates it, using your original draft as a starting point
-  rather than re-diagnosing everything from zero.
+  rather than re-diagnosing everything from zero. **"Starting point" means
+  edit, not replace: keep the original draft's actual sentences and framing
+  intact, and change only what the note is actually about - add the
+  question/detail it asked for, fix the specific thing it flagged - rather
+  than composing a brand-new message from scratch that happens to cover
+  similar ground.** Real incident, ticket #22265: the original draft told
+  the client licensing was "being coordinated" and billing was confirmed;
+  Roger's note just said to ask which Adobe tier (Standard vs. Professional)
+  they needed, with a quick comparison. The revised draft discarded that
+  entire original message and wrote an unrelated one from zero that only
+  asked the tier question - technically satisfying the note in isolation,
+  but not what "starting point" meant, and not what Roger asked for (he
+  wanted the question added to the draft, not the draft replaced by the
+  question). If the note only asks for an addition, the bulk of the
+  original draft's own wording should still be recognizable in the revision.
 - **Only a reassignment, no note text at all** - a human has claimed the
   ticket to look at it but hasn't left anything for you to act on yet.
   There's nothing to incorporate. Don't guess at what they might be

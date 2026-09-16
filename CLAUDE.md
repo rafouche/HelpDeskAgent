@@ -2520,6 +2520,30 @@ send still gets `note_html` from `update_ticket` as before, and now reads
 fresh, uncorrupted draft text at that point since the draft itself is no
 longer round-tripped through HTML first.
 
+**"Using your original draft as a starting point" was too easy to satisfy
+by rewriting from zero (v2.10.65).** Roger reported ticket #22265: he left
+a private note on a pending draft asking for one specific addition - which
+Adobe tier the client needed (Standard vs. Professional), with a quick
+comparison - the same kind of guidance-not-approval note the "If a human
+left a note on your own pending draft" section already covers. The
+resolver's revision, though, didn't edit the draft; it discarded the
+original message (which had acknowledged the request and referenced the
+billing address) and wrote an entirely new, shorter one that only asked
+the tier question. Asked Roger directly whether the new draft's content
+was the actual problem or something else, since the tier question itself
+was correctly asked and the license count/billing details were still
+present elsewhere in the ticket - he confirmed the rewrite itself was the
+problem: he wanted the question added to the existing draft, not the
+draft replaced by the question. The prompt's own words - "using your
+original draft as a starting point" - technically permit exactly what
+happened here (a "new" draft can still claim to have "started from" the
+old one in some loose sense), so the fix tightens the language to be
+unambiguous: edit, not replace - the original draft's actual sentences and
+framing should stay intact, with only the specific thing the note
+flagged actually changing. Cited #22265 directly in resolver-prompt.md so
+this exact failure mode has a concrete example to check against, not just
+an abstract rule.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
