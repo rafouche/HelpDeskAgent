@@ -2583,6 +2583,28 @@ the install without ever mentioning Edge - confirmed live, not a
 hypothetical, so the new "Recommending a browser (Edge over Chrome)"
 section cites it directly.
 
+**A third occurrence of the deferred-tool-confusion pattern from
+v2.10.39/40, this time with no PowerShell probe at all (v2.10.68).**
+Roger's production log from 2026-09-17 showed ticket #22297's resolver
+pass reasoning its way out of ever calling a single tool: it saw
+`mcp__Halo__get_ticket` listed as "deferred" rather than immediately
+callable, concluded from that alone that the Halo MCP connection might
+not be set up correctly, considered `ToolSearch` and talked itself out of
+it, and ended the turn having never attempted a real tool call - not even
+the one line resolver-prompt.md already gives it for exactly this. The
+backoff mechanism added in v2.10.39 did its job: the run correctly printed
+`[CACHE: BLOCKED]` rather than ending with nothing, so this doesn't
+silently repeat every cycle - but a real ticket still got zero actual work
+done on it, at real API cost. Same root conflation as the PowerShell-
+denial case (treating one thing's shape in the system prompt as evidence
+about a completely different thing's availability), just triggered by the
+tool-listing mechanic itself. Added a third, specifically-named paragraph
+in resolver-prompt.md citing #22297 directly - logged with the same
+limited confidence as v2.10.39/40's own entries: two prior prompt
+strengthenings against this exact pattern have not eliminated it, so a
+third isn't assumed to either. The backoff is what actually bounds the
+cost; the prompt fix is a hedge on top of that, not a fix relied on alone.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

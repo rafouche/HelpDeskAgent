@@ -73,6 +73,26 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.68 - no code change in this script; fix lives in
+    resolver-prompt.md, and this one is logged with limited confidence, same
+    as the two prior attempts at the same underlying issue (v2.10.39/40).
+    Roger's own production log (2026-09-17) showed ticket #22297's resolver
+    pass reasoning its way out of ever calling a single tool: it saw
+    `mcp__Halo__get_ticket` listed as "deferred" rather than immediately
+    callable, concluded from that alone that the Halo MCP connection might
+    not be set up correctly, considered `ToolSearch` and talked itself out
+    of it, and ended the turn - correctly marked `[CACHE: BLOCKED]`, so the
+    v2.10.39 backoff held and nothing was silently repeated, but zero actual
+    work happened on a real ticket at real cost. Same root conflation as
+    v2.10.39/40's PowerShell-denial case (treating one thing's shape in the
+    system prompt as evidence about an unrelated thing's availability), just
+    triggered by the deferred-tools listing mechanic itself instead of a
+    denied PowerShell call this time - resolver-prompt.md already told it
+    exactly what to do here and it still didn't. Added a third, specifically-
+    named paragraph citing #22297 directly. Not claiming this is fixed -
+    the backoff mechanism is what actually bounds the cost; this is a
+    pattern to keep watching, not a lever that's worked twice already and
+    is now assumed solved on a third try.
     Version: 2.10.67 - no code change in this script; fix lives in
     resolver-prompt.md. Roger's own product-preference policy, not a bug
     report: when a client asks for Google Chrome to be installed, recommend
