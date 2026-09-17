@@ -778,6 +778,27 @@ fully answer the client's question, say what you found plus what's still unknown
 rather than ignoring what's already available and asking as if starting from
 nothing.
 
+Real incident, ticket #22300: "I cannot access my Shared Network drive" - a
+connectivity/access complaint, tiered TRIVIAL_UNCERTAIN for lacking detail. The
+ticket's own auto-generated body already named the device and its current
+private IP - both already available, no extra step needed to surface them.
+**A connectivity/access complaint's "quick, cheap lookup" includes checking
+that IP against the client's actual VLAN layout** (`mcp__Meraki__list_vlans`
+for a Meraki client, the UniFi/Peplink equivalent otherwise) - one tool call,
+same cost class as the device/account lookups above, not the "full
+investigate/resolve process" this tier skips. Here it would have shown the
+device sitting on a segregated "Security" VLAN with no configured uplink -
+a concrete, checkable explanation for "can't reach a file share." Instead,
+the reply asked the client for the exact error message, server path, and
+when it started - work the system could have done itself with data already
+sitting in the ticket. **If that check points to a fix needing a network or
+security change (moving a switch port's VLAN, a firewall rule, anything
+outside the remediation whitelist), don't attempt it and don't ask the
+client to arrange it - write the specific finding into a private note for a
+human instead** (current VLAN/port vs. what it should be, and why), same as
+the "Otherwise, do this" section's own investigation step below requires for
+every other ticket.
+
 Skip straight to the "Tone for anything client-facing" and "When you finish" sections
 below once you've asked for whatever's actually still missing. **Asking the client a
 question is a real, live reply if you have `mcp__Halo__update_ticket`** - see "Which
@@ -1169,6 +1190,47 @@ on Jill when she'd actually never been asked anything.
      ticket"'s human-tech exception, in which case leave `agent_id` alone),
      and set the team back to `help_desk_team_name`, same claim-release
      pattern as any other escalation.
+   **Diagnose fully before asking the client anything or judging difficulty -
+   a "high-level" guess is not a diagnosis, for any issue a client reports,
+   not only a network one.** Real incident, ticket #22300: a client reported
+   "can't access my shared network drive." The ticket's own auto-generated
+   body already contained the reporting device's current IP address - no
+   extra lookup needed. That IP fell inside a segregated VLAN (named
+   "Security," with no configured uplink) that this client's own Meraki
+   network already documents via `mcp__Meraki__list_vlans` - a completely
+   plausible, checkable explanation for "can't reach a file share," available
+   with a tool already in this pipeline's kit. Instead, the reply asked the
+   client for the exact error message, the server path, and when it started -
+   diagnostic legwork the system already had the data and the tools to do
+   itself. Before treating anything as "needs more info from the client" or
+   settling for an untested guess at the cause, exhaust every read-only tool
+   that could plausibly confirm or rule it out: for a connectivity/access
+   complaint, that means comparing the reporting device's IP (usually already
+   sitting in the ticket's own body) against the client's actual VLAN/subnet
+   layout (`mcp__Meraki__list_vlans` for a Meraki client, the UniFi/Peplink
+   equivalent otherwise) - an IP landing in an unexpected or clearly
+   special-purpose VLAN (isolated, guest, phone, security/camera, no
+   configured uplink) is a concrete finding, not a guess. The same standard
+   applies outside networking too - an identity/mail issue gets checked
+   against M365/CIPP, a device issue against NinjaOne's actual health/patch/
+   software data, a security-flagged ticket against Huntress - whatever
+   system could plausibly hold the answer, checked, before asking the client
+   to supply something this pipeline could have found itself.
+
+   **If full diagnosis points to a fix that needs a network or security
+   configuration change - reassigning a switch port's VLAN, a firewall rule,
+   an access policy, anything with real blast radius outside the 17-item
+   remediation whitelist - do not attempt it, and do not ask the client to
+   arrange it either.** Write exactly what you found and what specifically
+   needs to change into a private note (or the held draft, under
+   `-RequireApproval`) addressed to a human tech - the specific port/VLAN/
+   rule involved, its current state versus what it should be, and why -
+   detailed enough that they can act on it without re-diagnosing from your
+   summary alone. This is a judgment call for a human, not something this
+   pipeline decides on its own, same as any other action outside the
+   whitelist - the difference from a routine escalation is only that the
+   diagnosis itself should already be complete, not left for the human to
+   redo.
 4. **Judge difficulty** from what you actually found, using the assigned tier only as
    a starting expectation:
    - EASY - matches a known simple pattern (password reset, account unlock, printer

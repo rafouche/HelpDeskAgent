@@ -2605,6 +2605,54 @@ strengthenings against this exact pattern have not eliminated it, so a
 third isn't assumed to either. The backoff is what actually bounds the
 cost; the prompt fix is a hedge on top of that, not a fix relied on alone.
 
+**A full-diagnosis standard, not a high-level guess, for any issue a client
+reports (v2.10.69).** Roger reviewed ticket #22300 ("can't access my shared
+network drive," tiered TRIVIAL_UNCERTAIN) and asked directly whether the
+resolver could have diagnosed it properly instead of asking the client for
+more detail. It could have: the ticket's own auto-generated body already
+named the device's current IP, and cross-referencing that against
+`mcp__Meraki__list_vlans` for this client (a tool already available, no new
+capability needed) showed the device sitting on a segregated "Security" VLAN
+with no configured uplink - a concrete, checkable root cause for "can't
+reach a file share." The actual reply asked for the error message, server
+path, and when it started instead - the same shape of gap as the #22114
+warranty incident, just not yet covered for connectivity complaints.
+Strengthened resolver-prompt.md in two places: the TRIVIAL_UNCERTAIN
+section's "quick, cheap lookup" now names the VLAN/subnet check explicitly
+for a connectivity complaint (still one cheap tool call, not the full
+investigate process that tier is designed to skip), and the main "Otherwise,
+do this" flow's investigation step gets a general standing rule - exhaust
+every applicable read-only tool before asking the client anything or
+settling for an untested guess, for any issue type, not only network ones.
+Also addressed the other half of Roger's question directly: if full
+diagnosis points to a fix needing a network or security configuration
+change (a switch port's VLAN, a firewall rule, anything outside the
+17-item remediation whitelist), the resolver should never attempt it and
+never ask the client to arrange it - it writes the specific finding into a
+private note for a human instead, detailed enough to act on without
+re-diagnosing. That boundary already existed implicitly (the whitelist
+bright line), but hadn't been connected explicitly to "diagnosis is your
+job, the human judgment call on infrastructure changes is theirs" before
+this.
+
+**Every tier moved off Haiku to Sonnet 5, effort scaled to complexity
+(v2.10.70).** Roger's own change to his live production config.json, not a
+bug fix - classifier_model/resolver_model_trivial switched from Haiku 4.5
+to Sonnet 5, with classifier_effort/resolver_effort_trivial staying "low",
+resolver_effort_medium staying "medium", and resolver_effort_complex raised
+to "high," so effort now tracks each tier's actual complexity instead of
+varying by which model happened to be assigned. Synced the repo's
+config.json to match and refreshed its own comment, which had documented
+classifier_effort/resolver_effort_trivial as having no effect - true only
+because Haiku 4.5 never accepted `--effort` at all; now that both tiers run
+Sonnet 5 (already on `$effortCapableModels`, no PS1 code change needed),
+those values are actually sent for the first time. Worth watching rather
+than claiming as a fix: v2.10.40 found the deferred-tool confusion pattern
+(v2.10.39/40/68) concentrated specifically in the cheap Haiku tier, so
+moving every tier off Haiku may reduce or eliminate it as a side effect -
+not confirmed, just a real possibility the next few production logs should
+show one way or the other.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

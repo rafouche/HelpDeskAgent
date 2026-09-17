@@ -73,6 +73,47 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.10.70 - no code change in this script; config.json only.
+    Roger reported he'd already switched his live production config to run
+    every tier on Sonnet 5 (classifier_model/resolver_model_trivial changed
+    from Haiku 4.5 to Sonnet 5), with effort scaled to each tier's actual
+    complexity (low/medium/high) rather than varying by model choice. Synced
+    the repo's config.json to match: classifier_model/resolver_model_trivial
+    to claude-sonnet-5, resolver_effort_complex raised from "medium" to
+    "high" (classifier_effort/resolver_effort_trivial were already "low",
+    resolver_effort_medium already "medium"). This also means every tier's
+    configured effort value is now actually sent for the first time -
+    Haiku 4.5 never accepted --effort at all, so classifier_effort/
+    resolver_effort_trivial were previously documented as having no effect;
+    refreshed config.json's own comment to drop that now-inaccurate caveat.
+    No PS1 code change needed - claude-sonnet-5 was already on
+    $effortCapableModels before this. Worth noting given v2.10.39/40/68's
+    still-unresolved deferred-tool confusion pattern: that failure was
+    concentrated specifically in the cheap Haiku tier per v2.10.40's own
+    finding, so moving every tier off Haiku may reduce or eliminate it as a
+    side effect - not confirmed yet, worth watching the next few logs.
+    Version: 2.10.69 - Roger asked for a full-diagnosis standard after
+    reviewing ticket #22300 ("can't access my shared network drive," tiered
+    TRIVIAL_UNCERTAIN): the ticket's own auto-generated body already named
+    the device's current IP, and cross-referencing that against
+    `mcp__Meraki__list_vlans` for this client showed it sitting on a
+    segregated "Security" VLAN with no configured uplink - a concrete,
+    checkable explanation for the complaint, using a tool already available.
+    Instead, the actual reply asked the client for the error message, server
+    path, and when it started - diagnostic work the system had the data and
+    tools to do itself. Strengthened two places in resolver-prompt.md: the
+    TRIVIAL_UNCERTAIN section's "quick, cheap lookup" now explicitly
+    includes a VLAN/subnet check for a connectivity complaint (one tool
+    call, same cost class as the device/account lookups already there, not
+    the full investigate process that tier skips), and the main "Otherwise,
+    do this" investigation step gets a general standing rule: exhaust every
+    applicable read-only tool before asking the client anything or judging
+    difficulty, for any issue type, not only network ones. Both also cover
+    what happens once full diagnosis actually points at a network/security
+    configuration change (switch port VLAN, firewall rule, anything outside
+    the 17-item remediation whitelist): never attempt it and never ask the
+    client to arrange it - write the specific finding into a private note
+    for a human, detailed enough to act on without re-diagnosing.
     Version: 2.10.68 - no code change in this script; fix lives in
     resolver-prompt.md, and this one is logged with limited confidence, same
     as the two prior attempts at the same underlying issue (v2.10.39/40).
