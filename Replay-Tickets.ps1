@@ -151,6 +151,17 @@ foreach ($r in $rubrics) {
         else {
             $failed = @()
             $warnings = @()
+            # A replay that ended on HUMAN_OWNED or BLOCKED never investigated -
+            # it stopped at an ownership/platform check - so it can't have
+            # earned a PASS on content, however the regexes happen to match
+            # its stop summary. A rubric that genuinely expects that outcome
+            # lists it in expected_marker (e.g. ["HUMAN_OWNED"]).
+            $marker = [string]$res.cache_marker
+            $row | Add-Member -NotePropertyName marker -NotePropertyValue $marker -Force
+            $expectedMarkers = @(Get-RubricList -Rubric $r -Name 'expected_marker' | ForEach-Object { ([string]$_).ToUpperInvariant() })
+            if (@('HUMAN_OWNED', 'BLOCKED') -contains $marker.ToUpperInvariant() -and $expectedMarkers -notcontains $marker.ToUpperInvariant()) {
+                $failed += "ended without investigating: [CACHE: $marker]"
+            }
             foreach ($pattern in (Get-RubricList -Rubric $r -Name 'must_mention')) {
                 if (-not [regex]::IsMatch($text, [string]$pattern, 'IgnoreCase')) { $failed += "missing: $pattern" }
             }

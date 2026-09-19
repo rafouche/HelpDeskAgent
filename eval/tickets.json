@@ -1,5 +1,5 @@
 {
-  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's WOULD-DO output - any miss/hit is a FAIL); should_mention (regex list - a miss is only a WARN); notes (for humans). This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
+  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); notes (for humans). This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
   "tickets": [
     {
       "ticket_id": 22300,
@@ -32,7 +32,7 @@
       "as_of": "2026-09-15T18:44:00",
       "notes": "Stacy asks whether a Windows Update reboot prompt on Wayne's PC is legitimate. Plain answer: yes, safe to restart.",
       "must_mention": ["legitimate|safe|genuine"],
-      "must_not_mention": ["malware|compromise|phishing"],
+      "must_not_mention": ["(is|looks like|appears to be|likely|probably) (malware|phishing|a scam|a compromise)"],
       "should_mention": ["restart|reboot"]
     },
     {

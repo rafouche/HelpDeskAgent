@@ -73,6 +73,39 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.3 - first replay baseline read, three fixes from it. Roger
+    ran Replay-Tickets.ps1 -Label baseline: 10 tickets, $4.94, 9/10 "pass"
+    - but reading the actual results, not the score, the honest number is
+    lower, for two harness defects and one allowlist gap:
+    - Two tickets (#22296, #22297) ended [CACHE: HUMAN_OWNED] with zero
+      investigation and still "passed" their regexes: the replay banner
+      told the resolver to ignore actions after the as-of point but said
+      nothing about the ticket's CURRENT agent_id/status, and both are held
+      by a human today. Banner now says to reconstruct ownership from the
+      action log alone and treat current assignment/closure as today's
+      state, not the as-of state; Replay-Tickets.ps1 now fails any replay
+      that ends HUMAN_OWNED or BLOCKED unless the rubric's new
+      expected_marker lists it - a stop summary is not an investigation.
+    - #22231 "failed" on must_not_mention "malware|compromise|phishing"
+      because the resolver wrote "No malware/compromise indicators" - a
+      negated mention my regex can't distinguish. Rubric tightened to
+      positive claims only; eval/tickets.json's own comment now warns
+      about this when writing must_not patterns.
+    - #22300 passed for real - it found the 192.168.188.x range populated
+      only by LT SECURITY cameras on VLAN 200 with the servers on VLAN
+      1/100, exactly the v2.10.69 standard - but logged 4 permission
+      denials on get_vlan/list_switch_ports/get_switch_port confirming it,
+      because none of them, nor the list_vlans the v2.10.69 prompt text
+      names explicitly, were ever in $resolverTools. Added all five
+      read-only Meraki tools (list_vlans, get_vlan, list_switch_ports,
+      get_switch_port, get_device); nothing mutating.
+    Cost profile from the same run, for the record: Sonnet 5 low, $0.24-
+    $1.10 per ticket, 5-45 turns, 23-394 seconds; #22265 (Adobe licensing)
+    was the heaviest at 45 turns - the shape increments 3 and 4 target.
+    Note for the deployment: eval/tickets.json is seed-once, so the rubric
+    fix above does not reach a server that already has the file - delete
+    the local copy once (it hasn't been edited there yet) and the updater
+    re-seeds it on the next cycle.
     Version: 2.11.2 - the pre-flight gate now sends the Halo Worker's
     bearer token; companion to a security fix in rafouche/MCPs. While
     verifying increment 1's deployed Worker, a bare curl to its public
@@ -3100,6 +3133,18 @@ $resolverTools = @(
     # get_network_client, which needs one client's ID/MAC already known) - denied
     # because it hadn't been added yet.
     "mcp__Meraki__list_network_clients",
+    # v2.11.3 - the VLAN/subnet diagnosis resolver-prompt.md has required since
+    # v2.10.69 (compare the ticket's own reported IP against the client's VLAN
+    # layout) names mcp__Meraki__list_vlans explicitly - and it was never in
+    # this list. Found by the first replay baseline: ticket #22300 reached the
+    # right answer anyway via list_network_clients, but logged 4 permission
+    # denials on get_vlan/list_switch_ports/get_switch_port trying to confirm
+    # it. Same failure shape as the CIPP list_message_trace gap (v2.10.52
+    # history above): a tool the prompt is written around, silently denied.
+    # All read-only; none belong in $mutatingTools.
+    "mcp__Meraki__list_vlans", "mcp__Meraki__get_vlan",
+    "mcp__Meraki__list_switch_ports", "mcp__Meraki__get_switch_port",
+    "mcp__Meraki__get_device",
     # run_throughput_test (v2.10.62): the first Meraki tool that actively DOES
     # something rather than just reading - runs a live WAN throughput test on
     # an MX appliance (Meraki's own Live Tools API), for firewall-level
@@ -3336,6 +3381,13 @@ $replayBannerLines = @(
     "  draft to revise, or as evidence the ticket was already handled.",
     "- A real human agent's actions before the as-of point still count exactly as",
     "  they normally would (the ownership check applies as usual).",
+    "- The ticket's CURRENT agent_id, status, and closed/resolved flags describe",
+    "  today, not the as-of point - do not apply the ownership check to them.",
+    "  Reconstruct ownership from the action log alone: if no real human action",
+    "  is dated at or before the as-of point, treat the ticket as unassigned and",
+    "  in its original status at that time, however it is assigned or closed now.",
+    "  (Real replay: two tickets a human picked up days later were skipped as",
+    "  HUMAN_OWNED without any investigation, which is exactly wrong here.)",
     "Then investigate and decide exactly as the rest of this document says, and",
     "describe what you WOULD do per the simulation banner. Be specific about every",
     "fact you established and every tool you used to establish it - the replay is",

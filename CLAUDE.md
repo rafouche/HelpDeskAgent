@@ -2741,6 +2741,28 @@ the `.mcp.json` entry it already parses for the URL. Raised to Roger
 ahead of any further cost work, because a public write path into every
 client's PSA, RMM, and firewalls outranks a cheaper classifier.
 
+**The first baseline said 9/10; reading it said 7/10, and the gap was the
+harness (v2.11.3).** Roger's first real replay run: 10 tickets, $4.94,
+nine "PASS." The score flattered three ways. Two tickets ended
+`HUMAN_OWNED` without investigating anything - a human holds them *today*,
+and the replay banner had only told the resolver to ignore later
+*actions*, not later *assignment* - yet their stop summaries happened to
+match the regexes. One "FAIL" was the resolver correctly writing "No
+malware/compromise indicators" into a regex that can't read a negation.
+And the one ticket the whole program was motivated by, #22300, passed
+for real - it found the camera VLAN from `list_network_clients` - while
+logging four permission denials on the exact Meraki tools that would have
+confirmed it, because the v2.10.69 prompt named `list_vlans` and nobody
+(me) ever added it to the allowlist: the CIPP `list_message_trace`
+mistake, repeated. All three fixed: the banner now reconstructs ownership
+from the action log alone; `Replay-Tickets.ps1` fails any replay that
+ends `HUMAN_OWNED`/`BLOCKED` unless the rubric expects it; the rubric
+pattern is tightened and the file's own comment warns about negations;
+and the five read-only Meraki tools are allowlisted. The general lesson
+for the eval: a regex rubric measures what the text *says*, so the
+harness has to independently check that the resolver actually *did*
+something - which is what the marker rule now does.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
