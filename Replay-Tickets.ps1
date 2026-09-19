@@ -90,12 +90,30 @@ if (-not $ScoreOnly) {
     Write-Host "=== REPLAY '$Label' - $($rubrics.Count) ticket(s), read-only simulation, real API cost (roughly `$0.15-`$0.90 per ticket) ==="
     foreach ($r in $rubrics) {
         $tier = if ($r.tier) { [string]$r.tier } else { "MEDIUM" }
-        $asOf = if ($r.as_of) { [string]$r.as_of } else { "" }
+        # ConvertFrom-Json turns an ISO-8601 string into a [datetime]; keep
+        # the as-of in ISO form for the banner rather than a culture-formatted
+        # "09/17/2026 12:30:00" (seen in a stub test), which the resolver has
+        # to guess the day/month order of.
+        $asOf = ""
+        if ($r.as_of) {
+            if ($r.as_of -is [datetime]) { $asOf = ([datetime]$r.as_of).ToString("yyyy-MM-ddTHH:mm:ss") }
+            else { $asOf = [string]$r.as_of }
+        }
         Write-Host ("--- ticket {0} (tier {1}{2}) ---" -f $r.ticket_id, $tier, $(if ($asOf) { ", as of $asOf" } else { "" }))
-        $args = @("-RootPath", $RootPath, "-ReplayTicketIds", [string]$r.ticket_id, "-ReplayTier", $tier, "-ReplayLabel", $Label)
-        if ($asOf) { $args += @("-ReplayAsOf", $asOf) }
+        # Hashtable splat, deliberately: splatting an ARRAY into a PowerShell
+        # script binds its elements positionally, not by name - a real first
+        # run did exactly that and bound the deployment folder path to
+        # -ReplayTicketIds on every ticket. (Also never name a variable
+        # $args - it's PowerShell's own automatic variable.)
+        $replayArgs = @{
+            RootPath        = $RootPath
+            ReplayTicketIds = @([int]$r.ticket_id)
+            ReplayTier      = $tier
+            ReplayLabel     = $Label
+        }
+        if ($asOf) { $replayArgs.ReplayAsOf = $asOf }
         try {
-            & $mainScript @args *>&1 | ForEach-Object { Write-Host "    $_" }
+            & $mainScript @replayArgs *>&1 | ForEach-Object { Write-Host "    $_" }
         }
         catch {
             Write-Host "    ERROR: $($_.Exception.Message)" -ForegroundColor Red

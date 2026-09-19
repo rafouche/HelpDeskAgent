@@ -2698,6 +2698,25 @@ trusted to hold. Until now the validation loop was "ship, watch the next
 production log" - with an accuracy bar this high, that had to change
 before the cost work, not after.
 
+**The harness's first real run failed, because the harness itself was the
+one thing not tested (v2.11.1).** Roger's first `Replay-Tickets.ps1
+-Label baseline` errored on all ten tickets: the deployment folder path
+was being bound to `-ReplayTicketIds`. Cause: the wrapper splatted an
+array of `"-Name", value` pairs into the main script, and PowerShell binds
+an array splat *positionally* - none of the names were ever honored.
+v2.11.0 had verified the main script's replay mode carefully, in two ways,
+and never once executed the wrapper that calls it; the gap was exactly
+where the testing stopped. Fixed with a hashtable splat, and closed the
+testing gap for good: a stub main script with the identical parameter
+block now lets the wrapper run end to end here (run, subset, compare,
+score-only), and the new updater was run for real against an empty folder
+from raw GitHub `main` - the same path production takes - before this
+push. The stub test also caught a second, quieter issue: `ConvertFrom-Json`
+turns the rubric's ISO `as_of` into a `[datetime]`, which reached the
+replay banner as a culture-formatted date; now re-formatted to ISO. The
+lesson is the same one this project keeps re-learning: verify the thing
+that actually runs, not the thing next to it.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

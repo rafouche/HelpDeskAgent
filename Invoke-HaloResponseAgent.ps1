@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.1 - Replay-Tickets.ps1 fix; no change in this script.
+    Roger's first real run of v2.11.0's Replay-Tickets.ps1 failed on every
+    ticket: "Cannot convert value 'C:\AltecAgents\HaloResponseAgent' to type
+    System.Int32[]" on -ReplayTicketIds. Root cause: the wrapper splatted an
+    ARRAY of "-Name", value pairs into this script (`& $main @args`), and
+    array splatting binds elements positionally to a PowerShell script - so
+    the string "-RootPath" landed in $RootPath, the folder path landed in
+    the next positional parameter (ReplayTicketIds), and nothing was ever
+    bound by name. Fixed with a hashtable splat (named binding), and the
+    variable is no longer called $args (PowerShell's own automatic
+    variable). Second, smaller find from the same test: ConvertFrom-Json
+    turns the rubric's ISO as_of string into a [datetime], which then
+    reached the replay banner culture-formatted ("09/17/2026 12:30:00");
+    now re-formatted to ISO before use.
+    Named plainly: v2.11.0 verified this script's replay mode directly
+    (-DryRun, and in-process with two IDs) but never executed the wrapper
+    itself, which is the piece that broke. Closed that gap the right way
+    rather than by re-reading the code: a stub Invoke-HaloResponseAgent.ps1
+    with the identical parameter block now stands in for the real one, and
+    Replay-Tickets.ps1 is run against it end to end (run, subset, compare,
+    score-only, summary.json) before pushing. Also ran the new
+    Update-HaloResponseAgent.ps1 for real against an empty folder from raw
+    GitHub main: all seven synced files landed, eval/tickets.json seeded
+    into its new subfolder, a locally-edited copy was left alone on the
+    second run, and the post-update -DryRun smoke test passed - the same
+    path production took, confirmed here first this time.
     Version: 2.11.0 - cost/speed program, increment 0 (safety rails) - no
     change to what a scheduled run does. Roger asked for a review of the
     whole design for ways to cut cost and latency without touching
