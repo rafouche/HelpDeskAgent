@@ -2763,6 +2763,64 @@ for the eval: a regex rubric measures what the text *says*, so the
 harness has to independently check that the resolver actually *did*
 something - which is what the marker rule now does.
 
+**v2.11.4 - the other five baseline results, read one at a time (2026-09-19).**
+Roger attached #22067, #22114, #22231, #22265 and #22280. Score said all
+five passed. Reading the outputs rather than the score turned up two more
+harness defects, one blind spot in the rubric design, one rubric checking
+the wrong moment, and one genuinely open question:
+
+- **The replay never ran in approval mode.** Replay-Tickets.ps1 didn't pass
+  `-RequireApproval`, and production runs with it. So #22265 "sent" a live
+  client email and set Follow Up Needed - a flow production never takes -
+  and no FLOW A/FLOW B draft-revision scenario (the #22265 lesson itself)
+  could be replayed at all. The wrapper now passes the switch through, and
+  when it isn't given it reads the registered scheduled task's arguments
+  and mirrors them, printing which mode it used and why. Verified with a
+  fake `Get-ScheduledTask` on both a task with the flag and one without.
+- **The replay's clock was Saturday.** `$isBusinessHours` and
+  `{{CURRENT_DATETIME}}` came from `Get-Date`; the baseline ran on a Saturday
+  afternoon, so weekday tickets took the after-hours hold path and one
+  (#22265) reasoned from its own timestamp instead. With an as-of point,
+  both now come from it (`$contextNow`); without one, the banner tells the
+  resolver to judge business hours from the first client message.
+  `-ReplayAsOf` is now validated on entry.
+- **Regex over the whole output can't see which text the client gets.**
+  #22265's internal note said "Standard vs. Professional", so
+  `should_mention` was satisfied, while the client's reply was the vague
+  "looping in our team" holding reply the rubric's own notes name as the
+  wrong outcome. New `reply_must_mention` / `reply_must_not_mention` fields
+  score only the segment(s) from "Hi <name>," to the mandated "Here to help"
+  sign-off, and a rubric that has them fails outright when no such segment
+  exists. Applied across the seeded list. Stub-tested: #22265's real output
+  shape now fails on three counts, a note-only output fails as "no
+  client-facing reply found".
+- **#22067's rubric judged the wrong moment.** The emailtolist lesson
+  (v2.10.61) only exists after Roger relinked the contact at 20:39 on
+  09-11; the rubric had no `as_of`, so the replay ran at the first client
+  message, where there was nothing to catch, and passed on "gmail"
+  appearing in the sender address. `as_of` is now 20:40 that day.
+- **#22114's warranty was never where v2.10.57 said.**
+  `get_device_custom_fields` on device 3284 returns only `mgmtLevel: Full`
+  (checked live today) and `get_device` had no warranty block, so the
+  replay's "no warranty record on file, we'll verify" was the honest
+  answer and the rubric's pass was hollow. Roger was right that Ninja
+  shows it; the v2.10.57 session was wrong about where. NinjaOne's API
+  only returns the warranty with `?expand=warranty` on
+  `GET /v2/device/{id}`, as `references.warranty` in epoch seconds -
+  `ninjarmm-mcp`'s `get_device` never sent the parameter. It does now,
+  and adds a `warranty_summary` (ISO start/end, `expired`,
+  `days_remaining`) so nothing downstream converts epochs by hand.
+  Deployed and verified live: 3284's warranty ran 2020-07-20 to
+  2023-07-19. The rubric now requires the reply to tell Jill that.
+  Lesson for this file: v2.10.57 "checked the raw response" of the wrong
+  endpoint and declared the answer lived in another - checking the
+  vendor's docs for the endpoint's own options would have found it then.
+
+Cost shape from the same five, for the record: #22231 spent $0.42 and 9
+turns answering "is this Windows Update prompt legitimate" - most of it
+the ~75K-token fixed prefix re-read per turn - which is the shape
+increment 3 (playbooks) is for.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

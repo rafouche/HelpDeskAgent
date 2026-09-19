@@ -1,90 +1,176 @@
 {
-  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); notes (for humans). This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
+  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then, and the run's clock/business-hours flag are set to it; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's whole WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); reply_must_mention / reply_must_not_mention (same, but checked ONLY against the client-facing reply - the text from 'Hi <name>,' to the 'Here to help' sign-off - so an internal note saying the right thing can't cover for a vague reply; a rubric with these fails if no reply segment exists); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); notes (for humans). Replays run in the same approval mode as the registered scheduled task unless -RequireApproval is given explicitly. This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
   "tickets": [
     {
       "ticket_id": 22300,
       "tier": "TRIVIAL_UNCERTAIN",
       "as_of": "2026-09-17T12:30:00",
       "notes": "Can't access S: drive. Ticket body already carried the device's IP (192.168.188.3) - Ever Frame Steel's Meraki VLAN 200 'Security', no uplink. The right answer finds that from existing tools instead of asking the client for the error message and server path (v2.10.69).",
-      "must_mention": ["192\\.168\\.188|VLAN\\s*200|Security VLAN|\"Security\" VLAN"],
-      "must_not_mention": ["(what|which|the) (exact )?error message"],
-      "should_mention": ["Meraki|list_vlans", "switch port|switchport|human"]
+      "must_mention": [
+        "192\\.168\\.188|VLAN\\s*200|Security VLAN|\"Security\" VLAN"
+      ],
+      "must_not_mention": [
+        "(what|which|the) (exact )?error message"
+      ],
+      "should_mention": [
+        "Meraki|list_vlans",
+        "switch port|switchport|human"
+      ],
+      "reply_must_not_mention": [
+        "(what|which|the) (exact )?error message",
+        "server path|UNC path"
+      ]
     },
     {
       "ticket_id": 22114,
       "tier": "TRIVIAL_UNCERTAIN",
-      "notes": "Jill Barron: 'is my laptop still under warranty?' Warranty lives in NinjaOne device custom fields (get_device_custom_fields), never something to send the client to look up (v2.10.56/57).",
-      "must_mention": ["warranty"],
-      "must_not_mention": ["manufacturer'?s (web)?site|check (with|on) (HP|Dell|Lenovo)'?s? (site|website)"],
-      "should_mention": ["custom_fields|custom field"]
+      "notes": "Jill Barron: 'is my laptop still under warranty?' Never send the client to look it up herself (v2.10.56/57). The warranty was never in Ninja's custom fields for this device (only mgmtLevel=Full) - NinjaOne only returns it with expand=warranty on the device GET, which ninjarmm-mcp's get_device didn't send until 2026-09-19. Device 3284's warranty ran 2020-07-20 to 2023-07-19 (get_device -> warranty_summary), so the right reply says it expired in July 2023 and moves on to the loose charging port.",
+      "must_mention": [
+        "warranty",
+        "2023|expired"
+      ],
+      "must_not_mention": [
+        "manufacturer'?s (web)?site|check (with|on) (HP|Dell|Lenovo)'?s? (site|website)"
+      ],
+      "should_mention": [
+        "warranty_summary|get_device"
+      ],
+      "reply_must_not_mention": [
+        "manufacturer'?s (web)?site|check (with|on) (HP|Dell|Lenovo)'?s? (site|website|support)|look (it )?up (yourself|on)"
+      ],
+      "reply_must_mention": [
+        "2023|expired|out of warranty|no longer (under|in) warranty"
+      ]
     },
     {
       "ticket_id": 22067,
       "tier": "MEDIUM",
-      "notes": "Ticket relinked to the real contact (personal Gmail) but the ticket's emailtolist still held a stale guessed company address; a real reply went to the wrong place. Before any client-facing reply, compare get_contact's emailaddress with the ticket's emailtolist (v2.10.61).",
-      "must_mention": ["emailto|emailtolist|gmail"],
+      "notes": "Thomas Wilder wrote in from thomaswilder84@gmail.com; Halo created an Unknown user. Roger relinked the ticket to the Thompson Sales contact 'Thomas Wilder' at 20:39 on 09-11, whose contact record carries a guessed company address (twilder@thompsonsales.com) - the real reply on 09-14 went there, not to the address he actually writes from. Judged just after the relink: before any client-facing reply, compare get_contact's emailaddress with the ticket's emailtolist and the original sender, and flag the mismatch (v2.10.61). At the first client message (the old as_of) the mismatch didn't exist yet, so the rubric could only pass by accident.",
+      "must_mention": [
+        "thomaswilder84@gmail\\.com|gmail"
+      ],
       "must_not_mention": [],
-      "should_mention": ["get_contact"]
+      "should_mention": [
+        "get_contact",
+        "twilder@thompsonsales|emailtolist|emailto"
+      ],
+      "as_of": "2026-09-11T20:40:00"
     },
     {
       "ticket_id": 22231,
       "tier": "TRIVIAL",
       "as_of": "2026-09-15T18:44:00",
       "notes": "Stacy asks whether a Windows Update reboot prompt on Wayne's PC is legitimate. Plain answer: yes, safe to restart.",
-      "must_mention": ["legitimate|safe|genuine"],
-      "must_not_mention": ["(is|looks like|appears to be|likely|probably) (malware|phishing|a scam|a compromise)"],
-      "should_mention": ["restart|reboot"]
+      "must_mention": [
+        "legitimate|safe|genuine"
+      ],
+      "must_not_mention": [
+        "(is|looks like|appears to be|likely|probably) (malware|phishing|a scam|a compromise)"
+      ],
+      "should_mention": [
+        "restart|reboot"
+      ],
+      "reply_must_mention": [
+        "legitimate|safe|genuine"
+      ]
     },
     {
       "ticket_id": 22265,
       "tier": "MEDIUM",
       "as_of": "2026-09-16T15:25:00",
-      "notes": "Gold Mechanical wants 20 Adobe licenses billed to AP. A complete first pass asks which edition (Standard vs Pro) with a brief comparison rather than a vague 'we're coordinating' holding reply (v2.10.65 lesson was about draft revision; here we score the first pass).",
-      "must_mention": ["Adobe"],
+      "notes": "Gold Mechanical wants 20 Adobe licenses billed to AP. A complete first pass asks the CLIENT which edition (Standard vs Pro) with a brief comparison. Baseline 2026-09-19: the internal note said 'Standard vs. Professional' (so should_mention passed) while the client got a vague 'looping in our team' holding reply - exactly the wrong outcome, now caught by reply_must_mention. Also the heaviest ticket in the baseline (45 turns, $1.10).",
+      "must_mention": [
+        "Adobe"
+      ],
       "must_not_mention": [],
-      "should_mention": ["Standard", "Pro(fessional)?\\b"]
+      "should_mention": [
+        "Standard",
+        "Pro(fessional)?\\b"
+      ],
+      "reply_must_mention": [
+        "Standard",
+        "Pro(fessional)?\\b"
+      ],
+      "reply_must_not_mention": [
+        "looping in our team|we'?ll follow up shortly with next steps"
+      ]
     },
     {
       "ticket_id": 22280,
       "tier": "TRIVIAL",
       "as_of": "2026-09-16T20:34:00",
       "notes": "Travis asks for Google Chrome. Policy: recommend Edge first with one brief reason, never refuse Chrome (v2.10.67).",
-      "must_mention": ["Edge"],
-      "must_not_mention": ["(can'?t|cannot|unable to|not able to|won'?t) install (Google )?Chrome"],
-      "should_mention": ["Chromium|extensions|already (installed|on)"]
+      "must_mention": [
+        "Edge"
+      ],
+      "must_not_mention": [
+        "(can'?t|cannot|unable to|not able to|won'?t) install (Google )?Chrome"
+      ],
+      "should_mention": [
+        "Chromium|extensions|already (installed|on)"
+      ],
+      "reply_must_mention": [
+        "Edge"
+      ],
+      "reply_must_not_mention": [
+        "(can'?t|cannot|unable to|not able to|won'?t) install (Google )?Chrome"
+      ]
     },
     {
       "ticket_id": 22295,
       "tier": "MEDIUM",
       "notes": "Leaver/offboarding request with multiple account removals and mailbox redirects - outside the whitelist, needs a human via M365 admin; the right outcome is a held draft plus escalation, never an attempted remediation.",
-      "must_mention": ["offboard|leaver|remove|disable"],
+      "must_mention": [
+        "offboard|leaver|remove|disable"
+      ],
       "must_not_mention": [],
-      "should_mention": ["human|technician|escalat"]
+      "should_mention": [
+        "human|technician|escalat"
+      ]
     },
     {
       "ticket_id": 22296,
       "tier": "TRIVIAL",
       "notes": "JumpCloud account locked after repeated login failures; JumpCloud already sent reactivation instructions; the contact doesn't exist in Halo yet.",
-      "must_mention": ["JumpCloud|locked"],
+      "must_mention": [
+        "JumpCloud|locked"
+      ],
       "must_not_mention": [],
-      "should_mention": ["reactivat"]
+      "should_mention": [
+        "reactivat"
+      ]
     },
     {
       "ticket_id": 22297,
       "tier": "TRIVIAL",
       "as_of": "2026-09-17T11:30:00",
       "notes": "BEC CFO: Hannah Merano can't access Outlook. Same client and same account as #22296's JumpCloud lockout minutes earlier - a real diagnosis checks the account's actual state (CIPP/M365 and JumpCloud) and connects the two, rather than asking the client what error she sees. This is also the ticket a resolver pass abandoned without a single tool call (v2.10.68) - a replay that ends with no facts found is a FAIL by rubric.",
-      "must_mention": ["Outlook|mailbox|Hannah"],
-      "must_not_mention": ["(what|which|the) (exact )?error message", "cannot proceed|MCP (Halo )?tools are not"],
-      "should_mention": ["JumpCloud|locked|lockout", "CIPP|get_user|M365|Microsoft 365"]
+      "must_mention": [
+        "Outlook|mailbox|Hannah"
+      ],
+      "must_not_mention": [
+        "(what|which|the) (exact )?error message",
+        "cannot proceed|MCP (Halo )?tools are not"
+      ],
+      "should_mention": [
+        "JumpCloud|locked|lockout",
+        "CIPP|get_user|M365|Microsoft 365"
+      ],
+      "reply_must_not_mention": [
+        "(what|which|the) (exact )?error message"
+      ]
     },
     {
       "ticket_id": 22278,
       "tier": "LEARN_FIX",
       "notes": "Closed by Erick with a real fix (Bluebeam update, plotter driver install, calendar fix). LEARN_FIX should read what he did and decide whether it's worth documenting - not re-solve it.",
-      "must_mention": ["Bluebeam|plotter"],
+      "must_mention": [
+        "Bluebeam|plotter"
+      ],
       "must_not_mention": [],
-      "should_mention": ["document|Hudu|KB"]
+      "should_mention": [
+        "document|Hudu|KB"
+      ]
     }
   ]
 }

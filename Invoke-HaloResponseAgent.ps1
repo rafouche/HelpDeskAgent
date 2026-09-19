@@ -73,6 +73,45 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.4 - the other five baseline results read; two more harness
+    defects, one rubric family, one open question.
+    - Replay ran without -RequireApproval. Production runs with it, so every
+      replay saw the non-approval flow: #22265 "sent" a real client email
+      and set Follow Up Needed, which is not what production would do, and
+      no FLOW A/FLOW B (draft revision) scenario can be replayed at all.
+      Replay-Tickets.ps1 now passes -RequireApproval through, and when the
+      switch isn't given it reads the registered scheduled task's own
+      arguments ("Altec Halo Response Agent") and mirrors them - the
+      replay runs in whatever mode production runs in, and says which.
+    - The replay's clock was the wall clock. The baseline ran on a Saturday
+      afternoon, so weekday tickets were judged "outside business hours"
+      and took the hold-a-draft path (#22067, #22114, #22231, #22280),
+      while #22265 reasoned from its own timestamp. With an as-of point,
+      {{CURRENT_DATETIME}} and {{IS_BUSINESS_HOURS}} now come from it;
+      without one, the banner says to judge from the first client
+      message's timestamp. -ReplayAsOf is validated as a timestamp.
+    - Regex over the whole output can't tell the client-facing reply from
+      the internal note: #22265's internal note said "Standard vs.
+      Professional" so should_mention passed, while the reply to the
+      client was the vague "looping in our team" holding reply the rubric's
+      own notes call the wrong outcome. New rubric fields
+      reply_must_mention / reply_must_not_mention score only the
+      client-facing reply text - the segment(s) from "Hi <name>," to the
+      mandated "Here to help" sign-off - and a rubric that has them fails
+      if no such segment exists. Applied across the seeded list.
+    - #22067's rubric was checking the emailtolist lesson (v2.10.61) at the
+      first client message, before the relink that created the mismatch
+      existed - it could only ever pass by accident. as_of moved to
+      2026-09-11T20:40, just after Roger relinked the contact.
+    - #22114's warranty was never in the custom fields. get_device_custom_fields
+      on device 3284 returns only mgmtLevel=Full (checked live 2026-09-19)
+      and get_device had no warranty block, so the v2.10.57 fix pointed at
+      the wrong surface and the replay's "no warranty record on file" was
+      the honest answer. NinjaOne only returns the warranty block with
+      expand=warranty on GET /v2/device/{id}; ninjarmm-mcp's get_device
+      now sends it and adds warranty_summary (ISO start/end, expired flag,
+      days_remaining). Verified live: 3284 ran 2020-07-20 to 2023-07-19.
+      Rubric now requires the reply to say so.
     Version: 2.11.3 - first replay baseline read, three fixes from it. Roger
     ran Replay-Tickets.ps1 -Label baseline: 10 tickets, $4.94, 9/10 "pass"
     - but reading the actual results, not the score, the honest number is
@@ -2628,6 +2667,13 @@ if ($isReplay) {
     }
     $ReplayLabel = ($ReplayLabel -replace '[^A-Za-z0-9_.-]', '_')
     if (-not $ReplayLabel) { $ReplayLabel = "replay" }
+    # v2.11.4: the as-of point also drives the run context's clock (below), so
+    # it has to be a real timestamp, not just text the resolver is told about.
+    $replayAsOfDate = $null
+    if ($ReplayAsOf) {
+        try { $replayAsOfDate = [datetime]::Parse($ReplayAsOf, [System.Globalization.CultureInfo]::InvariantCulture) }
+        catch { throw "-ReplayAsOf '$ReplayAsOf' is not a timestamp. Use ISO form, e.g. 2026-09-17T12:30:00 (Halo time)." }
+    }
 }
 
 # Windows PowerShell 5.1 captures external-process output using the console's
@@ -2861,11 +2907,21 @@ $resolvedIdsForCache = $agentCache.resolved_ids
 
 # --- Determine business-hours context ---
 $now = Get-Date
-$isBusinessDay = $config.business_hours.days -contains $now.DayOfWeek.ToString()
+# v2.11.4: in a replay with an as-of point, the resolver's "current date/time"
+# and business-hours flag come from that point, not from the wall clock - the
+# first baseline ran on a Saturday afternoon, so four of ten tickets that
+# arrived on weekdays were judged "outside business hours" and took the
+# hold-a-draft path, while one reasoned from the ticket's own timestamp
+# instead. Neither is the behavior being scored. $now itself stays the real
+# clock (log timestamps, the off-hours throttle - which never applies under
+# -WhatIf anyway).
+$contextNow = $now
+if ($isReplay -and $replayAsOfDate) { $contextNow = $replayAsOfDate }
+$isBusinessDay = $config.business_hours.days -contains $contextNow.DayOfWeek.ToString()
 $startTod = [TimeSpan]::Parse($config.business_hours.start)
 $endTod   = [TimeSpan]::Parse($config.business_hours.end)
-$isBusinessHours = $isBusinessDay -and ($now.TimeOfDay -ge $startTod) -and ($now.TimeOfDay -le $endTod)
-$nowText = $now.ToString("dddd, MMMM d, yyyy h:mm tt")
+$isBusinessHours = $isBusinessDay -and ($contextNow.TimeOfDay -ge $startTod) -and ($contextNow.TimeOfDay -le $endTod)
+$nowText = $contextNow.ToString("dddd, MMMM d, yyyy h:mm tt")
 
 # --- Off-hours throttle: outside business hours, skip most cycles entirely
 #     rather than paying for a real check every 15 minutes overnight/on
@@ -3388,6 +3444,14 @@ $replayBannerLines = @(
     "  in its original status at that time, however it is assigned or closed now.",
     "  (Real replay: two tickets a human picked up days later were skipped as",
     "  HUMAN_OWNED without any investigation, which is exactly wrong here.)",
+    $(if ($replayAsOfDate) {
+        "- The run context's current date/time and business-hours flag are already set" + "`n" +
+        "  to the as-of point - use them as given, not today's real clock."
+    } else {
+        "- Judge business hours from the first client message's own timestamp (the" + "`n" +
+        "  config's business_hours days/start/end), not from the run context's clock," + "`n" +
+        "  which is today's."
+    }),
     "Then investigate and decide exactly as the rest of this document says, and",
     "describe what you WOULD do per the simulation banner. Be specific about every",
     "fact you established and every tool you used to establish it - the replay is",

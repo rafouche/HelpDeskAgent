@@ -761,9 +761,21 @@ flag change gets judged before a human turns it on.
 The list lives in `eval\tickets.json` (seeded once from the repo on first
 update, then yours to edit - it's never overwritten). Each entry names a
 ticket, the tier to run it at, an optional `as_of` time (actions after it are
-ignored, so the ticket is judged as it stood then), and regex lists:
-`must_mention` (every one must appear in the output), `must_not_mention`
-(none may), `should_mention` (a miss is only a warning).
+ignored, so the ticket is judged as it stood then, and the run's clock and
+business-hours flag are set to that moment rather than to today), and regex
+lists: `must_mention` (every one must appear in the output), `must_not_mention`
+(none may), `should_mention` (a miss is only a warning), and
+`reply_must_mention` / `reply_must_not_mention`, which are checked only
+against the client-facing reply (the text from "Hi <name>," to the "Here to
+help" sign-off) - so an internal note that says the right thing can't cover
+for a vague reply to the client. A run that ends `[CACHE: HUMAN_OWNED]` or
+`[CACHE: BLOCKED]` never investigated and fails unless the entry's
+`expected_marker` lists that outcome.
+
+The replay runs in the same approval mode as production: unless you pass
+`-RequireApproval` (or `-RequireApproval:$false`) explicitly, the wrapper reads
+the registered "Altec Halo Response Agent" scheduled task and mirrors its
+arguments, and the first line of output says which mode it used.
 
 Typical use, from the deployment folder:
 

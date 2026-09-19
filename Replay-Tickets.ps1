@@ -21,6 +21,16 @@
       must_mention      - regex list; every one must match the output (FAIL otherwise)
       must_not_mention  - regex list; none may match the output (FAIL otherwise)
       should_mention    - regex list; a miss is a WARN, not a fail
+      reply_must_mention / reply_must_not_mention
+                        - same, but checked ONLY against the client-facing
+                          reply text: every segment from "Hi <name>," to the
+                          mandated "Here to help" sign-off. A rubric that has
+                          either and finds no such segment is a FAIL. This is
+                          how "the internal note said the right thing but the
+                          client got a vague holding reply" is caught (v2.11.4).
+      expected_marker   - list; a run that ends [CACHE: HUMAN_OWNED] or
+                          [CACHE: BLOCKED] never investigated and is a FAIL
+                          unless that marker is listed here
 
     Every replayed ticket is a real resolver call at real API cost (roughly
     $0.15-$0.90 each at current settings) - this is why it only ever runs
@@ -46,6 +56,13 @@
 .PARAMETER ScoreOnly
     Don't replay anything - just (re)score whatever results already exist
     under eval\results\<Label>\ (free; useful after editing a rubric).
+.PARAMETER RequireApproval
+    Replay in human-approval mode (the main script's -RequireApproval: drafts
+    are held, FLOW A/FLOW B apply). When this switch is NOT given, the
+    wrapper reads the registered scheduled task ("Altec Halo Response Agent")
+    and mirrors whatever mode production actually runs in, so a replay judges
+    the same flow the live pipeline follows. Pass -RequireApproval:$false to
+    force the non-approval flow regardless.
 #>
 param(
     [string]$RootPath = $PSScriptRoot,
@@ -53,7 +70,8 @@ param(
     [int[]]$TicketIds,
     [string]$Label = "baseline",
     [string]$CompareTo,
-    [switch]$ScoreOnly
+    [switch]$ScoreOnly,
+    [switch]$RequireApproval
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,8 +104,42 @@ function Get-RubricList {
     return @($prop.Value)
 }
 
+# The client-facing reply is the only part of the output a client would ever
+# see, and the resolver's mandated sign-off makes it findable: every reply
+# runs from a "Hi <name>," greeting to "Here to help". Everything else in the
+# output (investigation summary, internal note, WOULD-DO list) is excluded
+# from the reply_* checks. Returns the joined segments, or "" if none.
+function Get-ClientReplyText {
+    param([string]$Text)
+    if (-not $Text) { return "" }
+    $segments = [regex]::Matches($Text, '(?is)\bHi [^,\r\n]{1,60},(.*?)Here to help')
+    if ($segments.Count -eq 0) { return "" }
+    return (($segments | ForEach-Object { $_.Groups[1].Value }) -join "`n---`n")
+}
+
+# --- Approval mode: mirror production unless told otherwise (v2.11.4) ---
+# The first baseline ran every ticket without -RequireApproval while the
+# scheduled task runs with it, so the replay judged a flow production never
+# takes. If the switch wasn't given on the command line, read the registered
+# task's arguments; anywhere Get-ScheduledTask doesn't exist (or the task
+# isn't registered) the mode stays off and the output says so.
+$approvalSource = "command line"
+if (-not $PSBoundParameters.ContainsKey('RequireApproval')) {
+    $approvalSource = "not detected (no scheduled task found) - running WITHOUT -RequireApproval"
+    try {
+        if (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue) {
+            $task = Get-ScheduledTask -TaskName "Altec Halo Response Agent" -ErrorAction Stop
+            $taskArgs = ($task.Actions | ForEach-Object { [string]$_.Arguments }) -join " "
+            $RequireApproval = [switch]($taskArgs -match '(?i)-RequireApproval')
+            $approvalSource = "mirrored from scheduled task 'Altec Halo Response Agent'"
+        }
+    }
+    catch { }
+}
+
 if (-not $ScoreOnly) {
     Write-Host "=== REPLAY '$Label' - $($rubrics.Count) ticket(s), read-only simulation, real API cost (roughly `$0.15-`$0.90 per ticket) ==="
+    Write-Host "Approval mode: $(if ($RequireApproval) { 'ON (-RequireApproval)' } else { 'OFF' }) - $approvalSource"
     foreach ($r in $rubrics) {
         $tier = if ($r.tier) { [string]$r.tier } else { "MEDIUM" }
         # ConvertFrom-Json turns an ISO-8601 string into a [datetime]; keep
@@ -112,6 +164,7 @@ if (-not $ScoreOnly) {
             ReplayLabel     = $Label
         }
         if ($asOf) { $replayArgs.ReplayAsOf = $asOf }
+        if ($RequireApproval) { $replayArgs.RequireApproval = $true }
         try {
             & $mainScript @replayArgs *>&1 | ForEach-Object { Write-Host "    $_" }
         }
@@ -171,6 +224,22 @@ foreach ($r in $rubrics) {
             foreach ($pattern in (Get-RubricList -Rubric $r -Name 'should_mention')) {
                 if (-not [regex]::IsMatch($text, [string]$pattern, 'IgnoreCase')) { $warnings += "missing: $pattern" }
             }
+            $replyMust = @(Get-RubricList -Rubric $r -Name 'reply_must_mention')
+            $replyMustNot = @(Get-RubricList -Rubric $r -Name 'reply_must_not_mention')
+            if ($replyMust.Count -gt 0 -or $replyMustNot.Count -gt 0) {
+                $replyText = Get-ClientReplyText -Text $text
+                if (-not $replyText) {
+                    $failed += "no client-facing reply found (Hi <name>, ... Here to help)"
+                }
+                else {
+                    foreach ($pattern in $replyMust) {
+                        if (-not [regex]::IsMatch($replyText, [string]$pattern, 'IgnoreCase')) { $failed += "reply missing: $pattern" }
+                    }
+                    foreach ($pattern in $replyMustNot) {
+                        if ([regex]::IsMatch($replyText, [string]$pattern, 'IgnoreCase')) { $failed += "reply contains: $pattern" }
+                    }
+                }
+            }
             $row.failed = $failed
             $row.warnings = $warnings
             $row.status = if ($failed.Count -gt 0) { "FAIL" } else { "PASS" }
@@ -193,6 +262,8 @@ foreach ($row in $rows) {
 $summary = [PSCustomObject]@{
     label      = $Label
     scored_at  = (Get-Date).ToString("o")
+    require_approval = [bool]$RequireApproval
+    approval_source  = $approvalSource
     pass_count = $passCount
     ticket_count = $rows.Count
     total_cost_usd = $totalCost
