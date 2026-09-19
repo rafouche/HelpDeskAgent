@@ -773,7 +773,16 @@ for a vague reply to the client. A run that ends `[CACHE: HUMAN_OWNED]` or
 `expected_marker` lists that outcome. By default the replay hides this
 pipeline's own earlier notes so the ticket is judged as a fresh first pass;
 set `keep_own_actions: true` on an entry to keep them (with `as_of` placed
-after them) and replay a draft-revision scenario instead.
+after them) and replay a draft-revision scenario instead. That only works
+while the draft note still exists in Halo - the pipeline deletes a superseded
+draft and collapses an approved one, so a past ticket's draft state is
+usually gone.
+
+Read results with variance in mind: the resolver is not deterministic, and one
+ticket flipping between pass and fail across two runs with no change in
+between is noise, not a result (seen on the seeded Adobe-licensing ticket).
+Judge a change on the whole list's pass count and cost, and re-run any single
+ticket before acting on its delta.
 
 The replay runs in the same approval mode as production: unless you pass
 `-RequireApproval` (or `-RequireApproval:$false`) explicitly, the wrapper reads

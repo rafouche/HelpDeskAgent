@@ -1,5 +1,5 @@
 {
-  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then, and the run's clock/business-hours flag are set to it; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's whole WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); reply_must_mention / reply_must_not_mention (same, but checked ONLY against the client-facing reply - the text from 'Hi <name>,' to the 'Here to help' sign-off - so an internal note saying the right thing can't cover for a vague reply; a rubric with these fails if no reply segment exists); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); keep_own_actions (optional, true keeps this pipeline's own notes dated at or before as_of in play instead of hiding them - the only way to replay a draft-revision / FLOW B scenario); notes (for humans). Replays run in the same approval mode as the registered scheduled task unless -RequireApproval is given explicitly. This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
+  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then, and the run's clock/business-hours flag are set to it; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's whole WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); reply_must_mention / reply_must_not_mention (same, but checked ONLY against the client-facing reply - the text from 'Hi <name>,' to the 'Here to help' sign-off - so an internal note saying the right thing can't cover for a vague reply; a rubric with these fails if no reply segment exists); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); keep_own_actions (optional, true keeps this pipeline's own notes dated at or before as_of in play instead of hiding them - for replaying a draft-revision / FLOW B scenario, which only works while the draft note still exists in Halo: FLOW B deletes superseded drafts and FLOW A collapses approved ones, so a past ticket's draft state is usually gone); notes (for humans). Replays run in the same approval mode as the registered scheduled task unless -RequireApproval is given explicitly. This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
   "tickets": [
     {
       "ticket_id": 22300,
@@ -45,23 +45,18 @@
     {
       "ticket_id": 22067,
       "tier": "MEDIUM",
-      "as_of": "2026-09-11T20:42:00",
-      "keep_own_actions": true,
-      "notes": "Draft-revision (FLOW B) replay. State at 20:42 on 09-11: this pipeline's own [DRAFT PENDING APPROVAL] note from 18:06 (asks nothing, proposes a tech visit), Roger's contact relink at 20:39 (the Unknown gmail user -> Thompson Sales contact 'Thomas Wilder', whose Halo record carries a guessed company address), and Roger's private note at 20:41: 'Ask what department the user is in and where is the machine physically located.' The right pass edits the existing draft to add those two questions (not a rewrite), deletes the superseded draft, and - the v2.10.61 lesson - compares get_contact's emailaddress with the ticket's emailtolist and the address he actually writes from (thomaswilder84@gmail.com), flagging the mismatch before anything is sent. The real reply on 09-14 went to twilder@thompsonsales.com.",
+      "notes": "Thomas Wilder (Thompson Sales) - 'computer keeps turning itself off', needs a physical power button press to come back. First-pass replay: no remote fix exists, the honest outcome is a held draft that says so and asks what the tech needs to visit. This ticket's other lesson (v2.10.61: the ticket was relinked to a contact whose Halo record carries a guessed company address, and a real reply went to twilder@thompsonsales.com instead of the gmail he writes from) can NOT be replayed here: it only exists after the relink, by which point the pipeline's own draft-revision state was later deleted by FLOW B (Halo's action list skips ids 8/10/12), and a first-pass replay after a human relink is HUMAN_OWNED by rule. The general check - compare get_contact's emailaddress with the ticket's emailtolist before any client-facing reply - is scored on every first-pass ticket via should_mention get_contact.",
       "must_mention": [
-        "department",
-        "locat"
+        "hardware|power"
       ],
       "must_not_mention": [],
-      "reply_must_mention": [
-        "department",
-        "locat"
+      "reply_must_not_mention": [
+        "(what|which|the) (exact )?error message"
       ],
       "should_mention": [
         "get_contact",
-        "thomaswilder84@gmail|gmail",
-        "emailtolist|emailto|twilder@thompsonsales",
-        "delete_ticket_note|superseded"
+        "emailtolist|emailto|gmail",
+        "department|location|on-?site|technician"
       ]
     },
     {
@@ -86,7 +81,7 @@
       "ticket_id": 22265,
       "tier": "MEDIUM",
       "as_of": "2026-09-16T15:25:00",
-      "notes": "Gold Mechanical wants 20 Adobe licenses billed to AP. A complete first pass asks the CLIENT which edition (Standard vs Pro) with a brief comparison. Baseline 2026-09-19: the internal note said 'Standard vs. Professional' (so should_mention passed) while the client got a vague 'looping in our team' holding reply - exactly the wrong outcome, now caught by reply_must_mention. Also the heaviest ticket in the baseline (45 turns, $1.10).",
+      "notes": "Gold Mechanical wants 20 Adobe licenses billed to AP. A complete first pass asks the CLIENT which edition (Standard vs Pro) with a brief comparison. Run history: baseline (09-19) internal note said 'Standard vs. Professional' while the client got a vague 'looping in our team' holding reply; baseline2 same; baseline3 asked the question properly in the draft (17 turns). Same prompt each time - this ticket flips on its own, so a single-run change here is noise; re-run it before believing a delta.",
       "must_mention": [
         "Adobe"
       ],

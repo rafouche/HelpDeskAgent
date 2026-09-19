@@ -2854,6 +2854,31 @@ $0.63, and the client still got "looping in our team" instead of the
 Standard-vs-Pro question. That is the next thing to fix in the prompt, and
 now there is a rubric that will notice if it regresses.
 
+**v2.11.6 - baseline3 read (8/10, $4.26): a gap, a limit, and variance
+(2026-09-19).** #22280 passed once ownership came from the as-of point.
+Three things from the rest:
+
+- **Gap, fixed:** #22231's resolver diagnosed correctly and then described
+  its draft ("a reassuring reply") instead of writing it, so the reply-only
+  checks had nothing to read and the ticket failed. The banner now demands
+  the verbatim text of every note, draft, and reply it would write.
+- **Limit, documented, not engineered around:** the #22067 draft-revision
+  replay (v2.11.5) can't work for any past ticket. FLOW B deletes the
+  superseded draft and FLOW A collapses the approved one, so Halo no
+  longer holds the pending-draft state - the ticket's action list skips
+  ids 8, 10 and 12 for exactly that reason. Given no draft to revise the
+  resolver correctly wrote a mismatch note and stopped BLOCKED; that is
+  production-correct behavior, not a harness bug. `keep_own_actions` stays
+  for a ticket whose draft is still live; #22067 is a first-pass replay
+  again, and the rubric's own notes say why its email lesson can't be
+  replayed on it.
+- **Variance, named:** #22265 failed baseline2 and passed baseline3 on the
+  same rubric with nothing changed between them. One ticket flipping is
+  noise. README and the wrapper's help now say to judge a change on the
+  whole list and to re-run a single ticket before acting on its delta. A
+  `-Repeat` option is the obvious next step if that turns out to be
+  needed often; not built until it is.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

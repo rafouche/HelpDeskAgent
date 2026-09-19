@@ -33,8 +33,18 @@
                           unless that marker is listed here
       keep_own_actions  - true to keep this pipeline's own notes dated at or
                           before as_of in play (default: hidden, so the
-                          ticket is judged as a fresh first pass). Needed to
-                          replay a draft-revision (FLOW B) scenario.
+                          ticket is judged as a fresh first pass). For a
+                          draft-revision (FLOW B) scenario - which only
+                          works while the draft note still exists in Halo:
+                          FLOW B deletes a superseded draft and FLOW A
+                          collapses an approved one, so a past ticket's
+                          draft state is usually gone (a real attempt on
+                          #22067 found no draft and correctly BLOCKED).
+
+    Reading results: the resolver is not deterministic. One ticket flipping
+    PASS<->FAIL between two runs with no change in between is noise (seen
+    on #22265). Judge a change on the whole list's pass count and cost,
+    and re-run any single ticket whose delta you're about to act on.
 
     Every replayed ticket is a real resolver call at real API cost (roughly
     $0.15-$0.90 each at current settings) - this is why it only ever runs

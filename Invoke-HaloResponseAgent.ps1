@@ -73,6 +73,27 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.6 - baseline3 read (8/10, $4.26): one harness gap, one
+    limit that can't be engineered around, one variance note.
+    - #22231's resolver described its draft ("a reassuring reply") instead
+      of writing it, so the reply-only checks had nothing to read. The
+      replay banner now requires the verbatim text of every note, draft,
+      and reply it would write - the replay is scored on those words.
+    - #22067's draft-revision replay is impossible, and not because of the
+      harness: FLOW B deletes the superseded draft (delete_ticket_note)
+      and FLOW A collapses the approved one to "[APPROVED DRAFT]", so the
+      pending-draft state of any past ticket no longer exists in Halo -
+      its action list skips ids 8/10/12 for exactly that reason. The
+      resolver, given no draft to revise, correctly stopped with a note
+      for a human and BLOCKED. keep_own_actions stays (it is right for a
+      ticket whose draft is still live), #22067 goes back to a first-pass
+      replay, and the rubric docs say why.
+    - #22265 passed cleanly this run (asked Standard vs Pro, 17 turns) and
+      failed baseline2 on the same rubric with no change in between. That
+      is run-to-run variance; README now says how to read it (a single
+      ticket flipping without a change is noise - judge a change on the
+      whole list, and re-run the affected tickets before believing a
+      one-ticket delta).
     Version: 2.11.5 - baseline2 (approval mode on, clock fixed): 7/10, $4.68.
     Two tickets untouched by any human at their as-of point (#22280 at
     20:34 on 09-16, #22067) still stopped HUMAN_OWNED in 6-9 turns. Cause:
@@ -3508,6 +3529,12 @@ $replayBannerLines = @(
     "describe what you WOULD do per the simulation banner. Be specific about every",
     "fact you established and every tool you used to establish it - the replay is",
     "scored on whether the right facts were found, not just on the final wording.",
+    "- Write out, verbatim and in full, the text of every note, draft, and reply",
+    "  you would write or send - greeting, body, and sign-off exactly as the",
+    "  client or technician would read it. The replay is scored on those words.",
+    "  A description of a reply ('a reassuring note telling her it's safe')",
+    "  scores as no reply at all. (Real replay: a correct diagnosis of #22231",
+    "  failed for exactly this.)",
     "==="
 )
 $replayBanner = $replayBannerLines -join "`n"
