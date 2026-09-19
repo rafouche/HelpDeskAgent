@@ -512,6 +512,29 @@ claude mcp add --transport http <Name> <https-url> --header "Authorization: Bear
 claude mcp list   # verify — note the exact names and connection status
 ```
 
+**Turn on the Worker-side check for that token (v2.11.2).** The `--header`
+above makes Claude *send* a bearer token, but until 2026-09-19 no Worker
+*checked* it - every Worker answered on its public `workers.dev` URL, write
+tools included, with no credentials at all. Each Worker now enforces the
+token, but only once you set its `MCP_AUTH_TOKEN` secret - so nothing changes
+until you do, and you can do it one Worker at a time. For each Worker, from
+its folder in the MCPs checkout, using the same token you registered it with:
+
+```powershell
+cd <MCPs checkout>\halopsa-mcp
+git pull
+npm run deploy                      # picks up the check (inert until the secret exists)
+npx wrangler secret put MCP_AUTH_TOKEN   # paste that Worker's token from .mcp.json when prompted
+```
+
+Then confirm both halves: `claude mcp list` still shows the server connected,
+and `curl https://<that-worker>/mcp` with no header now returns `401`. Any
+*other* place the same Worker is registered (a claude.ai connector, another
+machine, another session) needs the same header or it will start getting
+`401` too - that's the check working. `Invoke-HaloResponseAgent.ps1`'s own
+direct calls to the Halo Worker (`/helpdesk-gate`, `/helpdesk-candidates`)
+read the header from this folder's `.mcp.json` automatically.
+
 **`-s project`, not `-s user` — this is not a style preference.** `claude mcp add`
 defaults to (and many examples elsewhere use) `-s user`, which registers the
 server only for the Windows account you're currently logged in as, in that

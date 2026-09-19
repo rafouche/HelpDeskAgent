@@ -73,6 +73,32 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.2 - the pre-flight gate now sends the Halo Worker's
+    bearer token; companion to a security fix in rafouche/MCPs. While
+    verifying increment 1's deployed Worker, a bare curl to its public
+    workers.dev URL returned real ticket data with no credentials - and a
+    credential-less tools/list on /mcp returned all 42 tools, write tools
+    included. Every Worker in that repo was the same: the MCP client
+    registrations had been sending "Authorization: Bearer <token>" all
+    along (README's own `claude mcp add --header` instructions), but no
+    Worker ever checked it. Not something this program introduced - a
+    pre-existing gap found because the program's first verification step
+    was to hit the route from outside. Reported to Roger immediately; no
+    write tool was ever called during the check.
+    Fix, in rafouche/MCPs (every Worker): an opt-in inbound check - once an
+    MCP_AUTH_TOKEN secret is set on a Worker, every route except OPTIONS
+    and /health requires that exact bearer token (constant-time compare);
+    unset, behavior is unchanged, so the code deploys safely ahead of the
+    switch. This script's part: the pre-flight gate's plain-HTTP call to
+    /helpdesk-gate (and the /helpdesk-candidates feed increment 2 will
+    add) now sends the same Authorization header the Halo entry in
+    .mcp.json already carries, via the new Get-HelpDeskGateAuthHeader -
+    read from the same file Get-HelpDeskGateBaseUrl already parses, never
+    stored a second place. $null when the entry has no header, in which
+    case the call goes out bare as before: still fine against a Worker
+    whose secret isn't set, and fails open (classifier runs normally)
+    against one that is. Unit-tested against a fake .mcp.json (header
+    present / absent / file missing) and -DryRun'd before pushing.
     Version: 2.11.1 - Replay-Tickets.ps1 fix; no change in this script.
     Roger's first real run of v2.11.0's Replay-Tickets.ps1 failed on every
     ticket: "Cannot convert value 'C:\AltecAgents\HaloResponseAgent' to type
@@ -3388,6 +3414,36 @@ function Get-HelpDeskGateBaseUrl {
         return $null
     }
 }
+
+# The Authorization header the Halo MCP registration in .mcp.json already
+# sends on every MCP call (`claude mcp add ... --header "Authorization:
+# Bearer <token>"` - see README). The Worker's plain-HTTP routes this script
+# calls directly (/helpdesk-gate, /helpdesk-candidates) enforce that same
+# bearer token once the Worker's MCP_AUTH_TOKEN secret is set, so send it
+# here too. $null when .mcp.json has no such header - the call then goes
+# out without one, which still works against a Worker whose secret isn't
+# set yet, and fails open (classifier runs normally) against one that is.
+function Get-HelpDeskGateAuthHeader {
+    param([string]$RootPath)
+    $mcpJsonPath = Join-Path $RootPath ".mcp.json"
+    if (-not (Test-Path $mcpJsonPath)) { return $null }
+    try {
+        $mcpConfig = Get-Content $mcpJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $mcpConfig.mcpServers) { return $null }
+        foreach ($prop in $mcpConfig.mcpServers.PSObject.Properties) {
+            if ($prop.Name -ne "Halo") { continue }
+            $headers = $prop.Value.headers
+            if (-not $headers) { return $null }
+            foreach ($h in $headers.PSObject.Properties) {
+                if ($h.Name -eq "Authorization" -and $h.Value) { return [string]$h.Value }
+            }
+        }
+        return $null
+    }
+    catch {
+        return $null
+    }
+}
 $classifierEffort = Get-EffortForConfig -PerTierValue $config.claude.classifier_effort
 $effortForTier = @{
     "TRIVIAL"           = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
@@ -4333,7 +4389,10 @@ try {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
                 $gateUri = "$gateBaseUrl/helpdesk-gate?team_id=$($ids.team_id)&agent_id=$($ids.agent_id)"
                 if ($trackedTicketIds.Count -gt 0) { $gateUri += "&tracked_ids=$($trackedTicketIds -join ',')" }
-                $gate = Invoke-RestMethod -Uri $gateUri -Method Get -TimeoutSec 20
+                $gateHeaders = @{}
+                $gateAuth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
+                if ($gateAuth) { $gateHeaders['Authorization'] = $gateAuth }
+                $gate = Invoke-RestMethod -Uri $gateUri -Method Get -TimeoutSec 20 -Headers $gateHeaders
                 $anyTrackedChanged = $false
                 foreach ($t in @($gate.tracked)) {
                     $key = [string]$t.id

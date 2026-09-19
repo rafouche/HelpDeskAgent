@@ -2717,6 +2717,30 @@ replay banner as a culture-formatted date; now re-formatted to ISO. The
 lesson is the same one this project keeps re-learning: verify the thing
 that actually runs, not the thing next to it.
 
+**Every MCP Worker was publicly reachable with no authentication
+(v2.11.2, fix in rafouche/MCPs).** Found while verifying increment 1 the
+right way - hitting the freshly deployed `/helpdesk-candidates` route from
+outside with a bare `curl`: it returned real ticket data with no
+credentials, and a credential-less `tools/list` on `/mcp` returned all 42
+Halo tools including the write ones. Checked the rest of the fleet the
+same way, read-only: eleven Workers, zero inbound auth checks in any of
+them, ten answering `/health` on their guessable `<name>.<subdomain>.
+workers.dev` URLs - CIPP (password resets), NinjaOne (reboots, script
+runs), Meraki (firewall rules) among them. No write tool was called
+during the check. The twist: the client side had been doing its part all
+along - HelpDeskAgent's README registers every Worker with
+`--header "Authorization: Bearer <token>"` - the Workers just never
+looked at it. Fixed with an opt-in check at the top of every Worker's
+`fetch()`: once an `MCP_AUTH_TOKEN` secret is set on that Worker, every
+route except OPTIONS and `/health` must present that exact bearer token
+(constant-time compare); unset, nothing changes, so the code ships and
+deploys ahead of the switch and Roger enables it Worker by Worker with
+`wrangler secret put` using the token each registration already sends.
+This script's pre-flight gate call now sends that same header, read from
+the `.mcp.json` entry it already parses for the URL. Raised to Roger
+ahead of any further cost work, because a public write path into every
+client's PSA, RMM, and firewalls outranks a cheaper classifier.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not
