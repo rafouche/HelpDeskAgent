@@ -73,6 +73,25 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.5 - baseline2 (approval mode on, clock fixed): 7/10, $4.68.
+    Two tickets untouched by any human at their as-of point (#22280 at
+    20:34 on 09-16, #22067) still stopped HUMAN_OWNED in 6-9 turns. Cause:
+    get_ticket_time_entries' human_touch.found is computed over the whole
+    history as it stands today, and resolver-prompt.md rightly says to
+    trust that field and not re-derive it - so the replay banner's "ignore
+    later actions" lost to the prompt's own rule. Fixed at the tool, not
+    with more prose: halopsa-mcp's get_ticket_time_entries and
+    get_ticket_history take an optional as_of, drop every action after it,
+    and compute human_touch over what's left; the banner now tells the
+    resolver to pass it (the as-of timestamp, or the first client
+    message's time when none was given) and that a human_touch from a
+    call without as_of is today's and does not count. Also new:
+    -ReplayKeepOwnActions (rubric field keep_own_actions), which keeps
+    this pipeline's own notes dated at or before the as-of point in play
+    instead of hiding them - the only way to replay a draft-revision
+    (FLOW B) scenario such as #22067's, now judged at 20:42 on 09-11 with
+    its pending draft, Roger's contact relink, and Roger's "ask what
+    department" note all in place.
     Version: 2.11.4 - the other five baseline results read; two more harness
     defects, one rubric family, one open question.
     - Replay ran without -RequireApproval. Production runs with it, so every
@@ -214,7 +233,7 @@
     changes until a human flips one in this deployment's own never-synced
     config.json), each validated on real tickets first. This increment is
     the harness that makes "validated first" possible:
-    - -ReplayTicketIds/-ReplayTier/-ReplayAsOf/-ReplayLabel: replay mode.
+    - -ReplayTicketIds/-ReplayTier/-ReplayAsOf/-ReplayLabel/-ReplayKeepOwnActions: replay mode.
       Runs the resolver against named past tickets at a given tier, always
       as -WhatIf (mutating tools stripped, no cache write-back), skips the
       gate/throttle/classifier, prepends a replay banner telling the
@@ -2642,7 +2661,8 @@ param(
     [int[]]$ReplayTicketIds,
     [string]$ReplayTier = "MEDIUM",
     [string]$ReplayAsOf,
-    [string]$ReplayLabel = "replay"
+    [string]$ReplayLabel = "replay",
+    [switch]$ReplayKeepOwnActions
 )
 
 $ErrorActionPreference = "Stop"
@@ -3427,14 +3447,46 @@ $replayBannerLines = @(
     "This run is a replay of a past ticket, used to score this pipeline's own",
     "behavior - it is a simulation (see the simulation banner below), and nothing",
     "you do here reaches Halo, a device, or a client.",
-    "Judge the ticket as a fresh, first-pass candidate as it stood at: $replayAsOfText",
+    $(if ($ReplayKeepOwnActions) {
+        "Judge the ticket as it stood at: $replayAsOfText"
+    } else {
+        "Judge the ticket as a fresh, first-pass candidate as it stood at: $replayAsOfText"
+    }),
     "- Ignore every action dated after that point.",
-    "- Ignore every action authored by this pipeline itself, whenever it was",
-    "  written: notes/replies where who is this pipeline's own agent account or",
-    "  actionby_application_id is `"Claude`", and any note containing",
-    "  `"[DRAFT PENDING APPROVAL]`" or `"[APPROVED DRAFT]`". They do not exist for",
-    "  the purposes of this replay - do not treat them as prior art, as a pending",
-    "  draft to revise, or as evidence the ticket was already handled.",
+    $(if ($replayAsOfDate) {
+        "- When you call mcp__Halo__get_ticket_time_entries or mcp__Halo__get_ticket_history," + "`n" +
+        "  pass as_of: `"$($replayAsOfDate.ToString('yyyy-MM-ddTHH:mm:ss'))`" - the response then contains only" + "`n" +
+        "  the actions up to that point and its human_touch is computed over them," + "`n" +
+        "  which makes it the authoritative ownership answer for this replay. A" + "`n" +
+        "  human_touch from any call made WITHOUT as_of (or from get_ticket_brief /" + "`n" +
+        "  the candidate feed) is computed over today's full history and must not" + "`n" +
+        "  drive the ownership check here. (Real replay: two untouched-at-the-time" + "`n" +
+        "  tickets stopped HUMAN_OWNED on today's human_touch.found.)"
+    } else {
+        "- When you call mcp__Halo__get_ticket_time_entries or mcp__Halo__get_ticket_history," + "`n" +
+        "  pass as_of set to the first client message's datetime (read it from the" + "`n" +
+        "  ticket's dateoccurred or the first action) - the response then contains only" + "`n" +
+        "  the actions up to that point and its human_touch is computed over them," + "`n" +
+        "  which makes it the authoritative ownership answer for this replay. A" + "`n" +
+        "  human_touch from any call made WITHOUT as_of (or from get_ticket_brief /" + "`n" +
+        "  the candidate feed) is computed over today's full history and must not" + "`n" +
+        "  drive the ownership check here."
+    }),
+    $(if ($ReplayKeepOwnActions) {
+        "- This pipeline's own earlier actions (who is its own agent account or" + "`n" +
+        "  actionby_application_id is `"Claude`", including a `"[DRAFT PENDING APPROVAL]`"" + "`n" +
+        "  note) dated at or before the as-of point ARE part of the state being" + "`n" +
+        "  judged - a pending draft of yours plus a later human note is the draft-" + "`n" +
+        "  revision case, handle it exactly as the approval-mode flow says. Only" + "`n" +
+        "  those dated after the as-of point are ignored."
+    } else {
+        "- Ignore every action authored by this pipeline itself, whenever it was" + "`n" +
+        "  written: notes/replies where who is this pipeline's own agent account or" + "`n" +
+        "  actionby_application_id is `"Claude`", and any note containing" + "`n" +
+        "  `"[DRAFT PENDING APPROVAL]`" or `"[APPROVED DRAFT]`". They do not exist for" + "`n" +
+        "  the purposes of this replay - do not treat them as prior art, as a pending" + "`n" +
+        "  draft to revise, or as evidence the ticket was already handled."
+    }),
     "- A real human agent's actions before the as-of point still count exactly as",
     "  they normally would (the ownership check applies as usual).",
     "- The ticket's CURRENT agent_id, status, and closed/resolved flags describe",
@@ -3852,7 +3904,7 @@ if ($DryRun) {
     Write-Host "Pre-flight gate: $(if ($dryRunGateUrl) { "$dryRunGateUrl/helpdesk-gate (found via .mcp.json)" } else { 'NOT CONFIGURED - .mcp.json missing or has no "Halo" entry, so every real cycle always runs the classifier (fails open, same as a live gate-check failure would)' })"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
-    Write-Host "Replay (evaluation) mode: $(if ($isReplay) { "ON - tickets $($ReplayTicketIds -join ','), tier $ReplayTier, label '$ReplayLabel', as-of $replayAsOfText" } else { 'off' })"
+    Write-Host "Replay (evaluation) mode: $(if ($isReplay) { "ON - tickets $($ReplayTicketIds -join ','), tier $ReplayTier, label '$ReplayLabel', as-of $replayAsOfText$(if ($ReplayKeepOwnActions) { ', own prior actions kept' })" } else { 'off' })"
     Write-Host "Pipeline flags (config.json 'pipeline' block, all default off): $(($pipelineFlags.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ')"
     Write-Host "Ready-for-AI hand-back status: $(if ($config.halo.ready_for_ai_status_name) { "'$($config.halo.ready_for_ai_status_name)' (resolved to an ID at Stage 0, not shown here)" } else { 'NOT CONFIGURED - halo.ready_for_ai_status_name is blank, so this feature is off' })"
     if ($RequireApproval) {

@@ -31,6 +31,10 @@
       expected_marker   - list; a run that ends [CACHE: HUMAN_OWNED] or
                           [CACHE: BLOCKED] never investigated and is a FAIL
                           unless that marker is listed here
+      keep_own_actions  - true to keep this pipeline's own notes dated at or
+                          before as_of in play (default: hidden, so the
+                          ticket is judged as a fresh first pass). Needed to
+                          replay a draft-revision (FLOW B) scenario.
 
     Every replayed ticket is a real resolver call at real API cost (roughly
     $0.15-$0.90 each at current settings) - this is why it only ever runs
@@ -165,6 +169,7 @@ if (-not $ScoreOnly) {
         }
         if ($asOf) { $replayArgs.ReplayAsOf = $asOf }
         if ($RequireApproval) { $replayArgs.RequireApproval = $true }
+        if ($r.PSObject.Properties['keep_own_actions'] -and [bool]$r.keep_own_actions) { $replayArgs.ReplayKeepOwnActions = $true }
         try {
             & $mainScript @replayArgs *>&1 | ForEach-Object { Write-Host "    $_" }
         }

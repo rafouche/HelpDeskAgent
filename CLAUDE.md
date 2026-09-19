@@ -2821,6 +2821,39 @@ turns answering "is this Windows Update prompt legitimate" - most of it
 the ~75K-token fixed prefix re-read per turn - which is the shape
 increment 3 (playbooks) is for.
 
+**v2.11.5 - baseline2 read: the replay's ownership answer was today's, not
+the as-of point's (2026-09-19).** With approval mode mirrored and the clock
+fixed, baseline2 scored 7/10 at $4.68 - honest for the first time. Two of
+the three fails were the same defect: #22280 (as-of 20:34 on 09-16, nobody
+human had touched it) and #22067 both stopped `[CACHE: HUMAN_OWNED]` in
+6-9 turns. `get_ticket_time_entries`' `human_touch.found` is computed over
+the whole history as it stands today, and resolver-prompt.md - correctly,
+for production - says to trust that field and never re-derive it. The
+v2.11.3 banner text saying "reconstruct ownership from the action log" was
+prose arguing against a bright-line rule, and lost. Fixed where the fact
+is made: `halopsa-mcp`'s `get_ticket_time_entries` and `get_ticket_history`
+take an optional `as_of`, drop every action dated after it, and compute
+`human_touch` over the rest (`as_of` and `actions_hidden_after_as_of` are
+echoed back). The banner now tells the resolver to pass it and that a
+`human_touch` from any call without it is today's and does not count.
+Verified live against the deployed Worker: #22280 at 20:34 -> `found:
+false`, 12 actions hidden; #22067 at 20:42 -> only Roger's relink and note.
+
+Second change, for #22067 specifically: the replay had no way to judge a
+draft-revision scenario, because the banner hides every note this pipeline
+ever wrote. New `-ReplayKeepOwnActions` (rubric `keep_own_actions: true`)
+keeps its own notes dated at or before the as-of point in play, so #22067
+is now replayed at 20:42 on 09-11 with its pending draft, Roger's contact
+relink, and Roger's "ask what department" note all present - the FLOW B
+case (edit the draft, don't rewrite; delete the superseded one; check the
+contact's email against emailtolist before anything is sent). Default is
+unchanged: first-pass replays still hide the pipeline's own history.
+
+The third fail, #22265, is the pipeline's, not the harness's: 18 turns,
+$0.63, and the client still got "looping in our team" instead of the
+Standard-vs-Pro question. That is the next thing to fix in the prompt, and
+now there is a rubric that will notice if it regresses.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

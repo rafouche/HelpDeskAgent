@@ -1,5 +1,5 @@
 {
-  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then, and the run's clock/business-hours flag are set to it; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's whole WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); reply_must_mention / reply_must_not_mention (same, but checked ONLY against the client-facing reply - the text from 'Hi <name>,' to the 'Here to help' sign-off - so an internal note saying the right thing can't cover for a vague reply; a rubric with these fails if no reply segment exists); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); notes (for humans). Replays run in the same approval mode as the registered scheduled task unless -RequireApproval is given explicitly. This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
+  "_comment": "Replay-Tickets.ps1's rubric: real past tickets the resolver is replayed against (read-only) to score a prompt/model/pipeline change before it goes live. Per ticket: ticket_id; tier (what the classifier assigned, or should have); as_of (optional Halo-time timestamp - actions after it are ignored so the ticket is judged as it stood then, and the run's clock/business-hours flag are set to it; leave out to use the first client message); must_mention / must_not_mention (regex lists, case-insensitive, checked against the resolver's whole WOULD-DO output - any miss/hit is a FAIL; write must_not patterns so a negated mention like 'no malware indicators' doesn't trip them); reply_must_mention / reply_must_not_mention (same, but checked ONLY against the client-facing reply - the text from 'Hi <name>,' to the 'Here to help' sign-off - so an internal note saying the right thing can't cover for a vague reply; a rubric with these fails if no reply segment exists); should_mention (regex list - a miss is only a WARN); expected_marker (optional list - a replay that ends on HUMAN_OWNED or BLOCKED never investigated and is a FAIL unless that marker is listed here); keep_own_actions (optional, true keeps this pipeline's own notes dated at or before as_of in play instead of hiding them - the only way to replay a draft-revision / FLOW B scenario); notes (for humans). Replays run in the same approval mode as the registered scheduled task unless -RequireApproval is given explicitly. This file is seeded once by Update-HaloResponseAgent.ps1 and never overwritten - it is this deployment's own to grow. Add a ticket here every time a real one teaches the pipeline something, so the lesson is re-checked on every future change instead of trusted to hold.",
   "tickets": [
     {
       "ticket_id": 22300,
@@ -45,16 +45,24 @@
     {
       "ticket_id": 22067,
       "tier": "MEDIUM",
-      "notes": "Thomas Wilder wrote in from thomaswilder84@gmail.com; Halo created an Unknown user. Roger relinked the ticket to the Thompson Sales contact 'Thomas Wilder' at 20:39 on 09-11, whose contact record carries a guessed company address (twilder@thompsonsales.com) - the real reply on 09-14 went there, not to the address he actually writes from. Judged just after the relink: before any client-facing reply, compare get_contact's emailaddress with the ticket's emailtolist and the original sender, and flag the mismatch (v2.10.61). At the first client message (the old as_of) the mismatch didn't exist yet, so the rubric could only pass by accident.",
+      "as_of": "2026-09-11T20:42:00",
+      "keep_own_actions": true,
+      "notes": "Draft-revision (FLOW B) replay. State at 20:42 on 09-11: this pipeline's own [DRAFT PENDING APPROVAL] note from 18:06 (asks nothing, proposes a tech visit), Roger's contact relink at 20:39 (the Unknown gmail user -> Thompson Sales contact 'Thomas Wilder', whose Halo record carries a guessed company address), and Roger's private note at 20:41: 'Ask what department the user is in and where is the machine physically located.' The right pass edits the existing draft to add those two questions (not a rewrite), deletes the superseded draft, and - the v2.10.61 lesson - compares get_contact's emailaddress with the ticket's emailtolist and the address he actually writes from (thomaswilder84@gmail.com), flagging the mismatch before anything is sent. The real reply on 09-14 went to twilder@thompsonsales.com.",
       "must_mention": [
-        "thomaswilder84@gmail\\.com|gmail"
+        "department",
+        "locat"
       ],
       "must_not_mention": [],
+      "reply_must_mention": [
+        "department",
+        "locat"
+      ],
       "should_mention": [
         "get_contact",
-        "twilder@thompsonsales|emailtolist|emailto"
-      ],
-      "as_of": "2026-09-11T20:40:00"
+        "thomaswilder84@gmail|gmail",
+        "emailtolist|emailto|twilder@thompsonsales",
+        "delete_ticket_note|superseded"
+      ]
     },
     {
       "ticket_id": 22231,

@@ -770,7 +770,10 @@ against the client-facing reply (the text from "Hi <name>," to the "Here to
 help" sign-off) - so an internal note that says the right thing can't cover
 for a vague reply to the client. A run that ends `[CACHE: HUMAN_OWNED]` or
 `[CACHE: BLOCKED]` never investigated and fails unless the entry's
-`expected_marker` lists that outcome.
+`expected_marker` lists that outcome. By default the replay hides this
+pipeline's own earlier notes so the ticket is judged as a fresh first pass;
+set `keep_own_actions: true` on an entry to keep them (with `as_of` placed
+after them) and replay a draft-revision scenario instead.
 
 The replay runs in the same approval mode as production: unless you pass
 `-RequireApproval` (or `-RequireApproval:$false`) explicitly, the wrapper reads
