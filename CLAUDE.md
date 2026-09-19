@@ -2653,6 +2653,51 @@ moving every tier off Haiku may reduce or eliminate it as a side effect -
 not confirmed, just a real possibility the next few production logs should
 show one way or the other.
 
+**The cost/speed program starts with the harness, not the savings
+(v2.11.0).** Roger asked for a review of the whole design - workflows,
+model routing, caching locally or in Hudu, agents, tools, skills - with
+the brief "extremely cheap and fast, but extremely accurate and able to do
+deep-dive diagnostics." Rather than answer in the abstract, profiled his
+own 2026-09-17 production log call by call. Three things dominate: the
+resolver's fixed prefix is ~90K tokens (only ~26K of it is
+resolver-prompt.md; the rest is ~98 tool schemas, the approval banner,
+Claude Code's own system prompt) and is re-read on every one of 24-51
+turns, so cache reads were 50-59% of the cost of every long call at Sonnet
+pricing; a raw `get_ticket` for one ordinary ticket is 66-94K characters
+and lands in context on turn 1 to be re-read on every turn after; and the
+classifier - 38-43% of daily spend - once ran 51 turns and 245 seconds to
+emit one line of JSON, while in the same log silently dropping a whole
+unassigned bucket ("response too large to process") and probing ticket
+IDs that didn't exist. The plan, ranked by payoff-for-risk: trim tool
+responses in the Workers; make candidate-gathering deterministic
+(PowerShell + a Worker route, one no-tool tiering call); pre-enrich the
+resolver so it doesn't spend its first turns re-fetching; a lean core
+prompt with per-topic playbooks selected per ticket (progressive
+disclosure - built as PowerShell-assembled files rather than Claude Code
+skills, because selection is then deterministic and testable and no new
+tool permission is needed); per-client context cards cached locally with
+Hudu as the source of record. Explicitly not: subagents (each starts a
+cold ~90K prefix and there's no fan-out to exploit), or moving off
+`claude -p` yet (the free wins don't need it).
+
+Two constraints shaped how it ships. Production auto-downloads six named
+files from `main` every five minutes with no rollback, so every push must
+be a complete, smoke-tested state - installed PowerShell 7 in the sandbox
+and now run the exact `-DryRun` gate production runs, before every push.
+And config.json is never synced, which makes it the ideal switch: every
+increment ships default-off behind a `pipeline` flag, a human flips it on
+after it proves out, and flipping it back is the whole rollback. This
+version is the harness that makes "proves out" mean something: replay mode
+in the main script (`-ReplayTicketIds`, always `-WhatIf`, with a banner
+that tells the resolver to judge the ticket as it stood at an as-of time
+and ignore this pipeline's own later notes), `Replay-Tickets.ps1` to run a
+rubric file of real past tickets and score/compare labeled runs, and
+`eval/tickets.json` seeded with nine tickets from this session's own
+incidents so each lesson is re-checked on every future change instead of
+trusted to hold. Until now the validation loop was "ship, watch the next
+production log" - with an accuracy bar this high, that had to change
+before the cost work, not after.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

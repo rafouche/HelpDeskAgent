@@ -121,7 +121,17 @@ $filesToSync = @(
     "resolver-prompt.md",
     "Invoke-HaloResponseAgent.ps1",
     "Update-HaloResponseAgent.ps1",
-    "Show-AgentLog.ps1"
+    "Show-AgentLog.ps1",
+    "Replay-Tickets.ps1"
+)
+
+# Seeded once, never overwritten: files that start from the repo's copy but
+# are then this deployment's own to edit (the same reasoning as config.json
+# above, except these are safe to download on first sight because there is
+# no local copy yet to clobber). Paths may include a subfolder, written with
+# forward slashes; the folder is created on the way down.
+$filesToSeedOnce = @(
+    "eval/tickets.json"
 )
 
 $logDir = Join-Path $RepoPath "logs"
@@ -152,10 +162,22 @@ function Write-UpdateLog {
 $changedFiles = @()
 $downloadErrors = @()
 
-foreach ($file in $filesToSync) {
+$syncPlan = @()
+foreach ($file in $filesToSync) { $syncPlan += [PSCustomObject]@{ file = $file; seedOnly = $false } }
+foreach ($file in $filesToSeedOnce) { $syncPlan += [PSCustomObject]@{ file = $file; seedOnly = $true } }
+
+foreach ($entry in $syncPlan) {
+    $file = $entry.file
     $url = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch/$file"
-    $localPath = Join-Path $RepoPath $file
+    # Repo paths use forward slashes; Join-Path handles a nested relative
+    # path on Windows fine, but the parent folder has to exist before
+    # Invoke-WebRequest can write into it.
+    $localPath = Join-Path $RepoPath ($file -replace '/', '\')
+    $localDir = Split-Path -Parent $localPath
+    if (-not (Test-Path $localDir)) { New-Item -ItemType Directory -Path $localDir -Force | Out-Null }
     $tempPath = "$localPath.new"
+
+    if ($entry.seedOnly -and (Test-Path $localPath)) { continue }
 
     try {
         Invoke-WebRequest -Uri $url -OutFile $tempPath -UseBasicParsing -ErrorAction Stop

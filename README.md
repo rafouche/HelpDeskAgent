@@ -728,6 +728,44 @@ Other things worth knowing, not (yet) wired into the script:
   task) cuts total daily cost proportionally, at the cost of slower response
   to new tickets — a scheduling tradeoff, not a per-call one.
 
+## Replay evaluation - test a change on real tickets before it goes live
+`Replay-Tickets.ps1` re-runs the resolver against a fixed list of real past
+tickets, read-only (it's always a `-WhatIf` simulation - nothing is written to
+Halo, a device, Hudu, or `agent-cache.json`), and scores what it *would* have
+done against a rubric. This is how any prompt, model, effort, or `pipeline`
+flag change gets judged before a human turns it on.
+
+The list lives in `eval\tickets.json` (seeded once from the repo on first
+update, then yours to edit - it's never overwritten). Each entry names a
+ticket, the tier to run it at, an optional `as_of` time (actions after it are
+ignored, so the ticket is judged as it stood then), and regex lists:
+`must_mention` (every one must appear in the output), `must_not_mention`
+(none may), `should_mention` (a miss is only a warning).
+
+Typical use, from the deployment folder:
+
+```powershell
+# 1. Baseline with today's settings
+.\Replay-Tickets.ps1 -Label baseline
+
+# 2. Change something (a flag in config.json, a prompt edit), then
+.\Replay-Tickets.ps1 -Label prefetch-on
+
+# 3. Compare - free, nothing is re-run
+.\Replay-Tickets.ps1 -Label prefetch-on -CompareTo baseline -ScoreOnly
+```
+
+Each ticket is a real resolver call at real API cost (roughly $0.15-$0.90 at
+current settings), so a full run of the seeded list is a few dollars - it only
+ever runs when you start it, never on a schedule. `-TicketIds 22300` runs one
+ticket while you're tuning a rubric. Results land in
+`eval\results\<label>\` (one JSON per ticket plus `summary.json`) and are
+never synced anywhere.
+
+Add a ticket to the list whenever a real one teaches the pipeline something -
+the point is that every past lesson gets re-checked automatically on every
+future change.
+
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets
 across *every* client (not just the one it's currently working) plus Halo's KB and

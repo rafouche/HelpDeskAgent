@@ -14,3 +14,6 @@ tracked-tickets.json.tmp
 # plain text (see README's "Register each MCP server" section) - never commit
 # this, same reasoning as config.json's real secrets staying out of git.
 .mcp.json
+
+# Replay-Tickets.ps1 output - local evaluation artifacts, never committed
+eval/results/

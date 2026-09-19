@@ -73,6 +73,69 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.11.0 - cost/speed program, increment 0 (safety rails) - no
+    change to what a scheduled run does. Roger asked for a review of the
+    whole design for ways to cut cost and latency without touching
+    client-facing behavior, then said "let's start building." A profile of
+    his own 2026-09-17 production log showed where the money actually goes:
+    a ~90K-token fixed prefix (tool schemas, the approval banner, Claude
+    Code's own system prompt, resolver-prompt.md) re-read on every one of
+    24-51 turns per call; a raw get_ticket payload of ~66-94K chars for one
+    ordinary ticket, re-read on every later turn; and a classifier spending
+    up to 51 turns and 245 seconds (38-43% of daily spend) to produce one
+    line of JSON - while silently dropping a whole unassigned bucket once
+    ("response too large to process") and probing nonexistent ticket IDs.
+    The program ships as flag-gated increments (see the "pipeline" block
+    this version adds to config.json - every flag defaults off, so nothing
+    changes until a human flips one in this deployment's own never-synced
+    config.json), each validated on real tickets first. This increment is
+    the harness that makes "validated first" possible:
+    - -ReplayTicketIds/-ReplayTier/-ReplayAsOf/-ReplayLabel: replay mode.
+      Runs the resolver against named past tickets at a given tier, always
+      as -WhatIf (mutating tools stripped, no cache write-back), skips the
+      gate/throttle/classifier, prepends a replay banner telling the
+      resolver to judge the ticket as it stood at the as-of time and to
+      ignore this pipeline's own later notes/drafts, and writes one JSON
+      result per ticket (cost, turns, duration, usage, cache marker, full
+      result text) to eval\results\<label>\ via the new Write-ReplayResult.
+      Never scheduled - only a human invokes it.
+    - Replay-Tickets.ps1 (new): runs the rubric list in eval\tickets.json
+      through replay mode one ticket at a time, scores each result's
+      WOULD-DO text against must_mention / must_not_mention / should_mention
+      regex lists, prints a pass/cost/turns table, writes summary.json, and
+      -CompareTo diffs two labeled runs (pass changes, cost and turn deltas)
+      so a change is kept or reverted on evidence rather than on the next
+      production log.
+    - eval\tickets.json (new): seeded with nine real tickets from this
+      session's incidents (#22300 VLAN, #22114 warranty, #22067 stale
+      emailtolist, #22231, #22265, #22280 Chrome/Edge, #22295, #22296,
+      #22297, #22278 LEARN_FIX), each with the lesson it encodes. Synced by
+      the updater ONCE and never overwritten - it's the deployment's own to
+      grow, same reasoning as config.json.
+    - $pipelineFlags: reads config.json's optional "pipeline" block
+      (deterministic_classifier, prefetch_ticket, playbooks, client_cards),
+      all default false, missing block/key = false; -DryRun prints them.
+      Nothing consumes them yet - increments 2-5 will, one at a time.
+    - Update-HaloResponseAgent.ps1: syncs Replay-Tickets.ps1; gains a
+      seed-once list (eval/tickets.json) and subfolder support (creates the
+      parent folder before downloading). Ordering note for future work:
+      because the updater fetches its own new copy in the same cycle it
+      still runs the OLD file list, a new file only lands one cycle after
+      the updater change itself - so any code depending on a new file must
+      fail open if it's missing.
+    Verified here before pushing, the same way production's own post-update
+    gate does: the ParseFile syntax check on all three scripts, then
+    -DryRun both normally and in replay mode, in a local PowerShell 7.4.6 -
+    necessary but not sufficient, since production is Windows PowerShell
+    5.1, so everything new is written to 5.1 syntax (no ternary, no ??).
+    Companion change in rafouche/MCPs (halopsa-mcp, additive, awaiting
+    Roger's deploy): get_ticket_brief (~1.7K chars for the ticket whose raw
+    payload was 66K, plus device_hints parsed from NinjaOne's embedded
+    device block), get_ticket_history (trimmed actions + human_touch), and
+    GET /helpdesk-candidates (both, per ticket ID, over plain HTTP - the
+    feed increments 2 and 3 will consume). Nothing here references any of
+    those yet, so the order of deploy vs. update doesn't matter for this
+    version.
     Version: 2.10.70 - no code change in this script; config.json only.
     Roger reported he'd already switched his live production config to run
     every tier on Sonnet 5 (classifier_model/resolver_model_trivial changed
@@ -2451,10 +2514,36 @@ param(
     [string]$RootPath = $PSScriptRoot,
     [switch]$DryRun,
     [switch]$WhatIf,
-    [switch]$RequireApproval
+    [switch]$RequireApproval,
+    [int[]]$ReplayTicketIds,
+    [string]$ReplayTier = "MEDIUM",
+    [string]$ReplayAsOf,
+    [string]$ReplayLabel = "replay"
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Replay (evaluation) mode ---
+# -ReplayTicketIds runs the resolver against specific, already-known tickets
+# with the tier given by -ReplayTier, skipping the gate/throttle/classifier
+# entirely, and writes one JSON result per ticket to eval\results\<label>\
+# for Replay-Tickets.ps1 to score. It is always a -WhatIf simulation - every
+# mutating tool is stripped and nothing is written back to Halo or to
+# agent-cache.json - so the same past tickets can be replayed repeatedly to
+# compare prompt/model/pipeline changes on cost and outcome before any of
+# them go live. A replay is never scheduled; it only runs when a human
+# invokes it (directly, or via Replay-Tickets.ps1).
+$isReplay = ($null -ne $ReplayTicketIds -and @($ReplayTicketIds).Count -gt 0)
+if ($isReplay) {
+    $WhatIf = [switch]$true
+    $ReplayTier = $ReplayTier.ToUpperInvariant()
+    $validReplayTiers = @('TRIVIAL', 'TRIVIAL_UNCERTAIN', 'MEDIUM', 'COMPLEX', 'APPROVED', 'LEARN_FIX')
+    if ($validReplayTiers -notcontains $ReplayTier) {
+        throw "-ReplayTier '$ReplayTier' is not a real tier. Use one of: $($validReplayTiers -join ', ')."
+    }
+    $ReplayLabel = ($ReplayLabel -replace '[^A-Za-z0-9_.-]', '_')
+    if (-not $ReplayLabel) { $ReplayLabel = "replay" }
+}
 
 # Windows PowerShell 5.1 captures external-process output using the console's
 # legacy OEM/ANSI codepage by default, not UTF-8 - claude's own output is UTF-8
@@ -2477,6 +2566,9 @@ $logDir               = Join-Path $RootPath "logs"
 $logFileNameTemplate = "run-{0:yyyy-MM-dd}.log"
 if ($WhatIf) {
     $logFileNameTemplate = "whatif-{0:yyyy-MM-dd}.log"
+}
+if ($isReplay) {
+    $logFileNameTemplate = "replay-{0:yyyy-MM-dd}.log"
 }
 $logFile = Join-Path $logDir ($logFileNameTemplate -f (Get-Date))
 
@@ -3171,6 +3263,35 @@ $simulationBannerLines = @(
 )
 $simulationBanner = $simulationBannerLines -join "`n"
 
+# Replay-mode banner (see -ReplayTicketIds above). Sits above the simulation
+# banner, since a replay is a simulation with one extra rule: the ticket is
+# to be judged as a fresh first pass, exactly as it stood when the pipeline
+# first saw it, not as it stands today after this pipeline's own later notes
+# and drafts landed on it.
+$replayAsOfText = if ($ReplayAsOf) { $ReplayAsOf } else { "(not given - use the ticket's first client message as the reference point)" }
+$replayBannerLines = @(
+    "=== EVALUATION REPLAY ($ReplayLabel) ===",
+    "This run is a replay of a past ticket, used to score this pipeline's own",
+    "behavior - it is a simulation (see the simulation banner below), and nothing",
+    "you do here reaches Halo, a device, or a client.",
+    "Judge the ticket as a fresh, first-pass candidate as it stood at: $replayAsOfText",
+    "- Ignore every action dated after that point.",
+    "- Ignore every action authored by this pipeline itself, whenever it was",
+    "  written: notes/replies where who is this pipeline's own agent account or",
+    "  actionby_application_id is `"Claude`", and any note containing",
+    "  `"[DRAFT PENDING APPROVAL]`" or `"[APPROVED DRAFT]`". They do not exist for",
+    "  the purposes of this replay - do not treat them as prior art, as a pending",
+    "  draft to revise, or as evidence the ticket was already handled.",
+    "- A real human agent's actions before the as-of point still count exactly as",
+    "  they normally would (the ownership check applies as usual).",
+    "Then investigate and decide exactly as the rest of this document says, and",
+    "describe what you WOULD do per the simulation banner. Be specific about every",
+    "fact you established and every tool you used to establish it - the replay is",
+    "scored on whether the right facts were found, not just on the final wording.",
+    "==="
+)
+$replayBanner = $replayBannerLines -join "`n"
+
 # --- Model selection per tier (config-driven, see config.json's "claude" block) ---
 $modelForTier = @{
     "TRIVIAL"           = $config.claude.resolver_model_trivial
@@ -3249,6 +3370,26 @@ $effortForTier = @{
     "COMPLEX"           = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_complex
     "APPROVED"          = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
     "LEARN_FIX"         = Get-EffortForConfig -PerTierValue $config.claude.resolver_effort_trivial
+}
+
+# --- Pipeline feature flags (config.json "pipeline" block, all default OFF) ---
+# Each flag gates one under-the-hood change from the cost/speed program so it
+# can ship in the code (which production auto-downloads within minutes) while
+# staying inert until a human turns it on in this deployment's own config.json
+# - which is never synced from the repo, so flipping one on or off here is
+# the whole rollout/rollback, with no git timing to worry about. A missing
+# "pipeline" block, or a missing key, always means OFF.
+$pipelineFlags = @{
+    deterministic_classifier = $false   # increment 2: PowerShell + Worker gather candidates; one no-tool tiering call
+    prefetch_ticket          = $false   # increment 3: ticket brief/history/contact/device injected into the resolver prompt
+    playbooks                = $false   # increment 4: lean core prompt + per-topic playbooks selected per ticket
+    client_cards             = $false   # increment 5: per-client context cards (network stack, VLANs, servers) injected per ticket
+}
+if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline) {
+    foreach ($flagName in @($pipelineFlags.Keys)) {
+        $flagValue = $config.pipeline.PSObject.Properties[$flagName]
+        if ($flagValue -and $flagValue.Value -eq $true) { $pipelineFlags[$flagName] = $true }
+    }
 }
 
 # Models confirmed to accept an effort parameter at all - Claude Haiku 4.5
@@ -3440,6 +3581,48 @@ function Write-LogSection {
     Add-Content -Path $LogFile -Value $Content -Encoding UTF8
 }
 
+# One JSON file per replayed ticket, under eval\results\<label>\ - the raw
+# material Replay-Tickets.ps1 scores and compares. Written on both the
+# success and the error path so a replay that crashed on one ticket still
+# leaves a record of it rather than a silent gap in the results folder.
+function Write-ReplayResult {
+    param(
+        [string]$RootPath,
+        [string]$Label,
+        $TicketId,
+        [string]$Tier,
+        [string]$Model,
+        [string]$Effort,
+        [string]$AsOf,
+        $Result,
+        [string]$CacheMarker,
+        [string]$ErrorMessage
+    )
+    $resultsDir = Join-Path (Join-Path (Join-Path $RootPath "eval") "results") $Label
+    if (-not (Test-Path $resultsDir)) { New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null }
+    $parsed = $null
+    if ($Result) { $parsed = $Result.Parsed }
+    $record = [PSCustomObject]@{
+        ticket_id    = $TicketId
+        tier         = $Tier
+        model        = $Model
+        effort       = $Effort
+        as_of        = $AsOf
+        label        = $Label
+        ran_at       = (Get-Date).ToString("o")
+        cost_usd     = $(if ($parsed -and $parsed.total_cost_usd) { $parsed.total_cost_usd } else { 0 })
+        num_turns    = $(if ($parsed -and $parsed.num_turns) { $parsed.num_turns } else { $null })
+        duration_ms  = $(if ($parsed -and $parsed.duration_ms) { $parsed.duration_ms } else { $null })
+        usage        = $(if ($parsed) { $parsed.usage } else { $null })
+        cache_marker = $CacheMarker
+        is_error     = $(if ($ErrorMessage) { $true } elseif ($parsed) { [bool]$parsed.is_error } else { $true })
+        error        = $ErrorMessage
+        result       = $(if ($parsed) { $parsed.result } elseif ($Result) { $Result.Raw } else { $null })
+    }
+    $outPath = Join-Path $resultsDir "$TicketId.json"
+    $record | ConvertTo-Json -Depth 6 | Set-Content -Path $outPath -Encoding UTF8
+}
+
 # --- Build the ID resolver prompt --- (-Encoding UTF8: see note on $config above)
 $idResolverPromptTemplate = Get-Content $idResolverPromptPath -Raw -Encoding UTF8
 $idResolverPrompt = $idResolverPromptTemplate -replace '\{\{CONFIG_PATH\}\}', $configPath
@@ -3471,6 +3654,8 @@ if ($DryRun) {
     Write-Host "Pre-flight gate: $(if ($dryRunGateUrl) { "$dryRunGateUrl/helpdesk-gate (found via .mcp.json)" } else { 'NOT CONFIGURED - .mcp.json missing or has no "Halo" entry, so every real cycle always runs the classifier (fails open, same as a live gate-check failure would)' })"
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
+    Write-Host "Replay (evaluation) mode: $(if ($isReplay) { "ON - tickets $($ReplayTicketIds -join ','), tier $ReplayTier, label '$ReplayLabel', as-of $replayAsOfText" } else { 'off' })"
+    Write-Host "Pipeline flags (config.json 'pipeline' block, all default off): $(($pipelineFlags.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ')"
     Write-Host "Ready-for-AI hand-back status: $(if ($config.halo.ready_for_ai_status_name) { "'$($config.halo.ready_for_ai_status_name)' (resolved to an ID at Stage 0, not shown here)" } else { 'NOT CONFIGURED - halo.ready_for_ai_status_name is blank, so this feature is off' })"
     if ($RequireApproval) {
         Write-Host "  NOTE: the approval banner (FLOW A/FLOW B, per-ticket tool selection)" -ForegroundColor Yellow
@@ -4198,6 +4383,7 @@ try {
         return
     }
 
+    if (-not $isReplay) {
     # --- Stage 1: classify ---
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
         -Model $config.claude.classifier_model -Effort $classifierEffort
@@ -4276,6 +4462,14 @@ try {
     # real cost on a fresh resolution) - not recomputed here.
     $classifierCost = 0
     if ($classifierResult.Parsed.total_cost_usd) { $classifierCost = $classifierResult.Parsed.total_cost_usd }
+    }
+    else {
+        # Replay mode: the ticket list and tier come from the command line, no
+        # classifier call at all - see -ReplayTicketIds at the top of this file.
+        $classifierCost = 0
+        $tickets = @($ReplayTicketIds | ForEach-Object { [PSCustomObject]@{ ticket_id = $_; tier = $ReplayTier } })
+        Write-LogSection -LogFile $logFile -Header "REPLAY ($ReplayLabel)" -Content (([PSCustomObject]@{ ticket_ids = @($ReplayTicketIds); tier = $ReplayTier; as_of = $ReplayAsOf; label = $ReplayLabel }) | ConvertTo-Json -Compress)
+    }
 
     # ConvertFrom-Json on the classifier's "[]" (no candidate tickets) can come
     # back as $null rather than an empty array depending on PowerShell version -
@@ -4320,6 +4514,9 @@ try {
         }
         if ($WhatIf) {
             $resolverPrompt = $simulationBanner + "`n`n" + $resolverPrompt
+        }
+        if ($isReplay) {
+            $resolverPrompt = $replayBanner + "`n`n" + $resolverPrompt
         }
 
         # Which tool list a ticket gets depends on ITS OWN tier, not just the
@@ -4443,6 +4640,9 @@ try {
                 model     = $model
                 cost_usd  = $ticketCost
             }
+            if ($isReplay) {
+                Write-ReplayResult -RootPath $RootPath -Label $ReplayLabel -TicketId $ticketId -Tier $tier -Model $model -Effort $effort -AsOf $ReplayAsOf -Result $resolverResult -CacheMarker $cacheMarker
+            }
         }
         catch {
             Add-Content -Path $logFile -Value "TICKET $ticketId (tier: $tier, model: $model) ERROR: $($_.Exception.Message)" -Encoding UTF8
@@ -4452,6 +4652,9 @@ try {
                 model     = $model
                 cost_usd  = 0
                 error     = $_.Exception.Message
+            }
+            if ($isReplay) {
+                Write-ReplayResult -RootPath $RootPath -Label $ReplayLabel -TicketId $ticketId -Tier $tier -Model $model -Effort $effort -AsOf $ReplayAsOf -Result $null -CacheMarker $null -ErrorMessage $_.Exception.Message
             }
         }
     }
