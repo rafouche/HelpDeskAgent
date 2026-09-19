@@ -813,6 +813,50 @@ Add a ticket to the list whenever a real one teaches the pipeline something -
 the point is that every past lesson gets re-checked automatically on every
 future change.
 
+## Deterministic classifier (cost program, increment 2)
+The LLM classifier is the single most expensive fixed cost in a cycle: 10 to
+25 tool-calling turns, each re-reading the same tool schemas, to apply rules
+that are almost entirely mechanical. `pipeline.deterministic_classifier` in
+config.json replaces it with:
+
+1. one HTTP GET to the Halo Worker's `/helpdesk-triage` route, which runs the
+   classifier prompt's six candidate-finding calls as plain Halo REST calls
+   and returns every bucket trimmed, each ticket with its six most recent
+   actions;
+2. the exclusion rules applied in PowerShell against the same caches the LLM
+   was being handed as text (compliance, team, tracked/blocked/human-owned
+   lists, waiting/follow-up statuses, the workflow-status skip list, a
+   colleague's client-facing reply, the tracked-ticket closed/reassigned/
+   unchanged branches, and approval mode's "human touched since our draft"
+   and APPROVED rules);
+3. one no-tool tiering call, only if any candidate still needs a tier, whose
+   rules are read live from classifier-prompt.md's own "Classify each
+   candidate" section. Nothing to tier means no LLM call at all.
+
+If anything on that path fails, the cycle falls back to the LLM classifier
+and the log says why. Roll it out in two steps:
+
+```jsonc
+"pipeline": {
+  "deterministic_classifier": false,
+  "classifier_shadow": true,        // step 1: run both, use the LLM's answer, log the diff
+  ...
+}
+```
+
+With shadow on, every cycle's log gains a `DETERMINISTIC CLASSIFIER (SHADOW)`
+section (what it dropped and why, what it would send, what the tiering call
+cost) and a `CLASSIFIER SHADOW COMPARISON` section (both answers per ticket,
+agreement count, both costs). After a day of agreement, flip
+`deterministic_classifier` to `true` and `classifier_shadow` back to `false`.
+Rollback is the same edit in reverse; no code push either way.
+
+`pipeline.skip_status_names` is the list of status names the deterministic
+path treats as "an active workflow this pipeline can't act on" (Dispatch
+Needed, Scheduled, Quote*, ...). The seeded list mirrors the examples in
+classifier-prompt.md; edit it to match your tenant. A trailing `*` is a
+prefix match, and the list is never applied to `ready_for_ai_status_name`.
+
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets
 across *every* client (not just the one it's currently working) plus Halo's KB and

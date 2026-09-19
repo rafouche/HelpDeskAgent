@@ -2879,6 +2879,43 @@ Three things from the rest:
   `-Repeat` option is the obvious next step if that turns out to be
   needed often; not built until it is.
 
+**v2.12.0 - cost program increment 2: the deterministic classifier
+(2026-09-19).** Flag-gated (`pipeline.deterministic_classifier`, default
+off) with a `pipeline.classifier_shadow` rollout aid. Design: halopsa-mcp
+gained `GET /helpdesk-triage`, which does classifier-prompt.md's calls 1-6
+as Halo REST calls and returns every bucket trimmed with each ticket's six
+most recent actions (6.9s, 53KB against the real queue); the PowerShell
+side (`Invoke-DeterministicClassifier`) applies every exclusion rule the
+prompt spells out, mechanically, with the reason for each drop written to
+the log; then ONE no-tool tiering call - `Invoke-ClaudeCLI -NoMcp`, which
+points the CLI at an empty MCP config with `--strict-mcp-config` so the
+call carries none of the tool-schema prefix - whose rules are the live
+"Classify each candidate" section of classifier-prompt.md, so the tiering
+text stays one document with two consumers. No candidates, no LLM call.
+
+Decisions worth knowing: (1) "recent reply from a different Altec agent"
+became "the latest action is a human colleague's client-facing entry" -
+the mechanical reading of the same rule, and the resolver's own ownership
+check remains the backstop exactly as the prompt says. (2) The
+workflow-status-name judgment ("Dispatch Needed", "Quote...") is a config
+list, `pipeline.skip_status_names`, seeded from the prompt's examples,
+because a name judgment belongs to the tenant, not the code. (3) A
+tracked ticket is "closed" by `dateclosed`/`hasbeenclosed` (Halo's own
+fields, now in trimTicket), not by status-name guessing. (4) Calls 5-6
+only run when the cycle itself is in approval mode; a ticket sitting in
+the approval statuses with approval mode off is dropped with that reason
+rather than re-tiered. (5) Any failure throws and the cycle falls back to
+the LLM classifier with a WARNING naming the cause - never a silent
+skipped cycle.
+
+Tested against the live route with a stubbed tiering call in both modes
+(the 8-ticket real queue: two AI-Waiting-Approval tickets deferred to call
+5, a human-owned-list ticket dropped, Follow-Up-Needed tickets dropped, one
+fresh New ticket to tier; the two tracked test tickets both closed ->
+LEARN_FIX), parser-checked, and -DryRun. Not yet compared against the LLM
+classifier on real cycles - that is what shadow mode is for, and it is the
+next step on Roger's side.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

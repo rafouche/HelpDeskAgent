@@ -73,6 +73,37 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.12.0 - cost program increment 2: the deterministic classifier,
+    behind pipeline.deterministic_classifier (default off) with a
+    pipeline.classifier_shadow rollout aid (default off). The LLM classifier
+    was 38-43% of every cycle's spend: 10-25 tool-calling turns re-reading
+    the same tool schemas and ticket bodies to apply rules that are almost
+    entirely mechanical. Now: halopsa-mcp's new GET /helpdesk-triage does
+    classifier-prompt.md's calls 1-6 as plain Halo REST calls (every bucket
+    trimmed, each ticket with its 6 most recent trimmed actions);
+    Invoke-DeterministicClassifier applies the exclusions in PowerShell
+    against the same caches the LLM was being handed as text (compliance,
+    team, tracked/blocked/human-owned lists, waiting/follow-up status IDs,
+    the workflow-status-name skip list - now config-editable as
+    pipeline.skip_status_names - a colleague's client-facing reply as the
+    latest entry, the tracked-ticket closed/reassigned/unchanged branches
+    by dateclosed/agent_id/last substantive entry, and calls 5-6's
+    "human touched since our draft" and APPROVED rules); then, only if any
+    candidate still needs a tier, ONE no-tool tiering call (Invoke-ClaudeCLI
+    -NoMcp: --strict-mcp-config against an empty MCP config, so it carries
+    none of the ~90K-token tool-schema prefix) whose rules are read live
+    from classifier-prompt.md's own "Classify each candidate" section - one
+    text, two consumers. Nothing to tier means no LLM call at all. Any
+    failure on this path throws and the cycle falls back to the LLM
+    classifier with a WARNING line saying why. Rollout: turn
+    classifier_shadow on first - the deterministic path runs alongside the
+    LLM every cycle, a CLASSIFIER SHADOW COMPARISON log section shows both
+    answers per ticket and the agreement count, and the LLM's answer is
+    still the one used; after a day of agreement, turn
+    deterministic_classifier on and shadow off. Verified: the route live
+    against the real Help Desk queue (8 unassigned, 2 tracked, 6.9s), the
+    exclusion logic against that live response with a stubbed tiering
+    call, and -DryRun.
     Version: 2.11.6 - baseline3 read (8/10, $4.26): one harness gap, one
     limit that can't be engineered around, one variance note.
     - #22231's resolver described its draft ("a reassuring reply") instead
@@ -3658,6 +3689,7 @@ $effortForTier = @{
 # "pipeline" block, or a missing key, always means OFF.
 $pipelineFlags = @{
     deterministic_classifier = $false   # increment 2: PowerShell + Worker gather candidates; one no-tool tiering call
+    classifier_shadow        = $false   # increment 2 rollout aid: run the deterministic path alongside the LLM classifier and log the diff, use the LLM's answer
     prefetch_ticket          = $false   # increment 3: ticket brief/history/contact/device injected into the resolver prompt
     playbooks                = $false   # increment 4: lean core prompt + per-topic playbooks selected per ticket
     client_cards             = $false   # increment 5: per-client context cards (network stack, VLANs, servers) injected per ticket
@@ -3682,6 +3714,293 @@ $effortCapableModels = @(
     "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
     "claude-sonnet-5", "claude-sonnet-4-6"
 )
+
+# --- Deterministic classifier (cost program, increment 2; v2.12.0) ---
+# What the LLM classifier does in 10-25 tool-calling turns at ~40% of every
+# cycle's spend, done as: one plain HTTP GET to halopsa-mcp's
+# /helpdesk-triage (calls 1-6 of classifier-prompt.md as Halo REST calls),
+# the mechanical exclusions applied here in PowerShell against the same
+# caches the LLM was being handed as text, and - only if any candidate
+# survives - ONE no-tool tiering call whose entire input is the tiering
+# rules (read live from classifier-prompt.md, so the two stay one text) plus
+# a trimmed brief per candidate. Nothing to tier means no LLM call at all.
+# Any failure throws; the caller falls back to the LLM classifier for that
+# cycle and logs why. Never touches Halo - read-only by construction.
+$deterministicSkipStatusNamesDefault = @(
+    "Dispatch Needed", "Scheduled", "Waiting on vendor", "Quote*", "Scoped for review",
+    "Awaiting Deployment", "With CAB", "On Hold", "Awaiting Approval", "Approved"
+)
+$deterministicClosedStatusNames = @("Resolved", "Closed", "Completed", "Closed Order", "Closed Item")
+
+function Test-DeterministicSkipStatus {
+    param([string]$StatusName, [string[]]$SkipNames)
+    if (-not $StatusName) { return $false }
+    foreach ($pattern in $SkipNames) {
+        if (-not $pattern) { continue }
+        if ($pattern.EndsWith('*')) {
+            if ($StatusName.StartsWith($pattern.TrimEnd('*'), [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        }
+        elseif ([string]::Equals($StatusName, $pattern, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Invoke-DeterministicClassifier {
+    param(
+        [string]$RootPath,
+        $Ids,
+        [string[]]$TrackedTicketIds,
+        [hashtable]$BlockedTickets,
+        [hashtable]$HumanOwnedTickets,
+        [bool]$ApprovalMode,
+        [string[]]$SkipStatusNames,
+        [string]$ClassifierPromptPath,
+        [string]$Model,
+        [string]$Effort,
+        [string]$NowText,
+        [string]$Timezone,
+        [string]$PipelineAppId = "Claude"
+    )
+    $report = @()
+    $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
+    if (-not $baseUrl) { throw "no Halo Worker URL in .mcp.json (Get-HelpDeskGateBaseUrl returned nothing)" }
+    $headers = @{}
+    $auth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
+    if ($auth) { $headers['Authorization'] = $auth }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    # --- IDs and name maps, as plain lookups ---
+    $teamId = [int]$Ids.team_id
+    $agentId = [int]$Ids.agent_id
+    $waitingStatusId = [string]$Ids.waiting_status_id
+    $followupStatusId = [string]$Ids.followup_status_id
+    $readyStatusId = ""
+    if ($Ids.ready_for_ai_status_id -and ([string]$Ids.ready_for_ai_status_id) -match '^\d+$') { $readyStatusId = [string]$Ids.ready_for_ai_status_id }
+    $waitingApprovalStatusId = ""
+    $approvedStatusId = ""
+    if ($ApprovalMode) {
+        if ($Ids.ai_waiting_approval_status_id -and ([string]$Ids.ai_waiting_approval_status_id) -match '^\d+$') { $waitingApprovalStatusId = [string]$Ids.ai_waiting_approval_status_id }
+        if ($Ids.ai_approved_status_id -and ([string]$Ids.ai_approved_status_id) -match '^\d+$') { $approvedStatusId = [string]$Ids.ai_approved_status_id }
+    }
+    $excludedClientIds = @()
+    if ($Ids.excluded_client_ids) { $excludedClientIds = @($Ids.excluded_client_ids | ForEach-Object { [string]$_ }) }
+    $statusNames = @{}
+    if ($Ids.status_id_names) { foreach ($prop in $Ids.status_id_names.PSObject.Properties) { $statusNames[[string]$prop.Name] = [string]$prop.Value } }
+    $ticketTypeNames = @{}
+    if ($Ids.ticket_type_names) { foreach ($prop in $Ids.ticket_type_names.PSObject.Properties) { $ticketTypeNames[[string]$prop.Name] = [string]$prop.Value } }
+    $trackedSet = @{}
+    foreach ($t in @($TrackedTicketIds)) { if ($t) { $trackedSet[[string]$t] = $true } }
+    if ($null -eq $BlockedTickets) { $BlockedTickets = @{} }
+    if ($null -eq $HumanOwnedTickets) { $HumanOwnedTickets = @{} }
+
+    # --- 1 HTTP call: every bucket, trimmed, with recent actions ---
+    $query = "team_id=$teamId&agent_id=$agentId&history=6&max_details_chars=1500&max_note_chars=600"
+    if ($trackedSet.Count -gt 0) { $query += "&tracked_ids=$(@($trackedSet.Keys) -join ',')" }
+    if ($readyStatusId) { $query += "&ready_status_id=$readyStatusId" }
+    if ($waitingApprovalStatusId) { $query += "&waiting_approval_status_id=$waitingApprovalStatusId" }
+    if ($approvedStatusId) { $query += "&approved_status_id=$approvedStatusId" }
+    $triageStart = Get-Date
+    $triage = Invoke-RestMethod -Uri "$baseUrl/helpdesk-triage?$query" -Method Get -TimeoutSec 90 -Headers $headers
+    if ($triage.error) { throw "helpdesk-triage returned an error: $($triage.error)" }
+    $bucketCount = { param($b) if ($b) { [string]$b.record_count } else { "n/a" } }
+    $report += "triage fetched in $([math]::Round(((Get-Date) - $triageStart).TotalSeconds, 1))s: unassigned=$(& $bucketCount $triage.unassigned) stuck_claimed=$(& $bucketCount $triage.stuck_claimed) ready_for_ai=$(& $bucketCount $triage.ready_for_ai) waiting_approval=$(& $bucketCount $triage.waiting_approval) approved=$(& $bucketCount $triage.approved) tracked=$(@($triage.tracked.requested).Count)"
+    if ($triage.unassigned -and $triage.unassigned.truncated) { $report += "NOTE: unassigned bucket truncated at the Worker's page cap (record_count=$($triage.unassigned.record_count))" }
+
+    # --- helpers over trimmed actions (newest first) ---
+    $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed')
+    $isOurs = { param($a) ($a.actionby_application_id -eq $PipelineAppId) -or ([string]$a.who_agentid -eq [string]$agentId) }
+    $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) }
+    $isSubstantive = {
+        param($a)
+        if ($bookkeepingOutcomes -notcontains [string]$a.outcome) { return $true }
+        $n = [string]$a.note
+        if (-not $n) { return $false }
+        if ($n -match '^(Status changed|Priority changed|From: .*; To: |Matched |AI Suggestions)') { return $false }
+        return $true
+    }
+    $statusNameOf = { param($t) $key = [string]$t.status_id; if ($statusNames.ContainsKey($key)) { $statusNames[$key] } else { "" } }
+
+    $candidates = New-Object System.Collections.ArrayList
+    $seen = @{}
+    $dropped = New-Object System.Collections.ArrayList
+    $add = {
+        param([int]$id, $tier, [string]$source)
+        if ($seen.ContainsKey([string]$id)) { return }
+        $seen[[string]$id] = $true
+        [void]$candidates.Add([PSCustomObject]@{ ticket_id = $id; tier = $tier; source = $source })
+    }
+    $drop = { param([int]$id, [string]$reason) [void]$dropped.Add("$id`: $reason") }
+
+    # --- Call 1: unassigned ---
+    foreach ($entry in @($triage.unassigned.tickets)) {
+        $t = $entry.ticket; $id = [int]$t.id; $key = [string]$id
+        $statusName = & $statusNameOf $t
+        if ($excludedClientIds -contains [string]$t.client_id) { & $drop $id "compliance exclusion (client_id $($t.client_id))"; continue }
+        if ([int]$t.team_id -ne $teamId) { & $drop $id "team_id $($t.team_id) is not Help Desk ($teamId)"; continue }
+        if ($trackedSet.ContainsKey($key)) { continue }   # call 3 owns it
+        if ($BlockedTickets.ContainsKey($key)) { & $drop $id "blocked list"; continue }
+        if ($HumanOwnedTickets.ContainsKey($key)) { & $drop $id "human-owned list"; continue }
+        if ($readyStatusId -and [string]$t.status_id -eq $readyStatusId) { continue }   # call 4 owns it, unconditionally
+        if ([string]$t.status_id -eq $waitingStatusId) { & $drop $id "status $($t.status_id) '$statusName' = waiting_on_client and not tracked - not this pipeline's"; continue }
+        if ([string]$t.status_id -eq $followupStatusId) { & $drop $id "status $($t.status_id) '$statusName' = follow_up (escalated)"; continue }
+        if ($Ids.ai_waiting_approval_status_id -and [string]$t.status_id -eq [string]$Ids.ai_waiting_approval_status_id) {
+            if ($waitingApprovalStatusId) { continue }   # call 5 decides
+            & $drop $id "status '$statusName' = ai_waiting_approval, approval mode off this run"; continue
+        }
+        if ($Ids.ai_approved_status_id -and [string]$t.status_id -eq [string]$Ids.ai_approved_status_id) {
+            if ($approvedStatusId) { continue }   # call 6 decides
+            & $drop $id "status '$statusName' = ai_approved, approval mode off this run"; continue
+        }
+        if (Test-DeterministicSkipStatus -StatusName $statusName -SkipNames $SkipStatusNames) { & $drop $id "status '$statusName' names an active workflow this pipeline can't act on"; continue }
+        $latest = $null
+        if (@($entry.recent_actions).Count -gt 0) { $latest = @($entry.recent_actions)[0] }
+        if ($latest -and (& $isHuman $latest) -and ($latest.hiddenfromuser -eq $false)) { & $drop $id "latest action is a colleague's client-facing entry ($($latest.who), $($latest.datetime))"; continue }
+        & $add $id $null "unassigned"
+    }
+
+    # --- Call 2: stuck-claimed - always a look, never a silent drop ---
+    foreach ($entry in @($triage.stuck_claimed.tickets)) {
+        $t = $entry.ticket; $id = [int]$t.id
+        if ($excludedClientIds -contains [string]$t.client_id) { & $drop $id "compliance exclusion (client_id $($t.client_id))"; continue }
+        & $add $id $null "stuck_claimed"
+    }
+
+    # --- Call 3: tracked ---
+    foreach ($m in @($triage.tracked.missing)) { & $add ([int]$m.id) "UNTRACK" "tracked (not found: $($m.error))" }
+    foreach ($entry in @($triage.tracked.tickets)) {
+        $t = $entry.ticket; $id = [int]$t.id
+        $statusName = & $statusNameOf $t
+        if ($excludedClientIds -contains [string]$t.client_id) { & $add $id "UNTRACK" "tracked (compliance exclusion)"; continue }
+        $closed = ($null -ne $t.dateclosed) -or ($t.hasbeenclosed -eq $true) -or ($deterministicClosedStatusNames -contains $statusName)
+        if ($closed) { & $add $id "LEARN_FIX" "tracked (closed: '$statusName' $($t.dateclosed))"; continue }
+        $onApprovalStatus = ($Ids.ai_waiting_approval_status_id -and [string]$t.status_id -eq [string]$Ids.ai_waiting_approval_status_id) -or ($Ids.ai_approved_status_id -and [string]$t.status_id -eq [string]$Ids.ai_approved_status_id)
+        if ([int]$t.agent_id -ne 1 -and [int]$t.agent_id -ne $agentId -and -not $onApprovalStatus) { & $add $id "UNTRACK" "tracked (now assigned to agent $($t.agent_id) $($t.agent_name))"; continue }
+        $lastSubstantive = $null
+        foreach ($a in @($entry.recent_actions)) { if (& $isSubstantive $a) { $lastSubstantive = $a; break } }
+        if ($lastSubstantive -and (& $isOurs $lastSubstantive)) { & $drop $id "tracked, unchanged (latest substantive entry is ours, $($lastSubstantive.datetime))"; continue }
+        if (-not $lastSubstantive) { & $drop $id "tracked, unchanged (no substantive entry in the recent window)"; continue }
+        & $add $id $null "tracked (new entry by $($lastSubstantive.who), $($lastSubstantive.datetime))"
+    }
+
+    # --- Call 4: Ready for AI - unconditional ---
+    if ($triage.ready_for_ai) {
+        foreach ($entry in @($triage.ready_for_ai.tickets)) {
+            $t = $entry.ticket; $id = [int]$t.id
+            if ($excludedClientIds -contains [string]$t.client_id) { & $drop $id "compliance exclusion (client_id $($t.client_id))"; continue }
+            & $add $id $null "ready_for_ai"
+        }
+    }
+
+    # --- Calls 5-6: approval mode ---
+    if ($triage.waiting_approval) {
+        foreach ($entry in @($triage.waiting_approval.tickets)) {
+            $t = $entry.ticket; $id = [int]$t.id
+            if ($excludedClientIds -contains [string]$t.client_id) { & $drop $id "compliance exclusion (client_id $($t.client_id))"; continue }
+            $humanSinceOurs = $null
+            foreach ($a in @($entry.recent_actions)) {
+                if (& $isOurs $a) { break }
+                if (& $isHuman $a) { $humanSinceOurs = $a; break }
+            }
+            if ($humanSinceOurs) { & $add $id $null "waiting_approval (human $($humanSinceOurs.who) $($humanSinceOurs.outcome) at $($humanSinceOurs.datetime))" }
+            else { & $drop $id "waiting_approval, untouched since our draft" }
+        }
+    }
+    if ($triage.approved) {
+        foreach ($entry in @($triage.approved.tickets)) {
+            $t = $entry.ticket; $id = [int]$t.id
+            if ($excludedClientIds -contains [string]$t.client_id) { & $drop $id "compliance exclusion (client_id $($t.client_id))"; continue }
+            & $add $id "APPROVED" "approved"
+        }
+    }
+
+    $report += "dropped ($($dropped.Count)):"
+    foreach ($d in $dropped) { $report += "  $d" }
+    $report += "candidates ($($candidates.Count)):"
+    foreach ($c in $candidates) { $report += "  $($c.ticket_id) $(if ($c.tier) { $c.tier } else { '(to tier)' }) - $($c.source)" }
+
+    # --- One tiering call, only if something needs a tier ---
+    $toTier = @($candidates | Where-Object { $null -eq $_.tier })
+    $cost = 0
+    if ($toTier.Count -gt 0) {
+        $briefs = @()
+        $idList = @($toTier | ForEach-Object { $_.ticket_id })
+        for ($i = 0; $i -lt $idList.Count; $i += 40) {
+            $chunk = @($idList[$i..([Math]::Min($i + 39, $idList.Count - 1))])
+            $cand = Invoke-RestMethod -Uri "$baseUrl/helpdesk-candidates?ids=$($chunk -join ',')&history=3&max_details_chars=2500&max_note_chars=600" -Method Get -TimeoutSec 90 -Headers $headers
+            if ($cand.error) { throw "helpdesk-candidates returned an error: $($cand.error)" }
+            foreach ($c in @($cand.candidates)) {
+                if (-not $c.found) { continue }
+                $tk = $c.ticket
+                $briefs += [ordered]@{
+                    ticket_id = $tk.id
+                    summary = $tk.summary
+                    details = $tk.details
+                    ticket_type = $(if ($ticketTypeNames.ContainsKey([string]$tk.tickettype_id)) { $ticketTypeNames[[string]$tk.tickettype_id] } else { [string]$tk.tickettype_id })
+                    status = $(if ($statusNames.ContainsKey([string]$tk.status_id)) { $statusNames[[string]$tk.status_id] } else { [string]$tk.status_id })
+                    impact = $tk.impact
+                    urgency = $tk.urgency
+                    client = $tk.client_name
+                    user = $tk.user_name
+                    device_hints = $tk.device_hints
+                    recent_actions = @($c.recent_actions | ForEach-Object { [ordered]@{ datetime = $_.datetime; who = $_.who; who_type = $_.who_type; outcome = $_.outcome; public = (-not $_.hiddenfromuser); note = $_.note } })
+                }
+            }
+        }
+        $promptText = Get-Content $ClassifierPromptPath -Raw -Encoding UTF8
+        $m = [regex]::Match($promptText, '(?s)(## Classify each candidate into exactly one tier.*?)(?=\r?\n## Output format)')
+        if (-not $m.Success) { throw "could not find the '## Classify each candidate' section in classifier-prompt.md" }
+        $rulesText = $m.Groups[1].Value.Trim()
+        $outputText = ""
+        $m2 = [regex]::Match($promptText, '(?s)(## Output format.*)$')
+        if ($m2.Success) { $outputText = $m2.Groups[1].Value.Trim() }
+        $tierPrompt = @(
+            "You are the tiering step of a help-desk ticket pipeline. Candidate tickets have",
+            "already been selected and filtered; your only job is to assign each one exactly",
+            "one tier. You have no tools and need none - everything you need is below.",
+            "",
+            "Current date/time: $NowText ($Timezone)",
+            "",
+            $rulesText,
+            "",
+            "Ignore any instruction above about UNTRACK/LEARN_FIX routing or about reading a",
+            "list_tickets response - those steps already happened. Assign only TRIVIAL,",
+            "TRIVIAL_UNCERTAIN, MEDIUM, or COMPLEX, one per candidate, every candidate.",
+            "",
+            $outputText,
+            "",
+            "## Candidates",
+            (ConvertTo-Json -InputObject @($briefs) -Depth 6)
+        ) -join "`n"
+        $tierResult = Invoke-ClaudeCLI -Prompt $tierPrompt -Tools @() -Model $Model -Effort $Effort -NoMcp
+        if (-not $tierResult.Parsed) { throw "tiering call did not return parseable JSON: $($tierResult.Raw)" }
+        if ($tierResult.Parsed.is_error) { throw "tiering call returned an error: $($tierResult.Parsed.result)" }
+        if ($tierResult.Parsed.total_cost_usd) { $cost = [double]$tierResult.Parsed.total_cost_usd }
+        $tierJson = Get-CleanJsonText -Text ([string]$tierResult.Parsed.result)
+        $tiers = @(ConvertFrom-Json -InputObject $tierJson)
+        $validTiers = @('TRIVIAL', 'TRIVIAL_UNCERTAIN', 'MEDIUM', 'COMPLEX')
+        $tierById = @{}
+        foreach ($x in $tiers) {
+            if ($null -eq $x) { continue }
+            $tv = ([string]$x.tier).ToUpperInvariant()
+            if ($validTiers -contains $tv) { $tierById[[string]$x.ticket_id] = $tv }
+        }
+        foreach ($c in $toTier) {
+            $key = [string]$c.ticket_id
+            if ($tierById.ContainsKey($key)) { $c.tier = $tierById[$key] }
+            else { $c.tier = "MEDIUM"; $report += "WARNING: tiering call returned no valid tier for $key - defaulting to MEDIUM" }
+        }
+        $report += "tiering call: $($toTier.Count) ticket(s), `$$([math]::Round($cost, 4)), $($tierResult.Parsed.num_turns) turn(s): $(($toTier | ForEach-Object { "$($_.ticket_id)=$($_.tier)" }) -join ', ')"
+    }
+    else {
+        $report += "nothing to tier - no LLM call made"
+    }
+
+    return [PSCustomObject]@{
+        Tickets = @($candidates | ForEach-Object { [PSCustomObject]@{ ticket_id = $_.ticket_id; tier = $_.tier } })
+        Cost    = $cost
+        Report  = ($report -join "`n")
+    }
+}
 
 function Get-CleanJsonText {
     param([string]$Text)
@@ -3734,7 +4053,14 @@ function Invoke-ClaudeCLI {
         [string]$Prompt,
         [string[]]$Tools,
         [string]$Model,
-        [string]$Effort
+        [string]$Effort,
+        # v2.12.0: a call that needs no tools at all (the deterministic
+        # classifier's one tiering call) must not pay to load every MCP
+        # server's tool schema into its context - that schema block is most
+        # of the ~90K-token fixed prefix every other call carries. With
+        # -NoMcp the CLI is pointed at an empty MCP config and told to use
+        # only that (--strict-mcp-config), so .mcp.json is never read.
+        [switch]$NoMcp
     )
     $toolsArg = ($Tools -join ",")
     # Real incident: a TRIVIAL-tier ticket (#21880, Haiku, cheapest tier)
@@ -3756,9 +4082,12 @@ function Invoke-ClaudeCLI {
     # environment-level fallback Claude Code documents for headless runs
     # (see the try/finally below) in case --disallowedTools alone isn't
     # sufficient either.
-    $claudeArgs = @(
-        "-p",
-        "--allowedTools", $toolsArg,
+    # An empty tool list (the deterministic classifier's tiering call, v2.12.0)
+    # omits --allowedTools entirely rather than passing an empty value; under
+    # --permission-mode dontAsk nothing is allowed anyway.
+    $claudeArgs = @("-p")
+    if ($toolsArg) { $claudeArgs += @("--allowedTools", $toolsArg) }
+    $claudeArgs += @(
         # Bash/PowerShell (v2.10.58): same belt-and-suspenders reasoning as
         # Agent/Task above - Claude Code registers its built-in Bash tool
         # (renamed "PowerShell" in permission_denials on this Windows host)
@@ -3794,6 +4123,14 @@ function Invoke-ClaudeCLI {
     # against.
     if ($Effort -and $effortCapableModels -contains $Model) {
         $claudeArgs += @("--effort", $Effort)
+    }
+    if ($NoMcp) {
+        $tempDir = [System.IO.Path]::GetTempPath()
+        $emptyMcpPath = Join-Path $tempDir "halo-response-agent-no-mcp.json"
+        if (-not (Test-Path $emptyMcpPath)) {
+            Set-Content -Path $emptyMcpPath -Value '{"mcpServers":{}}' -Encoding ASCII
+        }
+        $claudeArgs += @("--strict-mcp-config", "--mcp-config", $emptyMcpPath)
     }
 
     # The prompt goes in over stdin, not as a "-p <text>" argument. Both prompt
@@ -4665,6 +5002,39 @@ try {
 
     if (-not $isReplay) {
     # --- Stage 1: classify ---
+    # v2.12.0: with pipeline.deterministic_classifier on, the candidate list
+    # comes from Invoke-DeterministicClassifier (one HTTP call + at most one
+    # no-tool tiering call); any failure there falls back to the LLM
+    # classifier for this cycle. With pipeline.classifier_shadow on (and the
+    # flag off) the deterministic path still runs and its answer is logged
+    # next to the LLM's for comparison, but the LLM's answer is what's used.
+    $classifierSource = "llm"
+    $deterministic = $null
+    if ($pipelineFlags.deterministic_classifier -or $pipelineFlags.classifier_shadow) {
+        $skipStatusNames = $deterministicSkipStatusNamesDefault
+        if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['skip_status_names'] -and $config.pipeline.skip_status_names) {
+            $skipStatusNames = @($config.pipeline.skip_status_names | ForEach-Object { [string]$_ })
+        }
+        try {
+            $deterministic = Invoke-DeterministicClassifier -RootPath $RootPath -Ids $ids -TrackedTicketIds $trackedTicketIds `
+                -BlockedTickets $blockedTickets -HumanOwnedTickets $humanOwnedTickets -ApprovalMode ([bool]$RequireApproval) `
+                -SkipStatusNames $skipStatusNames -ClassifierPromptPath $classifierPromptPath `
+                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone
+            Write-LogSection -LogFile $logFile -Header "DETERMINISTIC CLASSIFIER$(if (-not $pipelineFlags.deterministic_classifier) { ' (SHADOW)' })" -Content $deterministic.Report
+        }
+        catch {
+            $deterministic = $null
+            $detTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            Add-Content -Path $logFile -Value "[$detTimestamp] WARNING: deterministic classifier failed ($($_.Exception.Message)) - $(if ($pipelineFlags.deterministic_classifier) { 'falling back to the LLM classifier for this cycle' } else { 'shadow comparison skipped' })." -Encoding UTF8
+        }
+    }
+    if ($pipelineFlags.deterministic_classifier -and $deterministic) {
+        $classifierSource = "deterministic"
+        $tickets = @($deterministic.Tickets)
+        $classifierCost = $deterministic.Cost
+        Write-Host "Classifier: deterministic path, $($tickets.Count) ticket(s), `$$([math]::Round($classifierCost, 4))"
+    }
+    if ($classifierSource -eq "llm") {
     $classifierResult = Invoke-ClaudeCLI -Prompt $classifierPrompt -Tools $classifierTools `
         -Model $config.claude.classifier_model -Effort $classifierEffort
     Write-LogSection -LogFile $logFile -Header "CLASSIFIER" -Content $classifierResult.Raw
@@ -4698,6 +5068,30 @@ try {
     }
     catch {
         throw "Could not parse the classifier's ticket/tier list as JSON. Raw classifier result text: $ticketsJsonText"
+    }
+    $classifierCost = 0
+    if ($classifierResult.Parsed.total_cost_usd) { $classifierCost = $classifierResult.Parsed.total_cost_usd }
+
+    if ($deterministic -and $pipelineFlags.classifier_shadow) {
+        # Side-by-side: same ticket set and same tiers means the switch is
+        # safe; any difference is listed with the deterministic path's own
+        # reasoning already in the section above.
+        $llmMap = @{}
+        foreach ($t in @($tickets)) { if ($t -and $t.ticket_id) { $llmMap[[string]$t.ticket_id] = [string]$t.tier } }
+        $detMap = @{}
+        foreach ($t in @($deterministic.Tickets)) { $detMap[[string]$t.ticket_id] = [string]$t.tier }
+        $allIds = @(@($llmMap.Keys) + @($detMap.Keys) | Sort-Object -Unique)
+        $sameCount = 0
+        $shadowLines = @()
+        foreach ($k in $allIds) {
+            $l = if ($llmMap.ContainsKey($k)) { $llmMap[$k] } else { "-" }
+            $d = if ($detMap.ContainsKey($k)) { $detMap[$k] } else { "-" }
+            if ($l -eq $d) { $sameCount++ }
+            $shadowLines += ("{0,-8} llm={1,-18} deterministic={2,-18}{3}" -f $k, $l, $d, $(if ($l -ne $d) { "  <-- differs" } else { "" }))
+        }
+        $shadowLines += "agreement: $sameCount / $($allIds.Count) ticket(s); llm classifier `$$([math]::Round([double]$classifierCost, 4)) vs deterministic `$$([math]::Round([double]$deterministic.Cost, 4))"
+        Write-LogSection -LogFile $logFile -Header "CLASSIFIER SHADOW COMPARISON" -Content ($shadowLines -join "`n")
+    }
     }
 
     # UNTRACK is a pseudo-tier, not a real one - the classifier uses it to
@@ -4737,11 +5131,9 @@ try {
         }
     }
     $tickets = $validTickets
-
     # $idResolutionCost was already set in Stage 0 above (0 on a cache hit, the
-    # real cost on a fresh resolution) - not recomputed here.
-    $classifierCost = 0
-    if ($classifierResult.Parsed.total_cost_usd) { $classifierCost = $classifierResult.Parsed.total_cost_usd }
+    # real cost on a fresh resolution) - not recomputed here; $classifierCost
+    # was set by whichever classifier path ran above.
     }
     else {
         # Replay mode: the ticket list and tier come from the command line, no
