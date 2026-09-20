@@ -708,8 +708,20 @@ and add a private note stating what you created and how it was verified
 Station 3 - confirmed via M365 as a real, active, non-admin account matching
 the ticket's claim; re-linked from the generic 'General User' contact").
 Then continue this ticket's investigation/resolution normally. If step 3 is
-ambiguous (multiple sites, genuinely unclear which), create nothing and fall
-through to the next case instead of guessing a site.
+ambiguous (multiple sites, nothing in the ticket points to one), **still
+create the contact** - on the site the ticket itself is already linked to
+(its current `site_id`, the one Halo showed the ticket under when it
+arrived), or the client's designated invoice/primary site if the ticket's
+own site is somehow not under this client - and say in the private note
+that the site was the ticket's own default and may need moving. A contact
+with the right verified email on a possibly-wrong site is a two-second fix
+for a human; a verified real person with NO contact is a client who can't
+be reached at all. Real incident, ticket #22390 (2026-09-20): a Huntress
+"unexpected country" sign-in for a verified, MFA-less M365 account was
+held for hours because BEC CFO has five sites and this rule said "create
+nothing" - the approved reply then had no address to go to, and every
+cycle re-discovered the same dead end. The site was never the risk; the
+unreachable client was.
 
 **AUTOMATED/SYSTEM ALERT, VERIFIED CLIENT, NO REAL CONTACT TO LINK:** the
 sender is a generic monitoring/system mailbox (Microsoft Security,

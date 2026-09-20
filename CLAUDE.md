@@ -2916,6 +2916,48 @@ LEARN_FIX), parser-checked, and -DryRun. Not yet compared against the LLM
 classifier on real cycles - that is what shadow mode is for, and it is the
 next step on Roger's side.
 
+**v2.12.1 - two approved tickets looping the morning after v2.12.0
+(2026-09-20).** Roger: "Looks like you may have injected some bugs.
+Tickets 22389 and 22390. Didn't create the contact and getting an access
+denied and looping." Checked before answering: v2.12.0's deterministic
+classifier was in shadow mode and its answer unused, so the code shipped
+the night before was not the cause. The cause was three defects in the
+approval flow that had been there all along and that these two tickets,
+approved at the same minute, exposed together:
+
+- **#22389 - the classifier tiered an AI-Approved ticket by content.** The
+  ticket sat unassigned in AI Approved; call 1 picked it up, tiered it
+  COMPLEX (a security alert), and call 6 then skipped it as "already
+  present" - the dedupe rule pointed the wrong way. The resolver ran FLOW B
+  with the stripped tool set, could not call update_ticket ("denied by
+  permissions" - Roger's "access denied"), left a mismatch note, and would
+  have done the same every cycle. Three fixes: call 1 now excludes both
+  approval statuses by status_id; the approval banner's calls 5-6 now take
+  precedence; and a PowerShell backstop after classification (one
+  fields-only Worker call, `history=0`, which halopsa-mcp now honors by
+  skipping the actions fetch) forces APPROVED for any ticket currently in
+  ai_approved_status_name, logged as TIER OVERRIDE. Belt, braces, and a
+  third thing that doesn't depend on the LLM reading either of them.
+- **#22390 - "didn't create the contact".** resolver-prompt.md said: if
+  the client has multiple sites and nothing points to one, create nothing.
+  BEC CFO has five sites, so a verified, MFA-less M365 user under a
+  Vietnam sign-in alert never got a Halo contact, the approved reply had
+  no address, and the send held every cycle. The rule now creates the
+  contact on the ticket's own site (or the client's primary) and says so
+  in the note - a wrong site is a two-second human fix, an unreachable
+  client is not. FLOW A gained step 4.5: fix an unreachable contact for
+  real before sending; this flow has the tools and always did.
+- **Both - every FLOW A stop looped.** A stop left the ticket in AI
+  Approved, which call 6 re-selects unconditionally, so each stop repeated
+  itself every 10 minutes. Every FLOW A stop now moves the ticket back to
+  AI Waiting Approval and prints [CACHE: UNTRACK]; it waits quietly until
+  a human fixes the problem and re-approves.
+
+Lesson recorded for this file: "unconditional candidate" and "stop and do
+nothing" cannot both be true of the same status. Any flow that can stop
+must leave the ticket somewhere the classifier will not re-select it
+unconditionally, or the stop is a loop.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

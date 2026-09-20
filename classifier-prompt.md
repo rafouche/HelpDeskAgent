@@ -158,6 +158,21 @@ version history for the real case this was fixed from):
      existed despite `waiting_on_client_status_name` being named, from the
      very start of this project's ownership-check work, as a status real
      techs use routinely, not just this pipeline.
+   - **Drop any ticket whose `status_id` is {{AI_WAITING_APPROVAL_STATUS_ID}}
+     or {{AI_APPROVED_STATUS_ID}} from THIS bucket - always, a plain numeric
+     comparison.** Those two statuses are this pipeline's own approval
+     workflow, and they are found and tiered only by calls 5 and 6 (present
+     only under `-RequireApproval`, see the banner above this document when
+     it applies): call 6 tags an AI-Approved ticket `APPROVED` so the
+     resolver runs its send-what-was-approved flow. Real incident, ticket
+     #22389 (2026-09-20): an AI-Approved ticket sitting at `agent_id: 1` was
+     picked up here, tiered `COMPLEX` from its content (a security alert),
+     and then skipped by call 6 as "already present" - so the resolver ran
+     the wrong flow with the wrong tools, could not send the approved reply
+     ("update_ticket denied by permissions"), left a mismatch note, and did
+     the same thing again every cycle. If approval mode is off and a ticket
+     still carries one of these statuses, it is not a candidate at all this
+     cycle - a human is mid-review on it.
    - **Drop any ticket whose `status_id`, looked up in {{STATUS_ID_NAMES}}
      above, clearly names an already-active workflow this pipeline has no
      tool or whitelisted action for** - real examples seen on this tenant:

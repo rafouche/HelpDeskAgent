@@ -73,6 +73,42 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.12.1 - two live tickets looping the morning after v2.12.0
+    shipped (#22389, #22390, both Huntress ITDR escalations Roger approved
+    at 22:58). Not v2.12.0's code - the deterministic classifier was in
+    shadow mode, its answer unused - but three real defects in the approval
+    flow that the same cycle exposed:
+    - #22389: the LLM classifier tiered an AI-Approved, unassigned ticket
+      COMPLEX from its content in call 1, then skipped it in call 6 as
+      'already present'. The resolver ran FLOW B with the stripped tool
+      set, could not call update_ticket ('denied by permissions'), left a
+      mismatch note, and would have repeated that every cycle. Fixed
+      three ways: classifier-prompt.md's call 1 now excludes both approval
+      statuses by status_id; the approval banner's calls 5-6 now take
+      precedence instead of yielding; and a PowerShell backstop after
+      classification (one ticket-fields-only Worker call, history=0)
+      forces APPROVED for any ticket currently in ai_approved_status_name,
+      logged as TIER OVERRIDE. Fails open.
+    - #22390: the approved reply had nowhere to go - the ticket was still
+      on the generic 'General User' contact because resolver-prompt.md
+      said 'multiple sites, create nothing'. The verified person was never
+      the risk; the unreachable client was. That rule now creates the
+      contact on the ticket's own site (or the client's primary) and says
+      so in the note. FLOW A gained step 4.5: fix an unreachable contact
+      for real before sending.
+    - Both: every FLOW A stop left the ticket in AI Approved, which call 6
+      re-selects unconditionally, so each stop repeated itself every 10
+      minutes. Every FLOW A stop now moves the status back to AI Waiting
+      Approval and prints [CACHE: UNTRACK].
+    - Seen in the same logs: both tickets showed human_touch.found = true
+      with no person involved, because Huntress posts its alert through a
+      bound Halo agent account (who_type 1, actionby_application_id
+      "Huntress"). The resolver reasoned its way past it this time; it
+      would not have to every time. halopsa-mcp's human_touch now ignores
+      integration accounts (Claude, Huntress; more via its
+      HUMAN_TOUCH_IGNORE_APP_IDS var), and the deterministic classifier's
+      own human test does the same (pipeline.integration_application_ids,
+      default ["Huntress"]).
     Version: 2.12.0 - cost program increment 2: the deterministic classifier,
     behind pipeline.deterministic_classifier (default off) with a
     pipeline.classifier_shadow rollout aid (default off). The LLM classifier
@@ -3759,7 +3795,11 @@ function Invoke-DeterministicClassifier {
         [string]$Effort,
         [string]$NowText,
         [string]$Timezone,
-        [string]$PipelineAppId = "Claude"
+        [string]$PipelineAppId = "Claude",
+        # Integrations that post through a bound Halo agent account look human
+        # (who_type 1) but aren't: Huntress's alert intake, seen live on
+        # #22389/#22390. Same list halopsa-mcp's human_touch now ignores.
+        [string[]]$IntegrationAppIds = @("Huntress")
     )
     $report = @()
     $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
@@ -3809,7 +3849,7 @@ function Invoke-DeterministicClassifier {
     # --- helpers over trimmed actions (newest first) ---
     $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed')
     $isOurs = { param($a) ($a.actionby_application_id -eq $PipelineAppId) -or ([string]$a.who_agentid -eq [string]$agentId) }
-    $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) }
+    $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id) }
     $isSubstantive = {
         param($a)
         if ($bookkeepingOutcomes -notcontains [string]$a.outcome) { return $true }
@@ -4683,9 +4723,15 @@ try {
             "   decided last cycle; your only job for it now is flagging it so the",
             "   resolver runs its approval-completion flow instead of tiering it fresh.",
             "",
-            "Skip any ticket ID in calls 5-6 that's already present in calls 1-4's",
-            "results, so it isn't listed twice. Every other candidate-selection/tiering",
-            "rule in this document still applies as normal to every other ticket.",
+            "Calls 5-6 take precedence over calls 1-4 for any ticket whose status_id is",
+            "$($ids.ai_waiting_approval_status_id) or $($ids.ai_approved_status_id): call 1's own rules already exclude those",
+            "two statuses from its bucket, so such a ticket should only ever appear here -",
+            "and if one somehow shows up in both, the call 5/6 answer (APPROVED for call",
+            "6) is the one to output, never a content tier. Real incident, ticket #22389",
+            "(2026-09-20): tiered COMPLEX by call 1 from its content, then skipped here as",
+            "'already present' - the resolver ran the wrong flow with the wrong tools every",
+            "cycle. Every other candidate-selection/tiering rule in this document still",
+            "applies as normal to every other ticket.",
             "==="
         )
         $classifierPrompt = ($classifierApprovalBannerLines -join "`n") + "`n`n" + $classifierPrompt
@@ -4723,8 +4769,18 @@ try {
             "   `"[DRAFT PENDING APPROVAL]`" (on its own line - it doesn't have to be the",
             "   very first thing in the note; a relink or other bookkeeping recorded",
             "   ahead of it in the same note still counts). If you find zero or more",
-            "   than one, stop - add an internal note flagging the mismatch and do",
-            "   nothing else; don't guess which draft is the real one.",
+            "   than one, stop - add an internal note flagging the mismatch, move the",
+            "   ticket's status back to ai_waiting_approval_status_name in that same",
+            "   update_ticket call (verify: true), print [CACHE: UNTRACK], and do nothing",
+            "   else; don't guess which draft is the real one. The status move is not",
+            "   optional: a ticket left in ai_approved_status_name is re-selected by",
+            "   the classifier's call 6 unconditionally every cycle, so a stop that",
+            "   leaves the status alone repeats itself - note, cost, and all - every 10",
+            "   minutes until a human notices (real incident, tickets #22389/#22390,",
+            "   2026-09-20). Back on AI Waiting Approval, the ticket waits quietly until",
+            "   a human fixes the problem and re-approves. The same rule applies to",
+            "   every other stop in this flow (step 4's 'can't tell what it meant',",
+            "   step 5's 'nowhere to send it').",
             "1.5. **Before trusting this status, check what's actually after that draft",
             "   note.** A human can move a ticket to AI Approved and leave an",
             "   instructional note at essentially the same moment - the status change",
@@ -4762,6 +4818,17 @@ try {
             "   target. Real time has passed and you're no longer confident this specific",
             "   action is still safe to run as recorded? Say so in an internal note and",
             "   stop rather than run stale intent blindly.",
+            "4.5. Make sure the reply can actually reach the client before sending it:",
+            "   if the ticket's contact is a generic/system one or its emailtolist is",
+            "   empty, apply resolver-prompt.md's 'unknown or wrong contact' section NOW,",
+            "   for real (create/relink the verified contact - this flow has the tools),",
+            "   re-fetch the ticket, and only then continue. If that section genuinely",
+            "   can't produce a deliverable address, stop the way step 1 does: internal",
+            "   note saying exactly what's missing, status back to",
+            "   ai_waiting_approval_status_name, [CACHE: UNTRACK]. Real incident, ticket",
+            "   #22390: an approved reply to a verified M365 user was held every cycle",
+            "   because her Halo contact had never been created - the contact was the",
+            "   fix, and this flow could have made it.",
             "5. Post the approved text from step 2 as a real, public, client-facing reply",
             "   (mcp__Halo__update_ticket, note_is_private: false AND send_email: true AND",
             "   verify: true - note_is_private alone does not email the client, see",
@@ -5019,7 +5086,8 @@ try {
             $deterministic = Invoke-DeterministicClassifier -RootPath $RootPath -Ids $ids -TrackedTicketIds $trackedTicketIds `
                 -BlockedTickets $blockedTickets -HumanOwnedTickets $humanOwnedTickets -ApprovalMode ([bool]$RequireApproval) `
                 -SkipStatusNames $skipStatusNames -ClassifierPromptPath $classifierPromptPath `
-                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone
+                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone `
+                -IntegrationAppIds $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['integration_application_ids'] -and $config.pipeline.integration_application_ids) { @($config.pipeline.integration_application_ids | ForEach-Object { [string]$_ }) } else { @("Huntress") })
             Write-LogSection -LogFile $logFile -Header "DETERMINISTIC CLASSIFIER$(if (-not $pipelineFlags.deterministic_classifier) { ' (SHADOW)' })" -Content $deterministic.Report
         }
         catch {
@@ -5131,6 +5199,45 @@ try {
         }
     }
     $tickets = $validTickets
+
+    # v2.12.1 backstop (ticket #22389): under -RequireApproval, a ticket whose
+    # CURRENT status is ai_approved_status_name is APPROVED tier, full stop -
+    # the classifier's call 6 says so, but the LLM classifier tiered one from
+    # its content (COMPLEX) via call 1 instead, and the resolver then ran the
+    # wrong flow with the wrong tools every cycle. One cheap HTTP call to the
+    # Worker (ticket fields only, no actions) makes that impossible whatever
+    # the classifier says. Fails open: any problem here leaves the tiers as
+    # classified and logs why.
+    if ($RequireApproval -and $ids.ai_approved_status_id -and @($tickets).Count -gt 0) {
+        try {
+            $backstopBase = Get-HelpDeskGateBaseUrl -RootPath $RootPath
+            if ($backstopBase) {
+                $backstopHeaders = @{}
+                $backstopAuth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
+                if ($backstopAuth) { $backstopHeaders['Authorization'] = $backstopAuth }
+                $backstopIds = @($tickets | Where-Object { $_.tier -ne 'APPROVED' -and $_.tier -ne 'UNTRACK' } | ForEach-Object { [string]$_.ticket_id })
+                for ($bi = 0; $bi -lt $backstopIds.Count; $bi += 40) {
+                    $backstopChunk = @($backstopIds[$bi..([Math]::Min($bi + 39, $backstopIds.Count - 1))])
+                    $backstop = Invoke-RestMethod -Uri "$backstopBase/helpdesk-candidates?ids=$($backstopChunk -join ',')&history=0&max_details_chars=1" -Method Get -TimeoutSec 30 -Headers $backstopHeaders
+                    foreach ($bc in @($backstop.candidates)) {
+                        if (-not $bc.found) { continue }
+                        if ([string]$bc.ticket.status_id -ne [string]$ids.ai_approved_status_id) { continue }
+                        foreach ($t in $tickets) {
+                            if ([string]$t.ticket_id -eq [string]$bc.ticket.id -and $t.tier -ne 'APPROVED') {
+                                $backstopTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                                Add-Content -Path $logFile -Value "[$backstopTimestamp] TIER OVERRIDE: ticket $($t.ticket_id) is in ai_approved_status_name (status_id $($bc.ticket.status_id)) but the classifier tiered it $($t.tier) - running it as APPROVED so the approved draft actually sends." -Encoding UTF8
+                                $t.tier = 'APPROVED'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch {
+            $backstopTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            Add-Content -Path $logFile -Value "[$backstopTimestamp] WARNING: approved-tier backstop check failed ($($_.Exception.Message)) - tiers left as classified." -Encoding UTF8
+        }
+    }
     # $idResolutionCost was already set in Stage 0 above (0 on a cache hit, the
     # real cost on a fresh resolution) - not recomputed here; $classifierCost
     # was set by whichever classifier path ran above.
