@@ -89,15 +89,16 @@
     to run twice on one ticket. It is the one sending tool that survives
     -RequireApproval (still stripped under -WhatIf). The prompt's emergency
     and compromise sections and the approval banner now name it; the old
-    "email on-call yourself" instructions are gone. Secrets set on the
-    Workers today: m365-mcp ON_CALL_SENDER=help@altecusa.com,
-    ON_CALL_RECIPIENTS=<config's on_call primary email + text_email>,
-    ON_CALL_TENANT=altec; halopsa-mcp ON_CALL_ALERT_URL=<m365 Worker /mcp>.
-    Changing on-call contacts is now a Worker var change, not (only) a
-    config.json edit - README says so. Status at ship: the test page
-    failed because m365-mcp's own Graph credentials were never set (its
-    M365_TENANTS secret is missing) - the ack path is live, the page path
-    waits on Roger setting M365_CLIENT_ID/SECRET/TENANTS with Mail.Send.
+    "email on-call yourself" instructions are gone. The page itself goes
+    through Halo's own mail (an internal alert ticket under Altec Solutions
+    Group for the on-call contact, in the Alerts / System Admin team the
+    Help Desk pipeline never reads, with the SMS gateway CC'd) - no Graph,
+    no new credentials; the m365-mcp path was tried first and dropped
+    because that Worker was never configured and CIPP can't send mail
+    (no endpoint, no Mail.Send). On-call contacts are halopsa-mcp
+    wrangler vars (ON_CALL_USER_ID, ON_CALL_CC_EMAILS, ...), not (only)
+    config.json - README says so. Verified live: page_test delivered as
+    alert ticket #22417 to roger@altecusa.com + the SMS gateway.
     Version: 2.12.3 - Roger's request from ticket #22385 (Springfield
     Nissan's 3CX down on a Saturday morning, emailed to admin@altecsales.com
     and forwarded into help@ by hand hours later): when a ticket's first

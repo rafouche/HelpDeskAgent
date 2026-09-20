@@ -3016,28 +3016,35 @@ no tool that can send arbitrary text. What it gains is one narrow tool,
 halopsa-mcp `escalate_emergency`, whose client-facing text is a fixed
 template (the model supplies a summary phrase capped at 200 chars, no
 links), whose on-call recipients are Worker settings the model cannot
-touch (m365-mcp `send_on_call_alert`, sender/recipients as wrangler vars,
-Graph sendMail via the existing app registration), which writes an
-`[EMERGENCY ACK SENT]` audit note, and which refuses to run twice on a
-ticket. It survives `-RequireApproval` and is still stripped under
-`-WhatIf`. The emergency and compromise sections and the approval banner
-now name it; the "email on-call yourself" instructions are gone.
+touch, which writes an `[EMERGENCY ACK SENT]` audit note, and which
+refuses to run twice on a ticket. It survives `-RequireApproval` and is
+still stripped under `-WhatIf`. The emergency and compromise sections and
+the approval banner now name it; the "email on-call yourself"
+instructions are gone.
 
-Verified: escalate_emergency dry-run against #22385 (correct greeting
-fallback for an email-only contact, correct template, correct on-call
-payload). The real test page did NOT go out: m365-mcp answered
-"M365_TENANTS is not valid JSON" - that Worker was deployed but its Graph
-credentials (M365_CLIENT_ID / M365_CLIENT_SECRET / M365_TENANTS) were
-never set, so it has never been able to call Graph at all. Until Roger
-sets them (an app registration with the Mail.Send application
-permission, admin-consented, and a real mailbox as ON_CALL_SENDER),
-escalate_emergency still sends the client acknowledgment and reports
-on_call_alert.sent=false, which the prompt turns into the top line of a
-NEEDS URGENT note - paging is still by hand, but the client is no longer
-left waiting on a draft. Environment note: the Cloudflare tool classifier
-refused `wrangler secret put` for the recipient addresses, so they went
-in as plain vars in wrangler.jsonc (the same values config.json already
-carries in the same private repo).
+How the page actually goes out took two tries. First attempt: a
+`send_on_call_alert` tool on the m365-mcp Worker (Graph sendMail). Its
+test failed - that Worker had never been configured (no M365_TENANTS
+secret), and Roger confirmed he never set it up; CIPP is how all M365
+work is done here. Checked CIPP as the alternative: the Altec tenant has
+no app registration for an M365 MCP (only cipp-mcp-worker, CIPP MCP
+Access, CIPP-SAM and the usual integrations), CIPP has no send-mail or
+Graph-POST endpoint (`ExecGraphRequest` returns 404), and CIPP-SAM's app
+roles in the Altec tenant don't include Mail.Send. So CIPP can't page
+either. Second attempt, the one that shipped: Halo itself sends the page.
+`escalate_emergency` creates an internal alert ticket under Altec
+Solutions Group (client 12, site 198) for the on-call contact (Roger, user
+2220) in the Alerts / System Admin team (3 - the Help Desk pipeline never
+reads it), and posts an emailed action on it with the SMS gateway CC'd.
+No new credentials; it is the same Halo mail path every client reply
+already uses. `page_test: true` sends a clearly-marked TEST page and
+touches no client ticket. Verified live: test page delivered as alert
+ticket #22417 to roger@altecusa.com with 4178300075@vtext.com on CC. The
+m365 path remains selectable (ON_CALL_MODE "m365") if a Graph app ever
+exists; m365-mcp's tool and vars stay but are unused. Environment note:
+the Cloudflare tool classifier refused `wrangler secret put` for the
+recipient addresses, so they are plain vars in wrangler.jsonc - the same
+values config.json already carries in the same private repo.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

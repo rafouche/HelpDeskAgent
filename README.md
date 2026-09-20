@@ -821,14 +821,22 @@ acknowledgment (the agent supplies only a one-line summary phrase, never the
 message), pages on-call by email and text, writes an `[EMERGENCY ACK SENT]`
 note, and sets the follow-up status. It refuses to run twice on one ticket.
 
-The on-call recipients are not chosen by the agent. They live on the M365
-Worker as plain settings (`ON_CALL_SENDER`, `ON_CALL_RECIPIENTS`,
-`ON_CALL_TENANT` in `m365-mcp/wrangler.jsonc`), and the Halo Worker reaches
-it through its own `ON_CALL_ALERT_URL` setting. To change who gets paged,
-edit those vars and redeploy the M365 Worker; the `on_call` block in
-config.json is still read by the agent for context but is no longer what
-sends the page. The sending mailbox needs the app registration's `Mail.Send`
-application permission.
+The on-call recipients are not chosen by the agent, and the page goes out
+through Halo's own mail: the tool creates an internal alert ticket under your
+own company for the on-call contact, in a team the Help Desk pipeline never
+reads, and posts an emailed action on it with the email-to-SMS gateway CC'd.
+Who gets paged is a set of plain settings on the Halo Worker
+(`ON_CALL_CLIENT_ID`, `ON_CALL_SITE_ID`, `ON_CALL_USER_ID`, `ON_CALL_TEAM_ID`,
+`ON_CALL_CC_EMAILS` in `halopsa-mcp/wrangler.jsonc`). To change them, edit
+those vars, redeploy the Halo Worker, and send a test page:
+
+```powershell
+# from any machine that can reach the Worker - sends a clearly-marked TEST page, touches no client ticket
+curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"escalate_emergency","arguments":{"page_test":true}}}'
+```
+
+The `on_call` block in config.json is still read by the agent for context but
+is no longer what sends the page.
 
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active
