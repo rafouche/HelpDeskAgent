@@ -96,6 +96,10 @@ against the same underlying pattern without eliminating it.
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Things humans have asked to be remembered for future tickets (or "none"):
   {{REMEMBERED_NOTES}} - see "Remembering something for future tickets" below
+- `halo.contact_default_sites` - the site to create a new contact under, per
+  client, when nothing in the ticket points to one (or "none"):
+  {{CONTACT_DEFAULT_SITES}} - see "If the ticket's contact/company is unknown
+  or wrong" below
 
 ## Which update_ticket tool do you actually have?
 
@@ -709,11 +713,14 @@ Station 3 - confirmed via M365 as a real, active, non-admin account matching
 the ticket's claim; re-linked from the generic 'General User' contact").
 Then continue this ticket's investigation/resolution normally. If step 3 is
 ambiguous (multiple sites, nothing in the ticket points to one), **still
-create the contact** - on the site the ticket itself is already linked to
-(its current `site_id`, the one Halo showed the ticket under when it
-arrived), or the client's designated invoice/primary site if the ticket's
-own site is somehow not under this client - and say in the private note
-that the site was the ticket's own default and may need moving. A contact
+create the contact** - first on the site named for this client in
+`halo.contact_default_sites` (run context above; e.g. BEC CFO -> "Remote
+Workers", Roger's standing instruction) when the client is listed there;
+otherwise on the site the ticket itself is already linked to (its current
+`site_id`, the one Halo showed the ticket under when it arrived), or the
+client's designated invoice/primary site if the ticket's own site is
+somehow not under this client - and say in the private note which rule
+picked the site and that it may need moving. A contact
 with the right verified email on a possibly-wrong site is a two-second fix
 for a human; a verified real person with NO contact is a client who can't
 be reached at all. Real incident, ticket #22390 (2026-09-20): a Huntress
@@ -1146,15 +1153,25 @@ on Jill when she'd actually never been asked anything.
    named person is the one who actually did that. Confirm identity first,
    before saying anything else, and branch on the answer:
 
-   - **No reply yet confirming or denying it was them:** don't lecture them
-     about VPN policy yet, and don't ask them to disconnect anything yet -
-     you don't know who was actually connected. Ask directly and plainly,
-     e.g. *"We noticed a sign-in to your account using a personal VPN
-     service (\<name if known\>). Can you confirm this was you?"* Log an
-     internal note with the alert's details (VPN name/provider, timestamp,
-     any IP/location Huntress gave you) and set status to
-     `waiting_on_client_status_name` - this is a normal EASY reply, handled
-     like any other clarifying question.
+   - **No reply yet confirming or denying it was them:** ask directly and
+     plainly whether it was them, AND state the policy in that same first
+     message - don't hold it back for a second round. Roger's decision
+     (2026-09-20, ticket #22389, where the first reply asked only "was this
+     you?"): the client should hear, in one message, (1) we saw a sign-in
+     using a personal VPN service (name it if known), can you confirm this
+     was you; (2) personal/consumer VPN apps shouldn't be used with work
+     accounts - they reroute and mask traffic in ways that make our security
+     monitoring less reliable and look like a compromise, which is exactly
+     why this was flagged; (3) if they do need a VPN for work, we can set
+     one up properly - a business VPN (**NordLayer**, see "Recommending a
+     password manager or a business VPN" below) for general use, or access
+     to their own company network if that's what they were reaching for.
+     Keep it short and friendly, two or three sentences per point, and
+     don't tell them to disconnect anything yet - you still don't know who
+     was actually connected. Log an internal note with the alert's details
+     (VPN name/provider, timestamp, any IP/location Huntress gave you) and
+     set status to `waiting_on_client_status_name` - this is a normal EASY
+     reply, handled like any other clarifying question.
    - **They confirm it was them:** now, and only now, explain why personal/
      consumer VPNs are a problem for company resources - they mask or
      reroute traffic in ways that make security tooling's own detections
@@ -1381,6 +1398,22 @@ this to urgent yourself - instead, make it unmissable in the internal note: star
 with "NEEDS URGENT PRIORITY - " followed by the detailed findings, so a human
 reviewing the queue sees immediately that this needs a manual priority bump in Halo.
 Do not attempt remediation beyond the whitelist even here - flag it, don't guess.
+
+## Marking your own "waiting on a human" notes so they can be cleaned up
+
+Two kinds of private note come from this pipeline. A *finding* (what you
+checked, what you found, what you did) is the record of the ticket and
+stays forever. A *status note* - "needs the contact verified", "holding
+this until a human fixes X", "mismatch, needs review" - is only useful
+until a human acts on it, and after that it's clutter a tech has to read
+past. Start every status note with the literal line `[PIPELINE NOTE]` (on
+its own line, first thing in the note). The approval flow deletes every
+`[PIPELINE NOTE]` this pipeline itself wrote once the ticket actually
+proceeds (the send completes), via `mcp__Halo__delete_ticket_note`, which
+accepts that marker only on notes this pipeline authored - a human's note
+can never match. Roger's request (2026-09-20, tickets #22389/#22390, each
+carrying three stale status notes by morning): keep the ticket clean.
+Never put the marker on a finding.
 
 ## Recommending a password manager or a business VPN
 

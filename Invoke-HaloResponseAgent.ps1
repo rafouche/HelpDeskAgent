@@ -73,6 +73,24 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.12.2 - three follow-ups from Roger on #22389/#22390:
+    - "assume it's a remote worker if there isn't a contact" (BEC CFO):
+      config.json's halo block takes contact_default_sites, { "<client>":
+      "<site>" }, rendered into the resolver prompt as
+      {{CONTACT_DEFAULT_SITES}}; the multiple-sites rule consults it first,
+      then the ticket's own site, then the client's primary.
+    - "will all the previous notes get cleaned up?": a note convention.
+      Status notes (waiting on a human: needs contact, holding, mismatch)
+      start with the line [PIPELINE NOTE]; findings never do. halopsa-mcp's
+      delete_ticket_note now also accepts that marker, but only on a note
+      whose actionby_application_id is "Claude". FLOW A step 6.5 deletes
+      every such note once the approved reply has actually sent. The notes
+      already sitting on #22389/#22390 predate the marker and won't be
+      auto-removed.
+    - "the VPN ticket didn't mention not using VPNs for work": the
+      personal-VPN first reply now states the policy and offers a business
+      VPN in the same message as the "was this you?" question, instead of
+      saving both for a second round.
     Version: 2.12.1 - two live tickets looping the morning after v2.12.0
     shipped (#22389, #22390, both Huntress ITDR escalations Roger approved
     at 22:58). Not v2.12.0's code - the deterministic classifier was in
@@ -4591,6 +4609,16 @@ try {
     # Same "none" rendering, same reason - see the remembered_notes loading
     # comment above. Rendered as a plain bullet list (not JSON) since this is
     # meant to be read and weighed by the resolver, not parsed.
+    # halo.contact_default_sites (v2.12.2): { "<client name>": "<site name>" } -
+    # the site to create a new contact under for that client when nothing in
+    # the ticket points to one. Rendered as text for the resolver prompt.
+    $contactDefaultSitesText = "none"
+    if ($config.halo.PSObject.Properties['contact_default_sites'] -and $config.halo.contact_default_sites) {
+        $contactDefaultSiteLines = @($config.halo.contact_default_sites.PSObject.Properties | ForEach-Object { "$($_.Name) -> $($_.Value)" })
+        if ($contactDefaultSiteLines.Count -gt 0) { $contactDefaultSitesText = ($contactDefaultSiteLines -join "; ") }
+    }
+    $contactDefaultSitesText = $contactDefaultSitesText.Replace('$', '$$')
+
     $rememberedNotesText = "none"
     if (@($rememberedNotes).Count -gt 0) {
         $rememberedNotesLines = @($rememberedNotes | ForEach-Object {
@@ -4667,6 +4695,7 @@ try {
         -replace '\{\{TICKET_TYPE_NAMES\}\}', $ticketTypeNamesText `
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{REMEMBERED_NOTES\}\}', $rememberedNotesText `
+        -replace '\{\{CONTACT_DEFAULT_SITES\}\}', $contactDefaultSitesText `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `
@@ -4769,7 +4798,9 @@ try {
             "   `"[DRAFT PENDING APPROVAL]`" (on its own line - it doesn't have to be the",
             "   very first thing in the note; a relink or other bookkeeping recorded",
             "   ahead of it in the same note still counts). If you find zero or more",
-            "   than one, stop - add an internal note flagging the mismatch, move the",
+            "   than one, stop - add an internal note (first line: [PIPELINE NOTE], see",
+            "   resolver-prompt.md's 'Marking your own waiting-on-a-human notes') flagging",
+            "   the mismatch, move the",
             "   ticket's status back to ai_waiting_approval_status_name in that same",
             "   update_ticket call (verify: true), print [CACHE: UNTRACK], and do nothing",
             "   else; don't guess which draft is the real one. The status move is not",
@@ -4824,7 +4855,7 @@ try {
             "   for real (create/relink the verified contact - this flow has the tools),",
             "   re-fetch the ticket, and only then continue. If that section genuinely",
             "   can't produce a deliverable address, stop the way step 1 does: internal",
-            "   note saying exactly what's missing, status back to",
+            "   note (first line: [PIPELINE NOTE]) saying exactly what's missing, status back to",
             "   ai_waiting_approval_status_name, [CACHE: UNTRACK]. Real incident, ticket",
             "   #22390: an approved reply to a verified M365 user was held every cycle",
             "   because her Halo contact had never been created - the contact was the",
@@ -4847,6 +4878,15 @@ try {
             "   workaround - just leave the draft in place and continue to step 7 anyway;",
             "   a leftover draft note here is cosmetic, not a reason to stop completing",
             "   this ticket.",
+            "6.5. Clean up: from the action list you already have (re-fetch if step 1's",
+            "   is stale), call mcp__Halo__delete_ticket_note for every private note this",
+            "   pipeline itself wrote whose first line is [PIPELINE NOTE] - the 'needs the",
+            "   contact verified' / 'holding until...' / 'mismatch' notes that were only",
+            "   ever waiting on what just happened. The tool refuses anything else (a",
+            "   human's note, a finding without the marker), so a wrong id is harmless;",
+            "   if a delete fails, note it in your summary and continue. Roger's",
+            "   request: a ticket that went through the approval flow should read",
+            "   clean afterward - the reply, the [APPROVED DRAFT] trace, the findings.",
             "7. Check the ticket's current agent_id (from step 1's data, or a fresh",
             "   mcp__Halo__get_ticket if you don't already have it) before this call.",
             "   Workflow decision from Roger: never take a ticket away from a real human",
@@ -4953,6 +4993,12 @@ try {
             "goes through the draft/approve flow above. The on-call notification itself",
             "(email/text) is never gated either - it's an internal alert to your own team,",
             "not client correspondence.",
+            "",
+            "Any private note you leave that is only a status of this pipeline's own",
+            "progress - waiting on a human to verify a contact, pick a site, fix a",
+            "mismatch - starts with the line [PIPELINE NOTE] (see resolver-prompt.md's",
+            "'Marking your own waiting-on-a-human notes'), so FLOW A can clear it once",
+            "the ticket proceeds. Findings never carry it.",
             "",
             "ANOTHER EXCEPTION: fixing which contact/company a ticket is linked to",
             "(resolver-prompt.md's `"unknown or wrong contact`" section, including",

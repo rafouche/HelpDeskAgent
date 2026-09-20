@@ -2958,6 +2958,31 @@ nothing" cannot both be true of the same status. Any flow that can stop
 must leave the ticket somewhere the classifier will not re-select it
 unconditionally, or the stop is a loop.
 
+**v2.12.2 - Roger's three follow-ups on #22389/#22390 (2026-09-20).**
+(1) "Assume it's a remote worker if there isn't a contact" for BEC CFO:
+rather than a client-specific line in a prompt, config.json's halo block
+gained `contact_default_sites` ({ client: site }), rendered into the
+resolver prompt as `{{CONTACT_DEFAULT_SITES}}`; the multiple-sites rule
+consults it first, then the ticket's own site, then the client's primary.
+(2) "Will the previous notes get cleaned up?" Not before, and the answer
+needed a convention, not a heuristic: status notes (waiting on a human)
+start with `[PIPELINE NOTE]`; findings never do. halopsa-mcp's
+delete_ticket_note accepts that marker only on a note whose
+actionby_application_id is "Claude", so a human's note can never match;
+FLOW A step 6.5 deletes them once the send completes. The notes already
+on those two tickets predate the marker and stay until Roger removes
+them. (3) The Proton VPN reply asked only "was this you?" - the prompt
+had deliberately held the policy for a second round. Roger wants it in
+the first message: personal VPNs aren't for work accounts, and we can set
+up a business VPN if one is needed. Rewritten accordingly.
+
+Also noticed while checking whether the v2.12.1 fix had run: neither
+ticket had moved since 00:11, and it won't on its own - the pre-flight
+gate only runs the classifier when a ticket's lastactiondate moves, and
+nothing has touched either ticket since the pipeline's own stop notes.
+The fix is in place; the tickets need a nudge (a status flip, or the
+revision note Roger wants on #22389 anyway) to be re-selected. Told him.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

@@ -813,6 +813,30 @@ Add a ticket to the list whenever a real one teaches the pipeline something -
 the point is that every past lesson gets re-checked automatically on every
 future change.
 
+## Contacts the agent creates, and the notes it leaves behind
+When a security alert names a real person the agent can verify (an active
+M365 account, for example) who has no Halo contact yet, it creates the
+contact rather than leaving the client unreachable. If that client has
+several sites and nothing in the ticket points to one, `halo.contact_default_sites`
+in config.json decides:
+
+```jsonc
+"halo": {
+  ...
+  "contact_default_sites": { "BEC CFO": "Remote Workers" }
+}
+```
+
+A client not listed gets the ticket's own site, and the agent's note says
+which rule picked it, so moving a contact later is a two-second fix.
+
+The agent's private notes come in two kinds. Findings (what it checked,
+found and did) stay on the ticket. Status notes, which only say it is waiting
+on a human for something, start with the line `[PIPELINE NOTE]`, and the
+approval flow deletes them once the approved reply has actually sent, so a
+ticket reads clean afterward: the reply, the `[APPROVED DRAFT]` trace, and the
+findings. Only notes the agent itself wrote can be removed this way.
+
 ## Deterministic classifier (cost program, increment 2)
 The LLM classifier is the single most expensive fixed cost in a cycle: 10 to
 25 tool-calling turns, each re-reading the same tool schemas, to apply rules
