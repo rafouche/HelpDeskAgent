@@ -3046,6 +3046,38 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.13.1 - Roger rejected the alert-ticket page, and a draft didn't
+collapse (2026-09-20).** "I don't like this route/option at all. Muddies
+up the workflow and causes more work for the technician." He was right:
+a second ticket with no link to the real one, plus Halo's automatic
+confirmation email, is two things a technician has to deal with instead
+of one. What he wants is exactly one page naming the ticket in question,
+and the ticket kept clean. Tested whether Halo will send mail for a
+HIDDEN action with emailto/emailcc overrides on the ticket itself - it
+does (scratch ticket #22417, action 7: email_status 2, dateemailed set,
+to roger@, cc the SMS gateway, hiddenfromuser true). That is now the
+default: one hidden emailed action on the original ticket, subject
+carrying the ticket id, invisible to the client, its note text the audit
+trail. The alert-ticket and m365 paths remain selectable but unused.
+#22417 closed.
+
+Second item, "drafts not collapsing into Draft Approved again": #22390's
+reply went out at 14:05 and the draft note still read [DRAFT PENDING
+APPROVAL]; #22389 and #22412 collapsed fine. FLOW A's send / collapse /
+cleanup / status were four separate tool calls, and a step a model can
+skip is a step it will eventually skip. Replaced with one atomic Worker
+tool, `send_approved_draft`: address correction, verbatim send of the
+draft's own text (it can only send text already sitting in a
+human-approved draft; refuses unless the ticket is in the approved
+status; refuses on 0 or 2+ drafts), collapse, [PIPELINE NOTE] cleanup,
+status/agent/team, verify. Dry-run against #22390 extracted exactly the
+approved text. #22390's draft collapsed by hand; its two pre-marker
+status notes are Roger's to delete.
+
+Lesson recorded twice now (v2.12.1 loops, this): when the prompt asks
+for a sequence of writes that must all happen, put the sequence in a
+tool. The prompt should decide; the tool should do.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

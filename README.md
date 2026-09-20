@@ -822,17 +822,17 @@ message), pages on-call by email and text, writes an `[EMERGENCY ACK SENT]`
 note, and sets the follow-up status. It refuses to run twice on one ticket.
 
 The on-call recipients are not chosen by the agent, and the page goes out
-through Halo's own mail: the tool creates an internal alert ticket under your
-own company for the on-call contact, in a team the Help Desk pipeline never
-reads, and posts an emailed action on it with the email-to-SMS gateway CC'd.
-Who gets paged is a set of plain settings on the Halo Worker
-(`ON_CALL_CLIENT_ID`, `ON_CALL_SITE_ID`, `ON_CALL_USER_ID`, `ON_CALL_TEAM_ID`,
-`ON_CALL_CC_EMAILS` in `halopsa-mcp/wrangler.jsonc`). To change them, edit
-those vars, redeploy the Halo Worker, and send a test page:
+through Halo's own mail as one hidden emailed action on the ticket itself:
+addressed to the on-call address with the email-to-SMS gateway CC'd, subject
+carrying the ticket ID, invisible to the client, no second ticket. The
+technician gets one email and one text and nothing else. Who gets paged is a
+pair of plain settings on the Halo Worker (`ON_CALL_EMAIL`, `ON_CALL_CC_EMAILS`
+in `halopsa-mcp/wrangler.jsonc`). To change them, edit those vars, redeploy
+the Halo Worker, and send a test page from a scratch ticket of your own:
 
 ```powershell
-# from any machine that can reach the Worker - sends a clearly-marked TEST page, touches no client ticket
-curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"escalate_emergency","arguments":{"page_test":true}}}'
+# sends a clearly-marked TEST page from ticket <scratch-id>; never use a client's ticket
+curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"escalate_emergency","arguments":{"page_test":true,"ticket_id":<scratch-id>}}}'
 ```
 
 The `on_call` block in config.json is still read by the agent for context but
@@ -861,6 +861,13 @@ on a human for something, start with the line `[PIPELINE NOTE]`, and the
 approval flow deletes them once the approved reply has actually sent, so a
 ticket reads clean afterward: the reply, the `[APPROVED DRAFT]` trace, and the
 findings. Only notes the agent itself wrote can be removed this way.
+
+Sending an approved draft is one atomic Worker call (`send_approved_draft`):
+it posts the draft's own text verbatim, collapses the draft note, deletes the
+status notes, sets the status and assignment, and verifies, in that order,
+with no step the model can skip. It can only ever send text that already sits
+in a draft a human approved, and refuses unless the ticket is in the approved
+status.
 
 ## Deterministic classifier (cost program, increment 2)
 The LLM classifier is the single most expensive fixed cost in a cycle: 10 to

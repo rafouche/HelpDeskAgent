@@ -73,6 +73,30 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.1 - two corrections from Roger the same afternoon.
+    (1) The on-call page: the alert-ticket design (v2.13.0) put a second
+    ticket in front of the technician with no link to the real one, plus
+    Halo's automatic confirmation email on top - "muddies up the workflow".
+    Replaced: the page is now ONE hidden emailed action on the original
+    ticket itself (outcome 16 with emailto/emailcc overrides to the on-call
+    address and the SMS gateway, hiddenfromuser true). Halo does send mail
+    for a hidden action - confirmed on the scratch ticket #22417: email_status
+    2, dateemailed set, emailto roger@, emailcc the gateway, hidden. So the
+    technician gets one email and one text whose subject carries the real
+    ticket id, the client sees nothing, no second ticket exists, and the
+    note text on the ticket is the audit trail. ON_CALL_MODE "ticket" is the
+    Worker default (ON_CALL_EMAIL, ON_CALL_CC_EMAILS); "halo" and "m365"
+    remain selectable. #22417 is closed.
+    (2) "Drafts not collapsing into Approved Draft again": #22390's reply
+    went out at 14:05 but its draft note still read [DRAFT PENDING
+    APPROVAL] and its status notes stayed - FLOW A's steps 5/6/6.5/7 were
+    four separate tool calls the model could, and did, stop partway
+    through. halopsa-mcp's new send_approved_draft does all of it in one
+    atomic call (address correction, verbatim send of the draft's own
+    text, collapse, [PIPELINE NOTE] cleanup, status/agent/team, verify) and
+    can only ever send text already sitting in a human-approved draft.
+    FLOW A step 5 is now that one call; steps 6/6.5/7 are gone. The tool is
+    APPROVED-tier only and stripped under -WhatIf.
     Version: 2.13.0 - emergencies bypass draft mode, and on-call paging
     finally exists. Roger's decision after ticket #22385: a site-wide 3CX
     outage on a Saturday morning sat as an unsent draft under
@@ -3260,6 +3284,13 @@ $resolverTools = @(
     # Saturday sat as an unsent draft because approval mode had removed every
     # tool that could send). Still stripped under -WhatIf like every write.
     "mcp__Halo__escalate_emergency",
+    # send_approved_draft (v2.13.1): FLOW A's send + collapse + cleanup +
+    # status in one atomic call. It can only send text already sitting in a
+    # human-approved draft note, and refuses unless the ticket is in the
+    # approved status - so it is APPROVED-tier only (stripped for every other
+    # tier under -RequireApproval, see $resolverToolsApprovalStripped) and
+    # stripped under -WhatIf like every write.
+    "mcp__Halo__send_approved_draft",
 
     # --- M365 / CIPP identity: read + the two whitelisted remediation actions ---
     # Server registered here as "CIPP" (cipp-mcp.young-math-a33a.workers.dev) -
@@ -3477,7 +3508,7 @@ $resolverTools = @(
 # a confirmed fix.
 $mutatingTools = @(
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
-    "mcp__Halo__escalate_emergency",
+    "mcp__Halo__escalate_emergency", "mcp__Halo__send_approved_draft",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
@@ -3550,7 +3581,7 @@ $remediationMutatingTools = @(
 # near FLOW B) notice its real update_ticket tool isn't available and use
 # the draft-only one instead.
 $resolverToolsFull = $resolverTools
-$resolverToolsApprovalStripped = @($resolverToolsFull | Where-Object { ($remediationMutatingTools -notcontains $_) -and ($_ -ne "mcp__Halo__update_ticket") }) + @("mcp__Halo__update_ticket_draft_only")
+$resolverToolsApprovalStripped = @($resolverToolsFull | Where-Object { ($remediationMutatingTools -notcontains $_) -and ($_ -ne "mcp__Halo__update_ticket") -and ($_ -ne "mcp__Halo__send_approved_draft") }) + @("mcp__Halo__update_ticket_draft_only")
 
 # LEARN_FIX (see resolver-prompt.md's "If the assigned tier is LEARN_FIX"
 # section) never claims, assigns, replies to, or mutates the ticket at all -
@@ -4922,49 +4953,28 @@ try {
             "   #22390: an approved reply to a verified M365 user was held every cycle",
             "   because her Halo contact had never been created - the contact was the",
             "   fix, and this flow could have made it.",
-            "5. Post the approved text from step 2 as a real, public, client-facing reply",
-            "   (mcp__Halo__update_ticket, note_is_private: false AND send_email: true AND",
-            "   verify: true - note_is_private alone does not email the client, see",
-            "   resolver-prompt.md's `"Sending a real, client-facing reply`" section) - its",
-            "   own call, unchanged from what was drafted.",
-            "6. Collapse the draft note: mcp__Halo__mark_draft_approved (ticket_id, the",
-            "   draft note's own action_id from step 1). Per Roger's request: once the real",
-            "   reply from step 5 is posted, the full draft text sitting in its own note is",
-            "   redundant - it's already visible in the sent reply above - but he wants a",
-            "   short trace left behind (`"[APPROVED DRAFT]`") rather than the note vanishing",
-            "   entirely, so a human scanning history still sees this ticket went through",
-            "   the draft/approval flow. The tool refuses (no edit happens) unless the",
-            "   target is still a private note starting with the exact literal",
-            "   `"[DRAFT PENDING APPROVAL]`" marker, so it's safe to call even moments after",
-            "   sending. If it refuses for any reason, don't fight it or guess at a",
-            "   workaround - just leave the draft in place and continue to step 7 anyway;",
-            "   a leftover draft note here is cosmetic, not a reason to stop completing",
-            "   this ticket.",
-            "6.5. Clean up: from the action list you already have (re-fetch if step 1's",
-            "   is stale), call mcp__Halo__delete_ticket_note for every private note this",
-            "   pipeline itself wrote whose first line is [PIPELINE NOTE] - the 'needs the",
-            "   contact verified' / 'holding until...' / 'mismatch' notes that were only",
-            "   ever waiting on what just happened. The tool refuses anything else (a",
-            "   human's note, a finding without the marker), so a wrong id is harmless;",
-            "   if a delete fails, note it in your summary and continue. Roger's",
-            "   request: a ticket that went through the approval flow should read",
-            "   clean afterward - the reply, the [APPROVED DRAFT] trace, the findings.",
-            "7. Check the ticket's current agent_id (from step 1's data, or a fresh",
-            "   mcp__Halo__get_ticket if you don't already have it) before this call.",
-            "   Workflow decision from Roger: never take a ticket away from a real human",
-            "   tech who already holds it. If agent_id is neither 1 (Halo's real",
-            "   `"Unassigned`" placeholder) nor this pipeline's own agent_id, a human tech",
-            "   already holds it - most likely because they claimed it just to approve",
-            "   this draft - so leave agent_id out of this call entirely; don't change it.",
-            "   Otherwise (agent_id is already 1, or somehow this pipeline's own account),",
-            "   include agent_id: 1 same as always - Halo's API-user account doesn't show",
-            "   up in a normal licensed-user list, so a ticket left assigned to it is",
-            "   invisible in the Help Desk ticket list a human looks at. Either way, in",
-            "   that same call: set status to [INTENDED STATUS], team_id back to",
-            "   help_desk_team_name, and verify: true. Check the response's",
-            "   verified.confirmed before your summary below - don't report `"sent`" if",
-            "   the reply never actually posted.",
-            "8. Print your one-line summary, then as the very last line of your response",
+            "5. ONE call does the rest: mcp__Halo__send_approved_draft with ticket_id,",
+            "   draft_action_id (the note from step 1), status_id = [INTENDED STATUS]'s id,",
+            "   team_id = help_desk_team_name's id, require_status_id =",
+            "   ai_approved_status_id, and agent_id decided by Roger's rule: never take a",
+            "   ticket away from a real human tech who holds it - if the ticket's current",
+            "   agent_id is neither 1 nor this pipeline's own agent_id, OMIT agent_id;",
+            "   otherwise pass agent_id: 1 (Halo's API-user account doesn't show in the",
+            "   licensed-user list, so a ticket left on it is invisible to humans). Before",
+            "   the call, compare get_contact's emailaddress for the linked user_id with",
+            "   the ticket's emailtolist; if they differ, pass emailto with the contact's",
+            "   real address (v2.10.61). The tool then, atomically: corrects the address,",
+            "   posts the draft's text VERBATIM as the real emailed reply (it can only",
+            "   send text already sitting in the approved draft, never text you supply),",
+            "   collapses the draft to [APPROVED DRAFT], deletes every [PIPELINE NOTE]",
+            "   you wrote, sets status/team/agent, and verifies. Real incident, ticket",
+            "   #22390 (2026-09-20): with these as separate steps the reply went out but",
+            "   the draft was never collapsed - a step a model can skip is a step that",
+            "   will eventually be skipped. Read the response: verified.confirmed must be",
+            "   true before you report `"sent`"; if the tool refuses (0 or 2+ draft notes,",
+            "   wrong status, empty draft), stop the way step 1 does - [PIPELINE NOTE],",
+            "   status back to ai_waiting_approval_status_name, [CACHE: UNTRACK].",
+            "6. Print your one-line summary, then as the very last line of your response",
             "   print exactly `"[CACHE: TRACK]`" if [INTENDED STATUS] was",
             "   waiting_on_client_status_name, or `"[CACHE: UNTRACK]`" for any other",
             "   status - same rule as resolver-prompt.md's own `"When you finish`"",
