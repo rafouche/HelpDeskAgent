@@ -2983,6 +2983,24 @@ nothing has touched either ticket since the pipeline's own stop notes.
 The fix is in place; the tickets need a nudge (a status flip, or the
 revision note Roger wants on #22389 anyway) to be re-selected. Told him.
 
+**v2.12.3 - "you'll get help faster at help@" (2026-09-20).** Roger's
+request from ticket #22385: Springfield Nissan's phone system went down on
+a Saturday morning, Charles emailed admin@altecsales.com, and the ticket
+existed only because Michael saw it and forwarded it by hand - hours later,
+on a weekend. New resolver-prompt.md section: when the first message is
+visibly a forward from one of our own mailboxes (our signature on top, a
+quoted From/Sent/To/Subject block with a To: at one of our domains that
+isn't the intake address), the first client-facing reply adds one warm,
+explanatory paragraph after the actual answer - help@ or a call creates a
+ticket and notifies the whole team at once; an individual inbox creates no
+ticket and isn't monitored. Once per ticket; never when the client already
+wrote to help@; never when the forward came from the client's own side;
+never as a correction. The intake address and domains are config keys
+(`halo.help_desk_email`, `halo.internal_email_domains`) with defaults that
+match this deployment, so Roger's server needs no config change. #22385 is
+on the replay list with the reply required to mention help@ and forbidden
+from sounding like a reprimand.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

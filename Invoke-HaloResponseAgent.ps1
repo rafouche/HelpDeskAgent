@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.12.3 - Roger's request from ticket #22385 (Springfield
+    Nissan's 3CX down on a Saturday morning, emailed to admin@altecsales.com
+    and forwarded into help@ by hand hours later): when a ticket's first
+    message is visibly a forward of the client's email from one of our own
+    mailboxes, the first client-facing reply adds one warm, explanatory
+    paragraph - after the actual answer, never as a correction - saying
+    that help@ (or a call) creates a ticket and notifies the whole team
+    immediately, while an individual inbox creates no ticket and isn't
+    monitored. Once per ticket, never when the client already wrote to
+    help@, never when the forward came from the client's own side. The
+    intake address and our domains come from config.json's halo block
+    (help_desk_email, internal_email_domains) with defaults that match
+    this deployment, so no config change is needed. #22385 added to the
+    replay list with the reply required to mention help@.
     Version: 2.12.2 - three follow-ups from Roger on #22389/#22390:
     - "assume it's a remote worker if there isn't a contact" (BEC CFO):
       config.json's halo block takes contact_default_sites, { "<client>":
@@ -4619,6 +4633,17 @@ try {
     }
     $contactDefaultSitesText = $contactDefaultSitesText.Replace('$', '$$')
 
+    # halo.help_desk_email / halo.internal_email_domains (v2.12.3): how the
+    # resolver recognizes a client email that reached the desk by being
+    # forwarded from one of our own mailboxes. Defaults keep an older
+    # config.json working unchanged.
+    $helpDeskEmail = "help@altecusa.com"
+    if ($config.halo.PSObject.Properties['help_desk_email'] -and $config.halo.help_desk_email) { $helpDeskEmail = [string]$config.halo.help_desk_email }
+    $internalEmailDomains = @("altecusa.com", "altecsales.com")
+    if ($config.halo.PSObject.Properties['internal_email_domains'] -and $config.halo.internal_email_domains) { $internalEmailDomains = @($config.halo.internal_email_domains | ForEach-Object { [string]$_ }) }
+    $helpDeskEmailText = $helpDeskEmail.Replace('$', '$$')
+    $internalEmailDomainsText = ($internalEmailDomains -join ", ").Replace('$', '$$')
+
     $rememberedNotesText = "none"
     if (@($rememberedNotes).Count -gt 0) {
         $rememberedNotesLines = @($rememberedNotes | ForEach-Object {
@@ -4696,6 +4721,8 @@ try {
         -replace '\{\{EXCLUDED_CLIENT_IDS\}\}', $excludedClientIdsText `
         -replace '\{\{REMEMBERED_NOTES\}\}', $rememberedNotesText `
         -replace '\{\{CONTACT_DEFAULT_SITES\}\}', $contactDefaultSitesText `
+        -replace '\{\{HELP_DESK_EMAIL\}\}', $helpDeskEmailText `
+        -replace '\{\{INTERNAL_EMAIL_DOMAINS\}\}', $internalEmailDomainsText `
         -replace '\{\{RESOLVED_STATUS_ID\}\}', $ids.resolved_status_id `
         -replace '\{\{WAITING_STATUS_ID\}\}', $ids.waiting_status_id `
         -replace '\{\{FOLLOWUP_STATUS_ID\}\}', $ids.followup_status_id `

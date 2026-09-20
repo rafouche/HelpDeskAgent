@@ -39,7 +39,12 @@
     "ai_waiting_approval_status_name": "",
     "ai_approved_status_name": "",
     "ready_for_ai_status_name": "Ready for AI",
-    "agent_can_self_assign": false
+    "agent_can_self_assign": false,
+    "_contact_default_sites_comment": "v2.12.2: when the agent has verified a real person who has no Halo contact yet and the client has several sites with nothing pointing to one, it creates the contact under the site named here for that client (client name -> site name, exactly as in Halo). A client not listed gets the ticket's own site.",
+    "contact_default_sites": {},
+    "_intake_comment": "v2.12.3: the help desk intake address and this company's own email domains. When a ticket's first message is a client's email forwarded into the desk from one of these domains (a tech's inbox, admin@, sales@), the first reply adds one friendly line asking the client to write to help_desk_email or call next time, since an individual inbox creates no ticket and isn't monitored. Defaults are help@altecusa.com and altecusa.com/altecsales.com if these keys are missing.",
+    "help_desk_email": "help@altecusa.com",
+    "internal_email_domains": ["altecusa.com", "altecsales.com"]
   },
 
   "knowledge": {
