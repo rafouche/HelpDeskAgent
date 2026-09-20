@@ -3001,6 +3001,44 @@ match this deployment, so Roger's server needs no config change. #22385 is
 on the replay list with the reply required to mention help@ and forbidden
 from sounding like a reprimand.
 
+**v2.13.0 - emergencies bypass draft mode; on-call paging exists for the
+first time (2026-09-20).** Roger: "let emergencies bypass draft mode for
+the acknowledgment and on-call text." Investigating how to do that safely
+turned up something worse than the draft hold: the prompt's on-call
+notification depended on a "Microsoft365" MCP server that was never
+registered on the server - the allowlist comment said so, and no log ever
+shows the tool being called. On-call had never been paged by this
+pipeline, in any mode. #22385's "no tool capable of emailing/texting
+on-call" was literally true.
+
+The design keeps §07's structural guarantee intact: draft mode still holds
+no tool that can send arbitrary text. What it gains is one narrow tool,
+halopsa-mcp `escalate_emergency`, whose client-facing text is a fixed
+template (the model supplies a summary phrase capped at 200 chars, no
+links), whose on-call recipients are Worker settings the model cannot
+touch (m365-mcp `send_on_call_alert`, sender/recipients as wrangler vars,
+Graph sendMail via the existing app registration), which writes an
+`[EMERGENCY ACK SENT]` audit note, and which refuses to run twice on a
+ticket. It survives `-RequireApproval` and is still stripped under
+`-WhatIf`. The emergency and compromise sections and the approval banner
+now name it; the "email on-call yourself" instructions are gone.
+
+Verified: escalate_emergency dry-run against #22385 (correct greeting
+fallback for an email-only contact, correct template, correct on-call
+payload). The real test page did NOT go out: m365-mcp answered
+"M365_TENANTS is not valid JSON" - that Worker was deployed but its Graph
+credentials (M365_CLIENT_ID / M365_CLIENT_SECRET / M365_TENANTS) were
+never set, so it has never been able to call Graph at all. Until Roger
+sets them (an app registration with the Mail.Send application
+permission, admin-consented, and a real mailbox as ON_CALL_SENDER),
+escalate_emergency still sends the client acknowledgment and reports
+on_call_alert.sent=false, which the prompt turns into the top line of a
+NEEDS URGENT note - paging is still by hand, but the client is no longer
+left waiting on a draft. Environment note: the Cloudflare tool classifier
+refused `wrangler secret put` for the recipient addresses, so they went
+in as plain vars in wrangler.jsonc (the same values config.json already
+carries in the same private repo).
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

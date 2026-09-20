@@ -73,6 +73,31 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.0 - emergencies bypass draft mode, and on-call paging
+    finally exists. Roger's decision after ticket #22385: a site-wide 3CX
+    outage on a Saturday morning sat as an unsent draft under
+    -RequireApproval, and the on-call page never happened because the
+    "Microsoft365" MCP server the prompt relied on for it was never
+    registered on the server (see the note above its allowlist entries) -
+    which means on-call notification had NEVER worked, in any mode. Fixed
+    without giving up the structural guarantee: halopsa-mcp's new
+    escalate_emergency posts a FIXED, templated acknowledgment (caller
+    supplies one summary phrase, max 200 chars, no links), pages on-call
+    through m365-mcp's new send_on_call_alert - whose sender and
+    recipients are Worker secrets, never arguments - writes an
+    '[EMERGENCY ACK SENT]' audit note, sets status/assignment, and refuses
+    to run twice on one ticket. It is the one sending tool that survives
+    -RequireApproval (still stripped under -WhatIf). The prompt's emergency
+    and compromise sections and the approval banner now name it; the old
+    "email on-call yourself" instructions are gone. Secrets set on the
+    Workers today: m365-mcp ON_CALL_SENDER=help@altecusa.com,
+    ON_CALL_RECIPIENTS=<config's on_call primary email + text_email>,
+    ON_CALL_TENANT=altec; halopsa-mcp ON_CALL_ALERT_URL=<m365 Worker /mcp>.
+    Changing on-call contacts is now a Worker var change, not (only) a
+    config.json edit - README says so. Status at ship: the test page
+    failed because m365-mcp's own Graph credentials were never set (its
+    M365_TENANTS secret is missing) - the ack path is live, the page path
+    waits on Roger setting M365_CLIENT_ID/SECRET/TENANTS with Mail.Send.
     Version: 2.12.3 - Roger's request from ticket #22385 (Springfield
     Nissan's 3CX down on a Saturday morning, emailed to admin@altecsales.com
     and forwarded into help@ by hand hours later): when a ticket's first
@@ -3226,6 +3251,14 @@ $resolverTools = @(
     # entries are harmless no-ops, and on-call email plus the NDR bounce fallback
     # do not work.
     "mcp__Microsoft365__outlook_send_mail", "mcp__Microsoft365__outlook_email_search",
+    # escalate_emergency (v2.13.0): the one-call emergency path - a FIXED,
+    # templated acknowledgment to the client plus an on-call page whose
+    # recipients are Worker settings, not arguments. Deliberately NOT stripped
+    # under -RequireApproval (see $resolverToolsApprovalStripped): Roger's
+    # decision, 2026-09-20, after ticket #22385 (a site-wide phone outage on a
+    # Saturday sat as an unsent draft because approval mode had removed every
+    # tool that could send). Still stripped under -WhatIf like every write.
+    "mcp__Halo__escalate_emergency",
 
     # --- M365 / CIPP identity: read + the two whitelisted remediation actions ---
     # Server registered here as "CIPP" (cipp-mcp.young-math-a33a.workers.dev) -
@@ -3443,6 +3476,7 @@ $resolverTools = @(
 # a confirmed fix.
 $mutatingTools = @(
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
+    "mcp__Halo__escalate_emergency",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
@@ -5012,14 +5046,20 @@ try {
             "false. Do not actually take the remediation action this cycle - only the",
             "private draft note above.",
             "",
-            "ONE EXCEPTION: the brief EMERGENCY acknowledgment (`"We've identified this as",
-            "a priority issue and are notifying our on-call engineer now`") still sends",
-            "for real, immediately, exactly as the emergency section describes - on-call",
-            "is already being paged at the same moment, so this one message isn't held",
-            "back. Only the detailed follow-up reply (once you've actually investigated)",
-            "goes through the draft/approve flow above. The on-call notification itself",
-            "(email/text) is never gated either - it's an internal alert to your own team,",
-            "not client correspondence.",
+            "ONE EXCEPTION: a genuine EMERGENCY (the emergency section's outage test, or",
+            "the confirmed-compromise path) is acknowledged and paged for real,",
+            "immediately, with ONE call: mcp__Halo__escalate_emergency. That tool is the",
+            "only sending tool you hold in this mode, and it can only send a fixed,",
+            "templated acknowledgment ('we can see <your one-line summary>... notifying",
+            "our on-call engineer right now') and page the configured on-call contacts -",
+            "you supply the summary phrase, never the message or the recipients. Roger's",
+            "decision (2026-09-20, ticket #22385: a site-wide phone outage on a Saturday",
+            "morning sat as an unsent draft because this mode had removed every tool",
+            "that could send). Only the detailed follow-up reply, once you've actually",
+            "investigated, goes through the draft/approve flow above. Never write the",
+            "acknowledgment as a draft and never ask a human to page on-call by hand -",
+            "the tool does both, and if its on-call page fails it says so in its",
+            "response, which is when you flag that for a human in a NEEDS URGENT note.",
             "",
             "Any private note you leave that is only a status of this pipeline's own",
             "progress - waiting on a human to verify a contact, pick a site, fix a",

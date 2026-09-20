@@ -813,6 +813,23 @@ Add a ticket to the list whenever a real one teaches the pipeline something -
 the point is that every past lesson gets re-checked automatically on every
 future change.
 
+## Emergencies: the one send that never waits for approval
+A genuine outage or a confirmed account compromise is acknowledged and paged
+in one call, in every mode including `-RequireApproval`: the Halo Worker's
+`escalate_emergency` tool emails the ticket's contact a fixed, templated
+acknowledgment (the agent supplies only a one-line summary phrase, never the
+message), pages on-call by email and text, writes an `[EMERGENCY ACK SENT]`
+note, and sets the follow-up status. It refuses to run twice on one ticket.
+
+The on-call recipients are not chosen by the agent. They live on the M365
+Worker as plain settings (`ON_CALL_SENDER`, `ON_CALL_RECIPIENTS`,
+`ON_CALL_TENANT` in `m365-mcp/wrangler.jsonc`), and the Halo Worker reaches
+it through its own `ON_CALL_ALERT_URL` setting. To change who gets paged,
+edit those vars and redeploy the M365 Worker; the `on_call` block in
+config.json is still read by the agent for context but is no longer what
+sends the page. The sending mailbox needs the app registration's `Mail.Send`
+application permission.
+
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active
 M365 account, for example) who has no Halo contact yet, it creates the

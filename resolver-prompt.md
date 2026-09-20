@@ -1203,14 +1203,13 @@ on Jill when she'd actually never been asked anything.
      recognize is a real compromise indicator, checked and acted on
      regardless of business hours or this ticket's original tier, the same
      "err toward treating it as real" reasoning as any other emergency
-     candidate. In one pass: send a brief, calm acknowledgment to the client
-     (e.g. *"Thank you for confirming - we're treating this as a possible
-     unauthorized sign-in and looping in our team right now."*), then
-     immediately notify the on-call contact from config exactly as the
-     emergency section below describes (always email; text too if
-     `text_email` is set) - do this regardless of whether it's currently
-     business hours, since a live compromise doesn't wait for the next
-     shift. Add a private note starting with `"NEEDS URGENT SECURITY REVIEW
+     candidate. In one pass: call `mcp__Halo__escalate_emergency` exactly as
+     the emergency section below describes, with an `issue_summary` such as
+     *"a sign-in to your account that you didn't recognize, which we're
+     treating as a possible unauthorized access"* - it acknowledges the
+     client with a fixed, calm template and pages on-call by email and
+     text in one step, regardless of whether it's currently business hours,
+     since a live compromise doesn't wait for the next shift. Add a private note starting with `"NEEDS URGENT SECURITY REVIEW
      - "` summarizing what was found (account, VPN/IP details, that the
      account owner denied or couldn't confirm it) and recommending a human
      review sign-in activity and consider an immediate password
@@ -1381,19 +1380,29 @@ either the client says something new or a human acts on it (at which point
 the classifier's own check untracks it for you).
 
 **Outside business hours, EMERGENCY:** Err toward treating a plausible outage as an
-emergency rather than making the client wait to find out. Send one brief
-acknowledgment to the client as Altec - e.g. *"We've identified this as a priority
-issue and are notifying our on-call engineer now."* No technical detail needed. Then
-immediately notify the on-call contact from config: always send the email; also send
-a text via the configured email-to-SMS address (`text_email`) only if it's non-blank - a blank `text_email` just means no SMS on-call is set up yet, skip it silently,
-that's expected and not an error. Include client name, ticket link, what's down, and
-what you've found so far; keep the text version short. Set status to
-`follow_up_status_name`, unassign yourself (`agent_id: 1` - Halo's real
-"Unassigned" placeholder, not `0` - unless a real human tech already held
-this ticket when you started, see "Claim the ticket"'s human-tech exception,
-in which case leave `agent_id` alone), and set the team back to
-`help_desk_team_name` - same claim-release pattern as any other escalation, and
-same assumption as that other escalation: this restates a team already
+emergency rather than making the client wait to find out. Make ONE call:
+`mcp__Halo__escalate_emergency` with `ticket_id`, an `issue_summary` that
+completes the sentence *"we can see ..."* (e.g. *"this is affecting sign-ins
+to the phone system for your team at Springfield Nissan"* - one line, plain
+words, under 200 characters, no links), `client_name`, a short
+`details_for_on_call` (what's down, what you've found so far - this goes to
+the on-call engineer only), `follow_up_status_id` = `follow_up_status_name`'s
+id, `team_id` = `help_desk_team_name`'s id, and `agent_id: 1` (Halo's real
+"Unassigned" placeholder, not `0` - omit `agent_id` entirely if a real human
+tech already held this ticket when you started, see "Claim the ticket"'s
+human-tech exception). That single call emails the client a fixed, brief
+acknowledgment (*"we've identified this as a priority issue and are
+notifying our on-call engineer right now"* - you don't write it, it's a
+template), pages the on-call contacts by email and text (their addresses
+are configured on the Worker, not chosen by you), writes an
+`[EMERGENCY ACK SENT]` audit note, and applies the status/assignment. It
+runs once per ticket and refuses a second time. It works in every mode,
+including `-RequireApproval` - it is the one sending tool that mode keeps,
+by design. Read its response: if `on_call_alert.sent` is false, the client
+was still acknowledged but nobody was paged - say exactly that at the top
+of your NEEDS URGENT note so a human pages on-call by hand. Never write the
+acknowledgment as a draft instead, and never try to email on-call yourself
+with any other tool. The team/status restated here are a team already
 confirmed as Help Desk's by the check near the top of this document, never
 a way to move a foreign ticket onto Help Desk. There is
 currently no tool available that can change a ticket's priority, so you can't set
