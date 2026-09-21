@@ -3088,15 +3088,20 @@ ignores the API user's calendar filter); there is no /Shift, /ShiftType
 or /Rota endpoint (all 404). The stock "On-call" shift type is
 `shift_type_id` 1, "Fixed shift" is 0, times are UTC without a suffix,
 recurring masters are templates. Roger's test entry was appointment
-19875 (agent 28, 2026-09-22T01:30-02:00Z). `escalate_emergency` (ticket
-mode) now resolves who is on call at send time - the agent's Halo email
-+ `ON_CALL_SMS_MAP` text address - and falls back to `ON_CALL_EMAIL` /
-`ON_CALL_CC_EMAILS` when nobody is scheduled, saying which in its
-response and in the [EMERGENCY ACK SENT] note. New read-only
-`get_on_call` (optional `at`) previews it; `escalate_emergency` takes
-`at` only with dry_run/page_test. config.json's `on_call` block is
-context for the resolver only; it never chose the recipient after
-v2.13.0 and still doesn't. Details in MCPs/CLAUDE.md.
+19875 (agent 28, 2026-09-22T01:30-02:00Z). `escalate_emergency` now
+resolves who is on call at send time - the agent's Halo email plus a
+text to the Mobile Number on their Halo record at the altec.text.email
+service domain (no number = email only). Roger then asked for two more
+things the same day: no fallback at all ("if there isn't anybody on call
+in Halo, it obviously won't be able to send to anybody... just a silent
+record in the ticket"), so nobody scheduled = nobody paged, sent=false,
+and the [EMERGENCY ACK SENT] note says "NOT paged - nobody has an
+On-call shift"; and the `on_call` block removed from config.json, since
+nothing chose a recipient from it after v2.13.0 anyway. The Worker's
+fixed-recipient vars and its "halo"/"m365" paging modes are gone. New
+read-only `get_on_call` (optional `at`) previews the resolution;
+`escalate_emergency` takes `at` only with dry_run/page_test. Details in
+MCPs/CLAUDE.md.
 
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then

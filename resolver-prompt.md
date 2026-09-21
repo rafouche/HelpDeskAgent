@@ -1401,8 +1401,10 @@ text (looked up by the tool, never chosen by you), writes an
 runs once per ticket and refuses a second time. It works in every mode,
 including `-RequireApproval` - it is the one sending tool that mode keeps,
 by design. Read its response: if `on_call_alert.sent` is false, the client
-was still acknowledged but nobody was paged - say exactly that at the top
-of your NEEDS URGENT note so a human pages on-call by hand. Never write the
+was still acknowledged but nobody was paged - usually because nobody has an
+On-call shift in Halo at that moment (there is no fallback address, by
+design) - say exactly that, with the tool's own reason, at the top of your
+NEEDS URGENT note so a human pages on-call by hand. Never write the
 acknowledgment as a draft instead, and never try to email on-call yourself
 with any other tool. The team/status restated here are a team already
 confirmed as Help Desk's by the check near the top of this document, never

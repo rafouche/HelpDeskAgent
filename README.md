@@ -835,20 +835,23 @@ shift in Halo (Shifts module; the agent needs *Enable Shifts* on their
 Details tab, and the shift's type must be the stock *On-call* type under
 Configuration > Time Management > Shift Types) and make sure their agent
 record has a mobile number. A recurring shift works; ordinary *Fixed shift*
-entries are ignored. If nobody has an On-call shift right then, or the
-lookup fails, the page goes to the fixed fallback pair (`ON_CALL_EMAIL`,
-`ON_CALL_CC_EMAILS`), and the `[EMERGENCY ACK SENT]` note on the ticket says
-which one was used. Ask the Worker who it would page right now, or at a
-given time, with the read-only `get_on_call` tool - it also says whether
-that person would get a text or email only:
+entries are ignored. **If nobody has an On-call shift right then, nobody is
+paged.** There is no fallback address on purpose: the client still gets the
+acknowledgment, the private `[EMERGENCY ACK SENT]` note on the ticket records
+"on-call NOT paged - nobody has an On-call shift covering this moment", and
+the agent's own urgent note for a human says the same. Ask the Worker who it
+would page right now, or at a given time, with the read-only `get_on_call`
+tool - it also says whether that person would get a text or email only:
 
 ```powershell
 curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_on_call","arguments":{}}}'
 # or a specific moment: "arguments":{"at":"2026-09-22T01:45:00Z"}
 ```
 
-To change the fallback pair or the service domain, edit those vars, redeploy
-the Halo Worker, and send a test page from a scratch ticket of your own:
+The Worker's only on-call settings are the shift type id and the service
+domain (`halopsa-mcp/wrangler.jsonc`). To check the whole path, send a test
+page from a scratch ticket of your own while someone is on call - it goes to
+that person; with nobody on call it sends nothing and says so:
 
 ```powershell
 # sends a clearly-marked TEST page from ticket <scratch-id>; never use a client's ticket
@@ -856,8 +859,8 @@ curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{
 ```
 
 config.json no longer has an `on_call` block at all (removed 2026-09-21; an
-old copy left on a server is ignored). The Halo schedule decides who is
-paged, with the Worker's fallback vars behind it.
+old copy left on a server is ignored). The Halo schedule alone decides who is
+paged.
 
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active
