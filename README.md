@@ -862,6 +862,26 @@ config.json no longer has an `on_call` block at all (removed 2026-09-21; an
 old copy left on a server is ignored). The Halo schedule alone decides who is
 paged.
 
+## NinjaOne scripts the agent can run, and the installer catch
+A `remediation_whitelist` entry named `Run NinjaOne script: X` lets the agent
+run the library script named exactly X by its id. Two things NinjaOne's API
+will not do for this agent, found on ticket #22484 (2026-09-21):
+
+- `list_automation_scripts` never returns **Install Application** automations
+  (the ones made under Library > Automation > Add > Installation), so the
+  agent cannot find one by name.
+- Even given the automation's uid, NinjaOne refuses to start it with the API
+  key the agent uses (`user_context_required`); only library scripts run.
+
+So anything the agent should install has to exist as a plain library
+**script**. `ninja-scripts/Latest Wrike Desktop Install.ps1` is that wrapper
+for Wrike: it records the installed version, closes Wrike, downloads Wrike's
+current MSI from Wrike's own link, installs it silently with the same switches
+as the Install Application automation, and prints the before/after version.
+Add it in NinjaOne as a PowerShell script named exactly `Latest Wrike Desktop
+Install`, Windows, run as System; the whitelist entry already carries that
+name.
+
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active
 M365 account, for example) who has no Halo contact yet, it creates the
