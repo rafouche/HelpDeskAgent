@@ -3046,6 +3046,33 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.13.2 - Monday's $28: the re-processing loop (2026-09-21).** Roger:
+"just today it's used almost $12, much higher than previously... I
+changed the classifier model from Haiku to Sonnet 5 low, would that make
+this huge of a difference?" The log said $28.25 by 13:53 (Sunday: $8.85).
+The model switch was about $3 of it (classifier $0.40/run on Sonnet vs
+~$0.27 on Haiku - Haiku burned 25-50 tool turns to Sonnet's 11-21, so
+the gap is smaller than the price list suggests). The real driver was
+volume (28 new tickets Monday morning, 25 classifier runs vs 8) plus a
+loop: #22459, #22460, #22466 each resolved 5 times. Sequence on every
+one: Allie drafts -> Erick claims (bare Re-Assign + Triage, no note) ->
+Halo automation posts "Ticket In Progress Email" (who_type 0) -> both
+classifiers see "entry newer than our draft" every cycle -> resolver
+looks, finds nothing, [CACHE: TRACK], $0.35, repeat. The deterministic
+shadow was worse than the LLM here (candidate every single cycle, and its
+tiering call returned no tier for those ids so they defaulted to MEDIUM
+with a WARNING), so day one's shadow agreement numbers are noise. Fix in
+both paths: who_type 0 is never substantive, Triage/"Ticket In Progress
+Email" are bookkeeping outcomes, and a tracked_evaluated watermark (cycle
+start UTC, stamped on [CACHE: TRACK], pruned with the tracked list) makes
+a human's bare claim count once. classifier-prompt.md's tracked rule and
+the runtime call-5 text say the same in words, and the tracked list shows
+"(evaluated through <time>)" per id. Verified against the live queue:
+all three now drop as "latest substantive entry is ours". Harness in
+scratchpad/det-test (func.ps1 must be re-extracted after edits - the
+function moved when .NOTES grew). Shadow clock restarts from the first
+full day on v2.13.2.
+
 **v2.13.1 - Roger rejected the alert-ticket page, and a draft didn't
 collapse (2026-09-20).** "I don't like this route/option at all. Muddies
 up the workflow and causes more work for the technician." He was right:

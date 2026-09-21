@@ -927,9 +927,24 @@ and the log says why. Roll it out in two steps:
 With shadow on, every cycle's log gains a `DETERMINISTIC CLASSIFIER (SHADOW)`
 section (what it dropped and why, what it would send, what the tiering call
 cost) and a `CLASSIFIER SHADOW COMPARISON` section (both answers per ticket,
-agreement count, both costs). After a day of agreement, flip
+agreement count, both costs). After three business days of agreement (same
+ticket set every cycle, no "deterministic classifier failed" warnings), flip
 `deterministic_classifier` to `true` and `classifier_shadow` back to `false`.
-Rollback is the same edit in reverse; no code push either way.
+Rollback is the same edit in reverse; no code push either way. The first
+shadow day (2026-09-21) was not a clean comparison: both paths were
+re-queuing three claimed drafts every cycle on an automation entry (fixed in
+v2.13.2, see below), and the deterministic side's tiering call silently
+defaulted those to MEDIUM, so the agreement counts from that day mean
+nothing. Count from the first full day on v2.13.2.
+
+**What counts as "something changed" on a ticket we are waiting on
+(v2.13.2).** Entries by System, Automation or HaloAI (Halo rules, AI triage,
+"Ticket In Progress Email") never do, and a technician's bare claim (Re-Assign
+or Triage with no note text) counts once. Each time the resolver looks at a
+tracked ticket and keeps tracking it, the cycle's start time is stored in
+`agent-cache.json` as `tracked_evaluated`; nothing dated at or before that
+time is a change. Real incident: three claimed drafts were resolved five
+times each in one morning, every pass finding nothing to do.
 
 `pipeline.skip_status_names` is the list of status names the deterministic
 path treats as "an active workflow this pipeline can't act on" (Dispatch

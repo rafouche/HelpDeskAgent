@@ -52,6 +52,9 @@ output format section at the end of this document).
 - Halo status id -> name: {{STATUS_ID_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
 - Tracked ticket_id(s) already waiting on a client reply: {{TRACKED_TICKET_IDS}}
+  (an id followed by "evaluated through <UTC time>" was last looked at then -
+  every action-log entry dated at or before that time has already been
+  evaluated and is not a change; only an entry dated after it can be)
 - Blocked ticket_id(s) - a prior cycle hit a structural dead end on these, see call 1 below: {{BLOCKED_TICKET_IDS}}
 - Human-owned ticket_id(s) - a prior cycle confirmed a real human agent already owns these, see call 1 below: {{HUMAN_OWNED_TICKET_IDS}}
 - `halo.waiting_on_client_status_name` status_id: {{WAITING_STATUS_ID}}
@@ -278,6 +281,13 @@ version history for the real case this was fixed from):
      triaging a pending draft to look at it later isn't itself new
      information (ticket #22145 above is exactly this case: Erick
      reassigned/triaged with no note text - nothing had actually changed).
+     **Entries by System, Automation or HaloAI (`who_type` 0 - "Rule
+     Applied", "AI Triage", "Ticket In Progress Email" and the like) are
+     never a change either**, and neither is anything dated at or before
+     the id's "evaluated through" time in the tracked list above - real
+     incident, 2026-09-21: an automation email posted after a technician
+     claimed a pending draft re-queued three tickets every cycle for a day,
+     each pass finding nothing to do.
      Saying nothing is what keeps it tracked and
      unbothered until something actually changes; there is no "still waiting,
      no update" tier to emit. Otherwise - the client has posted something

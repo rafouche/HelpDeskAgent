@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.2 - the re-processing loop behind Monday's $28 day
+    (2026-09-21). Three tickets (#22459, #22460, #22466) were resolved five
+    times each: a technician claimed each pending draft (bare Re-Assign +
+    Triage, no note), Halo's automation then posted a "Ticket In Progress
+    Email" entry, and from then on both classifiers saw "an entry newer than
+    our draft" every cycle. The resolver correctly did nothing each time -
+    at ~$0.35 a pass, twelve times, with nothing to show for it. Two fixes,
+    both paths. (1) What counts as a change: entries by System/Automation
+    (who_type 0 - Halo rules, HaloAI triage, automation emails) never do,
+    and a bare Triage/Re-Assign with no note text is bookkeeping, not news
+    (Invoke-DeterministicClassifier's $isSubstantive; the same sentence in
+    classifier-prompt.md's tracked and waiting-approval rules). (2) A
+    watermark: when the resolver looks at a ticket and prints [CACHE:
+    TRACK], the cycle's start time (UTC) is stored as tracked_evaluated[id]
+    in agent-cache.json; the deterministic path drops a tracked or
+    waiting-approval ticket whose newest substantive entry is not after that
+    time, and the LLM classifier is shown "(evaluated through <time>)" next
+    to each tracked id with the same rule. So a human claim is looked at
+    once, then ignored until something genuinely new lands. Also: the
+    tiering call's "no valid tier" warning now includes the raw response so
+    the next one is diagnosable (it hit the three repeat tickets every
+    cycle today and silently defaulted them to MEDIUM).
     Version: 2.13.1 - two corrections from Roger the same afternoon.
     (1) The on-call page: the alert-ticket design (v2.13.0) put a second
     ticket in front of the technician with no link to the real one, plus
@@ -2978,6 +3000,14 @@ if ($agentCache.tracked_last_seen) {
     foreach ($prop in $agentCache.tracked_last_seen.PSObject.Properties) { $trackedLastSeen[$prop.Name] = $prop.Value }
 }
 
+# v2.13.2: per-ticket "evaluated through" watermark (UTC ISO text) - written
+# whenever the resolver looks at a ticket and keeps tracking it. Entries at
+# or before this time have been looked at; only newer ones are a change.
+$trackedEvaluated = @{}
+if ($agentCache.PSObject.Properties['tracked_evaluated'] -and $agentCache.tracked_evaluated) {
+    foreach ($prop in $agentCache.tracked_evaluated.PSObject.Properties) { $trackedEvaluated[$prop.Name] = [string]$prop.Value }
+}
+
 # Same pattern, for the unassigned-bucket fingerprint the gate check uses
 # below - absent entirely on a cache file from before this existed, which
 # just means "nothing seen yet," not an error.
@@ -3112,6 +3142,10 @@ $startTod = [TimeSpan]::Parse($config.business_hours.start)
 $endTod   = [TimeSpan]::Parse($config.business_hours.end)
 $isBusinessHours = $isBusinessDay -and ($contextNow.TimeOfDay -ge $startTod) -and ($contextNow.TimeOfDay -le $endTod)
 $nowText = $contextNow.ToString("dddd, MMMM d, yyyy h:mm tt")
+# v2.13.2: Halo action datetimes are UTC without a suffix; this is the
+# "evaluated through" watermark written for every ticket the resolver looks
+# at this cycle (see tracked_evaluated above).
+$cycleStartUtc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss")
 
 # --- Off-hours throttle: outside business hours, skip most cycles entirely
 #     rather than paying for a real check every 15 minutes overnight/on
@@ -3897,7 +3931,8 @@ function Invoke-DeterministicClassifier {
         # Integrations that post through a bound Halo agent account look human
         # (who_type 1) but aren't: Huntress's alert intake, seen live on
         # #22389/#22390. Same list halopsa-mcp's human_touch now ignores.
-        [string[]]$IntegrationAppIds = @("Huntress")
+        [string[]]$IntegrationAppIds = @("Huntress"),
+    [hashtable]$EvaluatedAt = @{}
     )
     $report = @()
     $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
@@ -3945,11 +3980,15 @@ function Invoke-DeterministicClassifier {
     if ($triage.unassigned -and $triage.unassigned.truncated) { $report += "NOTE: unassigned bucket truncated at the Worker's page cap (record_count=$($triage.unassigned.record_count))" }
 
     # --- helpers over trimmed actions (newest first) ---
-    $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed')
+    $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed', 'Triage', 'Ticket In Progress Email')
     $isOurs = { param($a) ($a.actionby_application_id -eq $PipelineAppId) -or ([string]$a.who_agentid -eq [string]$agentId) }
     $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id) }
     $isSubstantive = {
         param($a)
+        # v2.13.2: System/Automation entries (Halo rules, HaloAI triage,
+        # automation emails) are never news - real incident: a "Ticket In
+        # Progress Email" entry re-queued three tickets every cycle for a day.
+        if ($null -ne $a.who_type -and [int]$a.who_type -eq 0) { return $false }
         if ($bookkeepingOutcomes -notcontains [string]$a.outcome) { return $true }
         $n = [string]$a.note
         if (-not $n) { return $false }
@@ -3957,6 +3996,26 @@ function Invoke-DeterministicClassifier {
         return $true
     }
     $statusNameOf = { param($t) $key = [string]$t.status_id; if ($statusNames.ContainsKey($key)) { $statusNames[$key] } else { "" } }
+    # v2.13.2: Halo action datetimes are UTC wall-clock. Windows PowerShell
+    # 5.1 hands them over as ISO strings; PowerShell 7 (the test harness)
+    # converts them to DateTime objects. Normalize both to UTC before
+    # comparing against the "evaluated through" watermark (UTC ISO text).
+    $asUtc = {
+        param($v)
+        if ($null -eq $v -or [string]$v -eq "") { return $null }
+        if ($v -is [DateTime]) {
+            if ($v.Kind -eq [DateTimeKind]::Local) { return $v.ToUniversalTime() }
+            return [DateTime]::SpecifyKind($v, [DateTimeKind]::Utc)
+        }
+        try { return [DateTime]::Parse([string]$v, [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { return $null }
+    }
+    $alreadyEvaluated = {
+        param([string]$id, $entry)
+        if (-not $EvaluatedAt.ContainsKey($id)) { return $false }
+        $mark = & $asUtc $EvaluatedAt[$id]; $when = & $asUtc $entry.datetime
+        if ($null -eq $mark -or $null -eq $when) { return $false }
+        return ($when -le $mark)
+    }
 
     $candidates = New-Object System.Collections.ArrayList
     $seen = @{}
@@ -4017,6 +4076,7 @@ function Invoke-DeterministicClassifier {
         foreach ($a in @($entry.recent_actions)) { if (& $isSubstantive $a) { $lastSubstantive = $a; break } }
         if ($lastSubstantive -and (& $isOurs $lastSubstantive)) { & $drop $id "tracked, unchanged (latest substantive entry is ours, $($lastSubstantive.datetime))"; continue }
         if (-not $lastSubstantive) { & $drop $id "tracked, unchanged (no substantive entry in the recent window)"; continue }
+        if (& $alreadyEvaluated ([string]$id) $lastSubstantive) { & $drop $id "tracked, unchanged since last evaluated ($($EvaluatedAt[[string]$id])Z; newest entry $($lastSubstantive.who) $($lastSubstantive.datetime))"; continue }
         & $add $id $null "tracked (new entry by $($lastSubstantive.who), $($lastSubstantive.datetime))"
     }
 
@@ -4037,8 +4097,9 @@ function Invoke-DeterministicClassifier {
             $humanSinceOurs = $null
             foreach ($a in @($entry.recent_actions)) {
                 if (& $isOurs $a) { break }
-                if (& $isHuman $a) { $humanSinceOurs = $a; break }
+                if ((& $isHuman $a) -and (& $isSubstantive $a)) { $humanSinceOurs = $a; break }
             }
+            if ($humanSinceOurs -and (& $alreadyEvaluated ([string]$id) $humanSinceOurs)) { & $drop $id "waiting_approval, human entry already evaluated ($($humanSinceOurs.who) $($humanSinceOurs.datetime) <= $($EvaluatedAt[[string]$id])Z)"; continue }
             if ($humanSinceOurs) { & $add $id $null "waiting_approval (human $($humanSinceOurs.who) $($humanSinceOurs.outcome) at $($humanSinceOurs.datetime))" }
             else { & $drop $id "waiting_approval, untouched since our draft" }
         }
@@ -4125,7 +4186,7 @@ function Invoke-DeterministicClassifier {
         foreach ($c in $toTier) {
             $key = [string]$c.ticket_id
             if ($tierById.ContainsKey($key)) { $c.tier = $tierById[$key] }
-            else { $c.tier = "MEDIUM"; $report += "WARNING: tiering call returned no valid tier for $key - defaulting to MEDIUM" }
+            else { $c.tier = "MEDIUM"; $report += "WARNING: tiering call returned no valid tier for $key - defaulting to MEDIUM (raw: $(([string]$tierJson) -replace '\s+', ' ' | ForEach-Object { if ($_.Length -gt 400) { $_.Substring(0, 400) + '...' } else { $_ } }))" }
         }
         $report += "tiering call: $($toTier.Count) ticket(s), `$$([math]::Round($cost, 4)), $($tierResult.Parsed.num_turns) turn(s): $(($toTier | ForEach-Object { "$($_.ticket_id)=$($_.tier)" }) -join ', ')"
     }
@@ -4655,7 +4716,9 @@ try {
     # plain text, not literal empty-array syntax.
     $trackedTicketIdsText = "none"
     if ($trackedTicketIds -and @($trackedTicketIds).Count -gt 0) {
-        $trackedTicketIdsText = (@($trackedTicketIds) -join ", ")
+        # v2.13.2: each id carries its "evaluated through" watermark so the
+        # classifier can tell an entry it already looked at from a new one.
+        $trackedTicketIdsText = (@($trackedTicketIds | ForEach-Object { $k = [string]$_; if ($trackedEvaluated.ContainsKey($k)) { "$k (evaluated through $($trackedEvaluated[$k])Z)" } else { "$k" } }) -join ", ")
     }
 
     # Same "none" rendering, same reason - see the blocked_tickets loading/
@@ -4816,7 +4879,13 @@ try {
             "   call ``mcp__Halo__get_ticket_time_entries`` and check whether anything has",
             "   happened since your own most recent action on it - a new note from a real",
             "   human (``who_type: 1``, not this pipeline's own identity), or a change in",
-            "   who it's assigned to. **If nothing has happened yet** (your own",
+            "   who it's assigned to. Entries by System, Automation or HaloAI (``who_type: 0`` -",
+            "   'Rule Applied', 'AI Triage', 'Ticket In Progress Email') never count, a bare",
+            "   Re-Assign/Triage with no note text counts only the first time you see it, and",
+            "   nothing dated at or before the ticket's 'evaluated through' time in the",
+            "   tracked list above counts at all - it was already looked at (real incident,",
+            "   2026-09-21: an automation email after a technician's claim re-queued three",
+            "   drafts every cycle for a day). **If nothing has happened yet** (your own",
             "   `[DRAFT PENDING APPROVAL]` note is still the most recent substantive",
             "   entry): skip it, same as always - re-processing an untouched, still-",
             "   pending draft wastes cost and risks clobbering it. **If something HAS",
@@ -5210,7 +5279,7 @@ try {
             $deterministic = Invoke-DeterministicClassifier -RootPath $RootPath -Ids $ids -TrackedTicketIds $trackedTicketIds `
                 -BlockedTickets $blockedTickets -HumanOwnedTickets $humanOwnedTickets -ApprovalMode ([bool]$RequireApproval) `
                 -SkipStatusNames $skipStatusNames -ClassifierPromptPath $classifierPromptPath `
-                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone `
+                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone -EvaluatedAt $trackedEvaluated `
                 -IntegrationAppIds $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['integration_application_ids'] -and $config.pipeline.integration_application_ids) { @($config.pipeline.integration_application_ids | ForEach-Object { [string]$_ }) } else { @("Huntress") })
             Write-LogSection -LogFile $logFile -Header "DETERMINISTIC CLASSIFIER$(if (-not $pipelineFlags.deterministic_classifier) { ' (SHADOW)' })" -Content $deterministic.Report
         }
@@ -5487,6 +5556,9 @@ try {
             if ($resolverResult.Parsed -and $resolverResult.Parsed.result -match '\[CACHE:\s*(TRACK|UNTRACK|BLOCKED|HUMAN_OWNED)\s*\]') {
                 $cacheMarker = $Matches[1].ToUpperInvariant()
             }
+            # v2.13.2: TRACK also stamps the watermark - everything on this
+            # ticket dated up to the start of this cycle has now been looked at.
+            if ($cacheMarker -eq 'TRACK') { $trackedEvaluated[[string]$ticketId] = $cycleStartUtc } else { [void]$trackedEvaluated.Remove([string]$ticketId) }
             switch ($cacheMarker) {
                 'TRACK'   { if ($trackedTicketIds -notcontains $ticketId) { $trackedTicketIds += $ticketId } }
                 'UNTRACK' { $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId }) }
@@ -5593,14 +5665,17 @@ finally {
     if (-not $WhatIf) {
         try {
             $prunedTrackedLastSeen = @{}
+            $prunedTrackedEvaluated = @{}
             foreach ($id in $trackedTicketIds) {
                 $key = [string]$id
                 if ($trackedLastSeen.ContainsKey($key)) { $prunedTrackedLastSeen[$key] = $trackedLastSeen[$key] }
+                if ($trackedEvaluated.ContainsKey($key)) { $prunedTrackedEvaluated[$key] = $trackedEvaluated[$key] }
             }
             $updatedCache = [PSCustomObject]@{
                 resolved_ids         = $resolvedIdsForCache
                 tracked_tickets      = @($trackedTicketIds | Select-Object -Unique)
                 tracked_last_seen    = $prunedTrackedLastSeen
+                tracked_evaluated    = $prunedTrackedEvaluated
                 unassigned_last_seen = $unassignedLastSeen
                 blocked_tickets      = $blockedTickets
                 human_owned_tickets  = $humanOwnedTickets
