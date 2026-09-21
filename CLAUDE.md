@@ -3078,6 +3078,26 @@ Lesson recorded twice now (v2.12.1 loops, this): when the prompt asks
 for a sequence of writes that must all happen, put the sequence in a
 tool. The prompt should decide; the tool should do.
 
+**On-call comes from Halo's schedule (2026-09-21, halopsa-mcp only; no
+script change).** Roger: "Working on an on-call schedule in Halo. Is
+there any way to determine who's on-call and use that for the emergency
+contact email instead of config.json?" Yes. Halo exposes shifts as
+appointments (`type` 4) but GET /Appointment hides them unless
+`showshifts=true` (`shiftsonly=true` keeps only shifts, `showall=true`
+ignores the API user's calendar filter); there is no /Shift, /ShiftType
+or /Rota endpoint (all 404). The stock "On-call" shift type is
+`shift_type_id` 1, "Fixed shift" is 0, times are UTC without a suffix,
+recurring masters are templates. Roger's test entry was appointment
+19875 (agent 28, 2026-09-22T01:30-02:00Z). `escalate_emergency` (ticket
+mode) now resolves who is on call at send time - the agent's Halo email
++ `ON_CALL_SMS_MAP` text address - and falls back to `ON_CALL_EMAIL` /
+`ON_CALL_CC_EMAILS` when nobody is scheduled, saying which in its
+response and in the [EMERGENCY ACK SENT] note. New read-only
+`get_on_call` (optional `at`) previews it; `escalate_emergency` takes
+`at` only with dry_run/page_test. config.json's `on_call` block is
+context for the resolver only; it never chose the recipient after
+v2.13.0 and still doesn't. Details in MCPs/CLAUDE.md.
+
 ## Multi-ticket handling
 One classifier call finds every candidate ticket for the cycle; PowerShell then
 loops the resolver call once per ticket, one `claude -p` process at a time, not

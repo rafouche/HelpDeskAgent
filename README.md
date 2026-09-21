@@ -825,10 +825,31 @@ The on-call recipients are not chosen by the agent, and the page goes out
 through Halo's own mail as one hidden emailed action on the ticket itself:
 addressed to the on-call address with the email-to-SMS gateway CC'd, subject
 carrying the ticket ID, invisible to the client, no second ticket. The
-technician gets one email and one text and nothing else. Who gets paged is a
-pair of plain settings on the Halo Worker (`ON_CALL_EMAIL`, `ON_CALL_CC_EMAILS`
-in `halopsa-mcp/wrangler.jsonc`). To change them, edit those vars, redeploy
-the Halo Worker, and send a test page from a scratch ticket of your own:
+technician gets one email and one text and nothing else.
+
+**Who gets paged comes from Halo's on-call schedule.** At the moment of the
+page the Worker reads Halo's Shifts calendar and pages the agent whose
+*On-call* shift covers that moment: the email on their Halo agent record,
+plus the text address the Worker maps to their agent id. To put someone on
+call, give them an On-call shift in Halo (Shifts module; the agent needs
+*Enable Shifts* on their Details tab, and the shift's type must be the stock
+*On-call* type under Configuration > Time Management > Shift Types). A
+recurring shift works; ordinary *Fixed shift* entries are ignored. If nobody
+has an On-call shift right then, or the lookup fails, the page goes to the
+fixed fallback pair (`ON_CALL_EMAIL`, `ON_CALL_CC_EMAILS`), and the
+`[EMERGENCY ACK SENT]` note on the ticket says which one was used. The text
+addresses live in `ON_CALL_SMS_MAP` in `halopsa-mcp/wrangler.jsonc`, e.g.
+`{"28":"4178300075@vtext.com"}` (Halo agent id to email-to-SMS address); an
+agent with no entry is paged by email only. Ask the Worker who it would page
+right now, or at a given time, with the read-only `get_on_call` tool:
+
+```powershell
+curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_on_call","arguments":{}}}'
+# or a specific moment: "arguments":{"at":"2026-09-22T01:45:00Z"}
+```
+
+To change the fallback pair or the text map, edit those vars, redeploy the
+Halo Worker, and send a test page from a scratch ticket of your own:
 
 ```powershell
 # sends a clearly-marked TEST page from ticket <scratch-id>; never use a client's ticket
@@ -836,7 +857,8 @@ curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{
 ```
 
 The `on_call` block in config.json is still read by the agent for context but
-is no longer what sends the page.
+is no longer what sends the page, and it does not decide who is paged: the
+Halo schedule does, with the Worker's fallback vars behind it.
 
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active
