@@ -119,6 +119,10 @@
       "requires": "Group Policy hasn't applied / a policy-managed setting isn't taking effect, device not a server. Script name must match exactly what's in NinjaOne."
     },
     {
+      "name": "Run NinjaOne script: Latest Wrike Desktop Install",
+      "requires": "The client asked for Wrike to be updated, upgraded, or allowed to update on their computer (any wording: 'allow the Wrike update', 'Wrike says a new version is available', 'update Wrike'). Windows workstation, not a server, identified via the ticket's device hints or a NinjaOne device lookup (hostname or last-logged-in-user match). Wrike must already be installed on that device - confirm with mcp__Ninja__get_device_software (look for 'Wrike for Windows') before running; if it is not installed this is a new-software request for a human, not an update. Run it with mcp__Ninja__run_script_and_wait, tell the client the update was applied and to restart Wrike (it is safe to run while Wrike is open, but they may need to relaunch it), and record the before/after version in the internal note. Script name must match exactly what's in NinjaOne."
+    },
+    {
       "name": "Run NinjaOne script: Enable Remote Desktop Service",
       "requires": "Device belongs to the ticket contact (not a shared/kiosk device) and they've explicitly asked for remote access to their own machine. This is a persistent access change - nothing disables it automatically - so log clearly in the internal note that RDP was enabled and why."
     },
