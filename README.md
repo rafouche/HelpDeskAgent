@@ -24,7 +24,7 @@ bigger one and a full tool loop).
 ## Files
 | File | Purpose |
 |---|---|
-| `config.json` | On-call contacts, business hours, Halo IDs, remediation whitelist, per-tier model/effort settings. **Edit this, not the prompts.** |
+| `config.json` | Business hours, Halo IDs, remediation whitelist, per-tier model/effort settings. **Edit this, not the prompts.** (Who is on call lives in Halo's Shifts calendar, not here.) |
 | `classifier-prompt.md` | Stage 1 instructions: find candidate tickets, tag each with a tier. |
 | `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
 | `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the classifier then a resolver call per ticket. |
@@ -57,9 +57,7 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    `RootPath` in the scripts consistent), then run `Install-Prerequisites.ps1`
    once as Administrator (see "Install and authenticate Claude Code" below)
    before anything else.
-2. **Fill in `config.json`:**
-   - `on_call.primary.email` and `text_email` (your email-to-SMS gateway address).
-   - Everything else already matches what's live in Halo (team/status names). Review `remediation_whitelist` and add/remove entries as you like.
+2. **Review `config.json`:** it already matches what's live in Halo (team/status names). Review `remediation_whitelist` and add/remove entries as you like. On-call is not configured here - see "Emergencies" below.
 3. **Dry-run it first:**
    ```powershell
    .\Invoke-HaloResponseAgent.ps1 -DryRun
@@ -170,14 +168,13 @@ are excluded for the same "not part of the running pipeline" reason,
 plus they're documentation, not program files.
 
 **`config.json` is never touched by this, on purpose - confirmed the hard
-way.** It's explicitly a per-deployment file (this README tells you to fill
-in `on_call.primary.email`/`text_email` and review `remediation_whitelist`
-by hand), and those edits only ever exist on this server, never in the
-repo. An earlier version of this script did sync `config.json`, and the
-very first update cycle silently overwrote a live `on_call.primary.email`
-with the repo's still-placeholder value - no backup, no warning, discovered
-only when on-call escalation broke. Never add `config.json` back to that
-file list.
+way.** It's explicitly a per-deployment file (this README tells you to
+review `remediation_whitelist` by hand), and those edits only ever exist on
+this server, never in the repo. An earlier version of this script did sync
+`config.json`, and the very first update cycle silently overwrote a live
+on-call email (config.json held it back then) with the repo's
+still-placeholder value - no backup, no warning, discovered only when
+on-call escalation broke. Never add `config.json` back to that file list.
 It's a smoke test, not a rollback - if it fails, the new code is still left
 in place and still runs next cycle; the log is what tells a human to go
 look. A download failure for one file logs an error and leaves that file
@@ -829,36 +826,38 @@ technician gets one email and one text and nothing else.
 
 **Who gets paged comes from Halo's on-call schedule.** At the moment of the
 page the Worker reads Halo's Shifts calendar and pages the agent whose
-*On-call* shift covers that moment: the email on their Halo agent record,
-plus the text address the Worker maps to their agent id. To put someone on
-call, give them an On-call shift in Halo (Shifts module; the agent needs
-*Enable Shifts* on their Details tab, and the shift's type must be the stock
-*On-call* type under Configuration > Time Management > Shift Types). A
-recurring shift works; ordinary *Fixed shift* entries are ignored. If nobody
-has an On-call shift right then, or the lookup fails, the page goes to the
-fixed fallback pair (`ON_CALL_EMAIL`, `ON_CALL_CC_EMAILS`), and the
-`[EMERGENCY ACK SENT]` note on the ticket says which one was used. The text
-addresses live in `ON_CALL_SMS_MAP` in `halopsa-mcp/wrangler.jsonc`, e.g.
-`{"28":"4178300075@vtext.com"}` (Halo agent id to email-to-SMS address); an
-agent with no entry is paged by email only. Ask the Worker who it would page
-right now, or at a given time, with the read-only `get_on_call` tool:
+*On-call* shift covers that moment: an email to the address on their Halo
+agent record, and a text to the *Mobile Number* on that same record, sent as
+`<mobile digits>@altec.text.email` (the email-to-SMS service domain,
+`ON_CALL_SMS_DOMAIN` in `halopsa-mcp/wrangler.jsonc`). No mobile number on
+the record means email only. To put someone on call, give them an On-call
+shift in Halo (Shifts module; the agent needs *Enable Shifts* on their
+Details tab, and the shift's type must be the stock *On-call* type under
+Configuration > Time Management > Shift Types) and make sure their agent
+record has a mobile number. A recurring shift works; ordinary *Fixed shift*
+entries are ignored. If nobody has an On-call shift right then, or the
+lookup fails, the page goes to the fixed fallback pair (`ON_CALL_EMAIL`,
+`ON_CALL_CC_EMAILS`), and the `[EMERGENCY ACK SENT]` note on the ticket says
+which one was used. Ask the Worker who it would page right now, or at a
+given time, with the read-only `get_on_call` tool - it also says whether
+that person would get a text or email only:
 
 ```powershell
 curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_on_call","arguments":{}}}'
 # or a specific moment: "arguments":{"at":"2026-09-22T01:45:00Z"}
 ```
 
-To change the fallback pair or the text map, edit those vars, redeploy the
-Halo Worker, and send a test page from a scratch ticket of your own:
+To change the fallback pair or the service domain, edit those vars, redeploy
+the Halo Worker, and send a test page from a scratch ticket of your own:
 
 ```powershell
 # sends a clearly-marked TEST page from ticket <scratch-id>; never use a client's ticket
 curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"escalate_emergency","arguments":{"page_test":true,"ticket_id":<scratch-id>}}}'
 ```
 
-The `on_call` block in config.json is still read by the agent for context but
-is no longer what sends the page, and it does not decide who is paged: the
-Halo schedule does, with the Worker's fallback vars behind it.
+config.json no longer has an `on_call` block at all (removed 2026-09-21; an
+old copy left on a server is ignored). The Halo schedule decides who is
+paged, with the Worker's fallback vars behind it.
 
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active

@@ -3226,10 +3226,9 @@ config tweak. Not worth building preemptively.
   cost-per-day from `-WhatIf` runs against a static backlog without
   accounting for this.
 - Sequential ticket processing within a cycle, not parallel (see above).
-- `on_call.primary.email` in config.json is still a placeholder — fill in before
-  relying on emergency escalation. `text_email` may be legitimately left blank (no
-  SMS on-call set up yet) — the agent skips the text and still sends email in that
-  case, this is expected.
+- On-call is no longer configured in config.json (block removed 2026-09-21):
+  the Halo Worker pages whoever holds the On-call shift in Halo, texting the
+  Mobile Number on their agent record; no number means email only, by design.
 - **Tool-name syntax bug that silently broke every MCP call from day one (fixed):**
   the static allowlist and `agent-prompt.md` (the single-call design's prompt,
   later split into `classifier-prompt.md`/`resolver-prompt.md` — see "Two-stage
