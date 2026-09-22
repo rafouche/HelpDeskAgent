@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.3 - Roger: "Allie is touching tickets outside of the Help
+    Desk queue!" (2026-09-22). She isn't. The Alerts / System Admin tickets
+    in question (#22488, #22489, backup alerts) carry actions by who=Allie,
+    who_agentid 17, actionby_application_id "Acronis Client Portal": Halo's
+    Acronis integration app is bound to the Allie agent account and has
+    posted every Acronis ticket that way since at least 2026-08-22 (#21047,
+    #21066). No action with application id "Claude" exists on any ticket
+    outside Help Desk; the pipeline logs never mention those ids; both
+    classifiers filter on team_id. The fix is in Halo (bind the Acronis
+    application to its own agent). Here: "Acronis Client Portal" joins the
+    default integration app ids (pipeline.integration_application_ids and
+    halopsa-mcp's human_touch ignore list), and the deterministic path's
+    "ours" test no longer counts an integration app posting through our
+    agent id as ours.
     Version: 2.13.2 - the re-processing loop behind Monday's $28 day
     (2026-09-21). Three tickets (#22459, #22460, #22466) were resolved five
     times each: a technician claimed each pending draft (bare Re-Assign +
@@ -3931,7 +3945,7 @@ function Invoke-DeterministicClassifier {
         # Integrations that post through a bound Halo agent account look human
         # (who_type 1) but aren't: Huntress's alert intake, seen live on
         # #22389/#22390. Same list halopsa-mcp's human_touch now ignores.
-        [string[]]$IntegrationAppIds = @("Huntress"),
+        [string[]]$IntegrationAppIds = @("Huntress", "Acronis Client Portal"),
     [hashtable]$EvaluatedAt = @{}
     )
     $report = @()
@@ -3981,7 +3995,10 @@ function Invoke-DeterministicClassifier {
 
     # --- helpers over trimmed actions (newest first) ---
     $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed', 'Triage', 'Ticket In Progress Email')
-    $isOurs = { param($a) ($a.actionby_application_id -eq $PipelineAppId) -or ([string]$a.who_agentid -eq [string]$agentId) }
+    # v2.13.3: an integration app posting through our own agent account
+    # (Halo's Acronis integration is bound to Allie, agent 17) is neither
+    # ours nor human - the who_agentid match must exclude those apps.
+    $isOurs = { param($a) ($a.actionby_application_id -eq $PipelineAppId) -or (([string]$a.who_agentid -eq [string]$agentId) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id)) }
     $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id) }
     $isSubstantive = {
         param($a)
@@ -5280,7 +5297,7 @@ try {
                 -BlockedTickets $blockedTickets -HumanOwnedTickets $humanOwnedTickets -ApprovalMode ([bool]$RequireApproval) `
                 -SkipStatusNames $skipStatusNames -ClassifierPromptPath $classifierPromptPath `
                 -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone -EvaluatedAt $trackedEvaluated `
-                -IntegrationAppIds $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['integration_application_ids'] -and $config.pipeline.integration_application_ids) { @($config.pipeline.integration_application_ids | ForEach-Object { [string]$_ }) } else { @("Huntress") })
+                -IntegrationAppIds $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['integration_application_ids'] -and $config.pipeline.integration_application_ids) { @($config.pipeline.integration_application_ids | ForEach-Object { [string]$_ }) } else { @("Huntress", "Acronis Client Portal") })
             Write-LogSection -LogFile $logFile -Header "DETERMINISTIC CLASSIFIER$(if (-not $pipelineFlags.deterministic_classifier) { ' (SHADOW)' })" -Content $deterministic.Report
         }
         catch {
