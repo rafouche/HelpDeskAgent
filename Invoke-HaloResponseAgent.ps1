@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.5 - the deterministic tiering call never parsed on the
+    production server (2026-09-22). The raw-response logging v2.13.2 added
+    to the "no valid tier" warning showed the model answering correctly
+    ([{"ticket_id": 22484, "tier": "TRIVIAL"}, ...]) while every candidate
+    still defaulted to MEDIUM. Windows PowerShell 5.1's ConvertFrom-Json
+    emits a JSON array as one Object[] item, so @(ConvertFrom-Json ...) in
+    one expression nested it; the loop saw a single element whose .tier
+    was every tier at once. PowerShell 7 (the sandbox harness) has no such
+    quirk, which is why the tests passed. Fixed the same way the LLM
+    classifier's parse already handles it (assign, then wrap, plus an
+    explicit un-nest). Consequence: every CLASSIFIER SHADOW COMPARISON so
+    far compared the LLM against a constant MEDIUM, not against the
+    deterministic path's real answer - the shadow clock restarts from the
+    first full day on v2.13.5.
     Version: 2.13.4 - an approved ticket the classifier leaves out now still
     sends (2026-09-22). #22484 sat in AI Approved for an hour with no cycle
     touching it. The v2.12.1 backstop only re-tiers tickets the classifier
@@ -4202,7 +4216,17 @@ function Invoke-DeterministicClassifier {
         if ($tierResult.Parsed.is_error) { throw "tiering call returned an error: $($tierResult.Parsed.result)" }
         if ($tierResult.Parsed.total_cost_usd) { $cost = [double]$tierResult.Parsed.total_cost_usd }
         $tierJson = Get-CleanJsonText -Text ([string]$tierResult.Parsed.result)
-        $tiers = @(ConvertFrom-Json -InputObject $tierJson)
+        # Windows PowerShell 5.1 quirk (real incident, 2026-09-21/22, every
+        # tiering call): ConvertFrom-Json emits a JSON array as ONE Object[]
+        # item, so @(ConvertFrom-Json ...) in a single expression NESTS it -
+        # the loop below then saw one element (the whole array), read
+        # "TRIVIAL MEDIUM" as its tier, and defaulted every candidate to
+        # MEDIUM with a "no valid tier" warning even though the raw response
+        # was correct. Assign first, then wrap: @($x) of an array is the
+        # array itself. Same two-step the LLM classifier's own parse uses.
+        $parsedTiers = ConvertFrom-Json -InputObject $tierJson
+        $tiers = @($parsedTiers)
+        if ($tiers.Count -eq 1 -and ($tiers[0] -is [System.Array])) { $tiers = @($tiers[0]) }
         $validTiers = @('TRIVIAL', 'TRIVIAL_UNCERTAIN', 'MEDIUM', 'COMPLEX')
         $tierById = @{}
         foreach ($x in $tiers) {
