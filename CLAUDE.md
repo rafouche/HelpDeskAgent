@@ -3046,6 +3046,29 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.13.3 / v2.13.4 - the first real NinjaOne script run, end to end
+(2026-09-22).** Ticket #22484 (Wrike update, YB-FAB-01) was the first
+approved ticket whose whitelist entry called for a script. It exposed that
+NinjaOne refuses `script/run` to a client-credentials token
+(user_context_required) - so no "Run NinjaOne script" entry had ever run
+anything; the speedtest tooling from 09-14 was never exercised. Fix in
+rafouche/MCPs: the Ninja Worker's /oauth/start one-time sign-in (Roger did
+it 01:50Z after adding the redirect URI to the NinjaOne client app),
+refresh token in KV, plus three run-body fixes (parameters as string,
+runAs "system" lowercase, poll ACTION not SCRIPT activities). Here:
+v2.13.3 treats "Acronis Client Portal" (Halo's Acronis integration posts
+as agent 17/Allie - Roger briefly read that as Allie touching Alerts
+tickets; she wasn't) as an integration; v2.13.4 appends any AI Approved
+ticket the LLM classifier omitted, from the deterministic triage, because
+the v2.12.1 backstop can only re-tier what the classifier returned and
+the v2.13.2 "bookkeeping isn't a change" rule makes a bare approval
+omittable. Outcome at 03:04Z: script 234 ran via the API (SUCCESS,
+4.6.1.3034 -> 4.6.1.3034), reply emailed to the client (email_status 2),
+draft collapsed, pipeline note removed, ticket Resolved. Also fixed the
+same night in halopsa-mcp: pipeline marker notes are forced private
+(one had landed visible on #22484), and delete_ticket_note may remove our
+own [PIPELINE NOTE] even when visible.
+
 **v2.13.2 - Monday's $28: the re-processing loop (2026-09-21).** Roger:
 "just today it's used almost $12, much higher than previously... I
 changed the classifier model from Haiku to Sonnet 5 low, would that make
