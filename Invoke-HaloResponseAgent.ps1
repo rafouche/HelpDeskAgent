@@ -73,6 +73,16 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.4 - an approved ticket the classifier leaves out now still
+    sends (2026-09-22). #22484 sat in AI Approved for an hour with no cycle
+    touching it. The v2.12.1 backstop only re-tiers tickets the classifier
+    returned; with v2.13.2's "bookkeeping entries aren't a change" rule, a
+    human's approval (a bare status change) can make the LLM classifier
+    omit a tracked ticket altogether. Now every ticket the deterministic
+    triage tiered APPROVED (it reads the approved status mechanically,
+    shadow or live) that the used list lacks is appended, logged as TIER
+    BACKSTOP. Needs classifier_shadow or deterministic_classifier on -
+    Roger's config has shadow on.
     Version: 2.13.3 - Roger: "Allie is touching tickets outside of the Help
     Desk queue!" (2026-09-22). She isn't. The Alerts / System Admin tickets
     in question (#22488, #22489, backup alerts) carry actions by who=Allie,
@@ -5446,6 +5456,24 @@ try {
         catch {
             $backstopTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Add-Content -Path $logFile -Value "[$backstopTimestamp] WARNING: approved-tier backstop check failed ($($_.Exception.Message)) - tiers left as classified." -Encoding UTF8
+        }
+    }
+    # v2.13.4: the backstop above can only re-tier a ticket the classifier
+    # RETURNED. An AI Approved ticket the LLM classifier left out entirely
+    # (its tracked-ticket rule says "say nothing" when the newest entries are
+    # bookkeeping - and a human's approval IS a bare status change) would
+    # never send. The deterministic triage (shadow or live) lists every
+    # ticket in the approved status mechanically, so anything it tiered
+    # APPROVED that the used list lacks is appended here.
+    if ($RequireApproval -and $deterministic -and $classifierSource -ne 'deterministic') {
+        $usedIds = @{}
+        foreach ($t in @($tickets)) { if ($t -and $t.ticket_id) { $usedIds[[string]$t.ticket_id] = $true } }
+        foreach ($dt in @($deterministic.Tickets)) {
+            if ([string]$dt.tier -eq 'APPROVED' -and -not $usedIds.ContainsKey([string]$dt.ticket_id)) {
+                $backstopTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                Add-Content -Path $logFile -Value "[$backstopTimestamp] TIER BACKSTOP: ticket $($dt.ticket_id) is in ai_approved_status_name but the classifier omitted it - added as APPROVED so the approved draft actually sends." -Encoding UTF8
+                $tickets = @($tickets) + @([PSCustomObject]@{ ticket_id = [int]$dt.ticket_id; tier = 'APPROVED' })
+            }
         }
     }
     # $idResolutionCost was already set in Stage 0 above (0 on a cache hit, the
