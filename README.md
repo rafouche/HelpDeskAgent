@@ -862,25 +862,31 @@ config.json no longer has an `on_call` block at all (removed 2026-09-21; an
 old copy left on a server is ignored). The Halo schedule alone decides who is
 paged.
 
-## NinjaOne scripts the agent can run, and the installer catch
+## NinjaOne scripts the agent can run, and the one-time sign-in they need
 A `remediation_whitelist` entry named `Run NinjaOne script: X` lets the agent
-run the library script named exactly X by its id. Two things NinjaOne's API
-will not do for this agent, found on ticket #22484 (2026-09-21):
+run the library script named exactly X. Two facts about NinjaOne's API,
+learned on ticket #22484 (2026-09-21/22):
 
-- `list_automation_scripts` never returns **Install Application** automations
-  (the ones made under Library > Automation > Add > Installation), so the
-  agent cannot find one by name.
-- Even given the automation's uid, NinjaOne refuses to start it with the API
-  key the agent uses (`user_context_required`); only library scripts run.
-
-So anything the agent should install has to exist as a plain library
-**script**. `ninja-scripts/Latest Wrike Desktop Install.ps1` is that wrapper
-for Wrike: it records the installed version, closes Wrike, downloads Wrike's
-current MSI from Wrike's own link, installs it silently with the same switches
-as the Install Application automation, and prints the before/after version.
-Add it in NinjaOne as a PowerShell script named exactly `Latest Wrike Desktop
-Install`, Windows, run as System; the whitelist entry already carries that
-name.
+- **NinjaOne only runs scripts for a signed-in person.** An API key on its
+  own (the client-credentials token the Worker used) is refused with
+  `user_context_required` for every script and automation run, so the
+  "Run NinjaOne script" entries had never actually run anything. The Ninja
+  Worker now keeps a user-context token: an admin opens
+  `https://<ninja-worker>/oauth/start` once, signs in to NinjaOne, and from
+  then on the agent's script runs go through as that person (Ninja's log
+  reads "User <name> requested start"). The token refreshes itself;
+  `https://<ninja-worker>/oauth/status` shows whether one is stored. If it
+  ever stops working, sign in again the same way. The NinjaOne client app
+  must be a Web app with the Authorization Code and Refresh Token grants,
+  the offline_access scope, and the Worker's `/oauth/callback` address as a
+  redirect URI (Administration > Apps > API > Client app IDs).
+- `list_automation_scripts` never returns **Install Application**
+  automations (Library > Automation > Add > Installation), so the agent
+  cannot find one by name; anything it should install must exist as a plain
+  library **script**. `ninja-scripts/Latest Wrike Desktop Install.ps1` is that
+  wrapper for Wrike (records the version, closes Wrike, downloads the current
+  MSI from Wrike's own link, installs silently, prints before/after). It is
+  in NinjaOne as script 234, named exactly `Latest Wrike Desktop Install`.
 
 ## Contacts the agent creates, and the notes it leaves behind
 When a security alert names a real person the agent can verify (an active
