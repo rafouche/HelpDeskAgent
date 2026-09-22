@@ -961,7 +961,11 @@ shadow day (2026-09-21) was not a clean comparison: both paths were
 re-queuing three claimed drafts every cycle on an automation entry (fixed in
 v2.13.2, see below), and the deterministic side's tiering call silently
 defaulted those to MEDIUM, so the agreement counts from that day mean
-nothing. Count from the first full day on v2.13.2.
+nothing. Count from the first full day on v2.13.2. Then v2.13.5 (2026-09-22)
+found the deterministic tiering call's answer had never been parsed on the
+production server (a Windows PowerShell 5.1 JSON quirk), so every comparison
+before it measured the LLM against a constant MEDIUM. Count from the first
+full day on v2.13.5.
 
 **What counts as "something changed" on a ticket we are waiting on
 (v2.13.2).** Entries by System, Automation or HaloAI (Halo rules, AI triage,
