@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.6 - every read-only Meraki tool is now in the resolver's
+    allowlist (2026-09-22). Ticket #22541 (SJP Law, guest Wi-Fi shutting off
+    at 5pm): the resolver diagnosed an SSID availability schedule, asked for
+    mcp__Meraki__list_ssids, was denied, and could only tell the tech where
+    to look. Roger: "the Meraki MCP should give investigative tools to all
+    devices (firewall, switch, wifi, cameras, etc)." Added the 38 remaining
+    read tools (SSIDs, MX firewall rules, site-to-site VPN, alerts, events,
+    inventory, org/network detail, the camera read surface). No
+    create/update/delete/reboot tool was added. resolver-prompt.md's
+    network section now names the wireless and firewall reads so the
+    resolver reaches for them.
     Version: 2.13.5 - the deterministic tiering call never parsed on the
     production server (2026-09-22). The raw-response logging v2.13.2 added
     to the "no valid tier" warning showed the model answering correctly
@@ -3478,6 +3489,34 @@ $resolverTools = @(
     "mcp__Meraki__list_vlans", "mcp__Meraki__get_vlan",
     "mcp__Meraki__list_switch_ports", "mcp__Meraki__get_switch_port",
     "mcp__Meraki__get_device",
+    # v2.13.6 - every remaining READ tool the Meraki Worker offers, in one go.
+    # Ticket #22541 (guest Wi-Fi shutting off at 5pm): the resolver correctly
+    # reasoned "SSID availability schedule", asked for list_ssids, was denied,
+    # and had to hand the tech a guess. Roger: the Meraki MCP should give
+    # investigative tools to all devices - firewall, switch, wifi, cameras.
+    # Wireless (SSIDs and their schedules), MX firewall rules, site-to-site
+    # VPN, alert settings, event log, inventory, org/network details, and the
+    # camera read surface. Nothing here changes configuration: every
+    # create_/update_/delete_/reboot_ tool stays out. generate_camera_snapshot
+    # and get_camera_video_link only produce a viewing URL.
+    "mcp__Meraki__get_organization", "mcp__Meraki__get_org_license_overview", "mcp__Meraki__list_org_admins",
+    "mcp__Meraki__get_network", "mcp__Meraki__list_org_devices", "mcp__Meraki__list_org_inventory",
+    "mcp__Meraki__list_ssids", "mcp__Meraki__get_ssid", "mcp__Meraki__get_ssid_schedule", "mcp__Meraki__list_switch_port_schedules",
+    "mcp__Meraki__get_mx_l3_firewall_rules", "mcp__Meraki__get_network_site_to_site_vpn",
+    "mcp__Meraki__get_network_alerts_settings", "mcp__Meraki__list_network_events",
+    "mcp__Meraki__get_camera_video_settings", "mcp__Meraki__get_camera_quality_retention",
+    "mcp__Meraki__get_camera_sense", "mcp__Meraki__get_camera_sense_object_detection_models",
+    "mcp__Meraki__get_camera_wireless_profiles", "mcp__Meraki__get_camera_custom_analytics",
+    "mcp__Meraki__generate_camera_snapshot", "mcp__Meraki__get_camera_video_link",
+    "mcp__Meraki__get_camera_analytics_live", "mcp__Meraki__get_camera_analytics_overview",
+    "mcp__Meraki__get_camera_analytics_recent", "mcp__Meraki__list_camera_analytics_zones",
+    "mcp__Meraki__get_camera_analytics_zone_history", "mcp__Meraki__list_camera_schedules",
+    "mcp__Meraki__list_network_camera_wireless_profiles", "mcp__Meraki__get_network_camera_wireless_profile",
+    "mcp__Meraki__list_network_camera_quality_retention_profiles", "mcp__Meraki__get_network_camera_quality_retention_profile",
+    "mcp__Meraki__get_org_camera_onboarding_statuses", "mcp__Meraki__list_org_camera_permissions",
+    "mcp__Meraki__get_org_camera_permission", "mcp__Meraki__list_org_camera_roles", "mcp__Meraki__get_org_camera_role",
+    "mcp__Meraki__get_org_camera_boundaries_areas_by_device", "mcp__Meraki__get_org_camera_boundaries_lines_by_device",
+    "mcp__Meraki__get_org_camera_detections_history",
     # run_throughput_test (v2.10.62): the first Meraki tool that actively DOES
     # something rather than just reading - runs a live WAN throughput test on
     # an MX appliance (Meraki's own Live Tools API), for firewall-level

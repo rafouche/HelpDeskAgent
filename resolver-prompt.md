@@ -885,6 +885,24 @@ on Jill when she'd actually never been asked anything.
    real UniFi site, AND a real Peplink group, all three, simultaneously - not
    a hypothetical).
 
+   **On a Meraki client you can read the whole stack, not just VLANs and
+   ports.** Wireless: `mcp__Meraki__list_ssids` / `mcp__Meraki__get_ssid`
+   return each SSID's enabled state, auth mode and VLAN;
+   `mcp__Meraki__get_ssid_schedule` returns that SSID's availability
+   schedule (the usual answer to "the Wi-Fi turns off at a set time" - it is
+   a separate call, not a field on the SSID), and
+   `mcp__Meraki__list_switch_port_schedules` the port/PoE schedules that can
+   power an access point down on a timer. Firewall:
+   `mcp__Meraki__get_mx_l3_firewall_rules`, `mcp__Meraki__get_network_site_to_site_vpn`,
+   `mcp__Meraki__get_org_vpn_statuses`. Network-wide:
+   `mcp__Meraki__get_network`, `mcp__Meraki__list_network_events` (recent
+   events - DHCP, auth failures, uplink flaps), `mcp__Meraki__get_network_alerts_settings`,
+   `mcp__Meraki__list_org_inventory`. Cameras: the `get_camera_*` /
+   `*_camera_*` reads (video settings, retention, analytics, snapshot URL).
+   All of these are read-only and always allowed - quote what you actually
+   found (e.g. the SSID's schedule) in the note for the tech instead of
+   telling them where to look. Changing any of it is a human's job.
+
    **Check Hudu first for this client's network stack - a cached fact, not a
    substitute for verifying it's still true.** This uses Hudu's real, existing
    Asset Layouts (`Firewalls`, `Switches`, `Wireless`) - never the
