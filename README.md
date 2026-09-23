@@ -1,4 +1,4 @@
-# Altec Halo Response Agent — Setup
+﻿# Altec Halo Response Agent — Setup
 
 ## Two-stage pipeline
 Each cycle runs two kinds of `claude -p` call, not one:
@@ -792,8 +792,10 @@ Typical use, from the deployment folder:
 # 1. Baseline with today's settings
 .\Replay-Tickets.ps1 -Label baseline
 
-# 2. Change something (a flag in config.json, a prompt edit), then
-.\Replay-Tickets.ps1 -Label prefetch-on
+# 2. Change something (a flag in config.json, a prompt edit), then - or, for
+#    increment 3 specifically, force the prefetched-ticket block on for the
+#    replay only, leaving the live config alone:
+.\Replay-Tickets.ps1 -Label prefetch-on -PrefetchTicket
 
 # 3. Compare - free, nothing is re-run
 .\Replay-Tickets.ps1 -Label prefetch-on -CompareTo baseline -ScoreOnly
@@ -981,6 +983,36 @@ path treats as "an active workflow this pipeline can't act on" (Dispatch
 Needed, Scheduled, Quote*, ...). The seeded list mirrors the examples in
 classifier-prompt.md; edit it to match your tenant. A trailing `*` is a
 prefix match, and the list is never applied to `ready_for_ai_status_name`.
+
+## Prefetched ticket context and prompt caching (cost program, increment 3)
+v2.14.0. With the classifier line solved, the resolver is the bill: about
+$0.51 and 12.6 turns per ticket, measured over 49 runs. Three changes:
+
+- **The resolver prompt is now cacheable.** Everything that differs per run
+  (ticket id, tier, time, business-hours flag, remembered notes) moved from
+  the top of `resolver-prompt.md` to a "## This run" block appended at the
+  end, after config.json's own text, so consecutive runs share an identical
+  prefix. `claude.prompt_cache_ttl` in config.json (default `"1h"`) sets the
+  cache lifetime to an hour so that prefix survives the 10-minute gap
+  between cycles; `"5m"` reverts. Nothing about behavior changes, only what
+  is billed. On before the flag, for everyone.
+- **config.json rides in the prompt.** The resolver used to spend its first
+  turn Reading it from disk; now it is in the tail. No config change needed.
+- **`pipeline.prefetch_ticket`** (default off): one call to the Halo Worker
+  fetches the ticket, its 25 newest action-log entries, the human-touch
+  verdict and device hints, appended as a "## Prefetched ticket" block. The
+  prompt treats it as the ticket already read, so the first four to six tool
+  turns disappear. Roll it out like the classifier: replay first, then flip.
+
+```powershell
+.\Replay-Tickets.ps1 -Label prefetch-on -PrefetchTicket
+.\Replay-Tickets.ps1 -Label prefetch-on -CompareTo baseline -ScoreOnly
+```
+
+Expected once on: roughly 8 turns and $0.30 per ticket instead of 12.6 and
+$0.51. The TICKET line in each log names the prefetch state and cache TTL
+used for that run, and a run's `usage.cache_creation` shows whether the
+one-hour writes are happening (`ephemeral_1h_input_tokens`).
 
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets

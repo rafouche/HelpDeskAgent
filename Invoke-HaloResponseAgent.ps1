@@ -73,6 +73,31 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.14.0 - cost program increment 3: the resolver starts with the
+    ticket in hand, and its prompt can finally be cached (2026-09-23).
+    Profiling 49 resolver runs over two days (avg $0.51, 12.6 turns): ~45%
+    cache reads (every turn re-reads the growing context), ~35% cache
+    writes, ~20% output. Two structural reasons the writes were so high:
+    cycles are 10 min apart and an API key's cache lives 5 min, and the
+    per-ticket values (ticket id, tier, time, remembered notes) sat in the
+    first 3K tokens of the 28K-token prompt, so no two runs ever shared a
+    prefix - measured 75K-145K cache-write tokens on every single run.
+    Now: (1) resolver-prompt.md is identical for every ticket; everything
+    per-run lives in a "## This run" tail appended last, after config.json's
+    own text (so the resolver no longer spends a turn Reading it) - the
+    banners stay first because they are constant per mode and the prompt
+    refers to them as "above". (2) claude.prompt_cache_ttl ("1h" default;
+    Claude Code 2.1.242+, the server runs 2.1.260) via
+    CLAUDE_CODE_PROMPT_CACHE_TTL, so the shared prefix survives between
+    cycles. (3) pipeline.prefetch_ticket (default off): one GET to
+    halopsa-mcp's /helpdesk-candidates (ticket brief, 25 newest trimmed
+    actions, human_touch, device_hints) appended as a "## Prefetched ticket"
+    block; the prompt tells the resolver it IS get_ticket + the action log,
+    so the first 4-6 tool turns disappear. Replay mode filters the actions
+    to the as-of moment. Rollout like increment 2: flip prefetch_ticket in
+    the live config after a replay comparison (Replay-Tickets -Label
+    prefetch-on -CompareTo baseline). Cache ordering and TTL are on for
+    everyone immediately - they change no behavior, only what is billed.
     Version: 2.13.7 - deterministic call 3 hands an approved ticket straight
     to APPROVED (2026-09-23). #22532 was tracked AND in AI Approved with a
     human note beside the approval; call 3 ran first, tiered it (TRIVIAL),
@@ -2915,7 +2940,10 @@ param(
     [string]$ReplayTier = "MEDIUM",
     [string]$ReplayAsOf,
     [string]$ReplayLabel = "replay",
-    [switch]$ReplayKeepOwnActions
+    [switch]$ReplayKeepOwnActions,
+    # v2.14.0: force pipeline.prefetch_ticket on for this run only (a replay
+    # comparison, without flipping the live config.json).
+    [switch]$PrefetchTicket
 )
 
 $ErrorActionPreference = "Stop"
@@ -3957,6 +3985,7 @@ if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline)
         if ($flagValue -and $flagValue.Value -eq $true) { $pipelineFlags[$flagName] = $true }
     }
 }
+if ($PrefetchTicket) { $pipelineFlags.prefetch_ticket = $true }
 
 # Models confirmed to accept an effort parameter at all - Claude Haiku 4.5
 # (classifier_model/resolver_model_trivial's default) does NOT support it and
@@ -4354,6 +4383,50 @@ function Get-CleanJsonText {
     return $trimmed
 }
 
+# --- Increment 3 (v2.14.0): prefetched ticket context ---
+# One HTTP GET to halopsa-mcp's /helpdesk-candidates (the same trimmed brief
+# the deterministic classifier already uses, with a deeper action log) whose
+# JSON is appended to the end of the resolver prompt, so the resolver starts
+# with the ticket in hand instead of spending its first turns on get_ticket /
+# get_ticket_brief / get_ticket_time_entries. Behind pipeline.prefetch_ticket
+# (default off). Any failure returns $null and the run proceeds without it -
+# the prompt's instructions for the no-block case are unchanged.
+function Get-PrefetchedTicketBlock {
+    param(
+        [string]$RootPath,
+        [int]$TicketId,
+        [datetime]$AsOf,
+        [int]$HistoryCount = 25,
+        [int]$MaxChars = 40000
+    )
+    $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
+    if (-not $baseUrl) { throw "no Halo Worker URL in .mcp.json" }
+    $headers = @{}
+    $auth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
+    if ($auth) { $headers['Authorization'] = $auth }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $resp = Invoke-RestMethod -Uri "$baseUrl/helpdesk-candidates?ids=$TicketId&history=$HistoryCount&max_details_chars=6000&max_note_chars=2000" -Method Get -TimeoutSec 60 -Headers $headers
+    if ($resp.error) { throw "helpdesk-candidates returned an error: $($resp.error)" }
+    $cand = @($resp.candidates) | Where-Object { [string]$_.ticket.id -eq [string]$TicketId } | Select-Object -First 1
+    if (-not $cand -or -not $cand.found) { throw "ticket $TicketId not found by helpdesk-candidates" }
+    if ($AsOf) {
+        # Replay: only what existed at the as-of moment. Halo datetimes are UTC
+        # wall-clock; PS 5.1 hands them over as strings, PS 7 as DateTime.
+        $cutoff = $AsOf.ToUniversalTime()
+        $kept = @()
+        foreach ($a in @($cand.recent_actions)) {
+            $when = $null
+            if ($a.datetime -is [DateTime]) { $when = $a.datetime } else { try { $when = [DateTime]::Parse([string]$a.datetime, [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { $when = $null } }
+            if ($null -eq $when -or $when -le $cutoff) { $kept += $a }
+        }
+        $cand.recent_actions = $kept
+        $cand | Add-Member -NotePropertyName replay_as_of -NotePropertyValue $cutoff.ToString("yyyy-MM-ddTHH:mm:ss") -Force
+    }
+    $json = $cand | ConvertTo-Json -Depth 8
+    if ($json.Length -gt $MaxChars) { $json = $json.Substring(0, $MaxChars) + "`n... [prefetched block truncated at $MaxChars chars - use mcp__Halo__get_ticket_time_entries for the rest]" }
+    return $json
+}
+
 function Invoke-ClaudeCLI {
     param(
         [string]$Prompt,
@@ -4468,12 +4541,22 @@ function Invoke-ClaudeCLI {
     $PSNativeCommandUseErrorActionPreference = $false
     $prevDisableBuiltinAgents = $env:CLAUDE_CODE_DISABLE_BUILTIN_AGENTS
     $env:CLAUDE_CODE_DISABLE_BUILTIN_AGENTS = "1"
+    # v2.14.0: prompt-cache lifetime. Cycles are 10 minutes apart and the
+    # default TTL on an API key is 5 minutes, so every run rewrote its whole
+    # prefix (measured: 75K-145K cache-write tokens per resolver run, about a
+    # third of each ticket's cost). With the resolver prompt now static-first
+    # (per-run values at the end), a 1-hour TTL lets consecutive runs read
+    # the shared prefix instead. claude.prompt_cache_ttl in config.json
+    # ("1h" default, "5m" to revert); Claude Code >= 2.1.242 honors it.
+    $prevCacheTtl = $env:CLAUDE_CODE_PROMPT_CACHE_TTL
+    if ($script:promptCacheTtl) { $env:CLAUDE_CODE_PROMPT_CACHE_TTL = $script:promptCacheTtl }
     try {
         $rawOutput = $Prompt | & claude @claudeArgs 2>&1
     }
     finally {
         $PSNativeCommandUseErrorActionPreference = $prevNativeErrorPref
         $env:CLAUDE_CODE_DISABLE_BUILTIN_AGENTS = $prevDisableBuiltinAgents
+        $env:CLAUDE_CODE_PROMPT_CACHE_TTL = $prevCacheTtl
     }
     $rawText = $rawOutput | Out-String
 
@@ -4563,6 +4646,13 @@ $resolverPromptTemplate = $resolverPromptTemplate `
     -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
     -replace '\{\{IS_BUSINESS_HOURS\}\}', $isBusinessHours `
     -replace '\{\{CONFIG_PATH\}\}', $configPath
+# v2.14.0: the resolver prompt body is now identical for every ticket (all
+# per-run values live in a "## This run" tail appended per ticket, below), so
+# consecutive runs can share a cached prefix. config.json's own text rides in
+# that tail too, so the resolver no longer spends a turn Reading it.
+$configRawText = Get-Content $configPath -Raw -Encoding UTF8
+$script:promptCacheTtl = "1h"
+if ($config.claude.PSObject.Properties['prompt_cache_ttl'] -and $config.claude.prompt_cache_ttl) { $script:promptCacheTtl = [string]$config.claude.prompt_cache_ttl }
 
 if ($DryRun) {
     Write-Host "=== DRY RUN ==="
@@ -5056,7 +5146,7 @@ try {
             "=== APPROVAL MODE (-RequireApproval) ===",
             "This run requires a human to sign off before any client-facing reply or",
             "remediation action happens for real. Two flows - which one applies depends",
-            "on the tier given above.",
+            "on the tier given in the '## This run' block at the END of this document.",
             "",
             "FLOW A - tier is APPROVED (a human already approved this ticket's draft):",
             "skip everything else in this document, including re-diagnosing - do only",
@@ -5615,6 +5705,43 @@ try {
         if ($isReplay) {
             $resolverPrompt = $replayBanner + "`n`n" + $resolverPrompt
         }
+        # v2.14.0: everything that differs per run goes LAST, after the static
+        # body, so the prefix (banners + body + config) is cacheable. Order:
+        # config.json (constant per deployment) -> "## This run" (per ticket)
+        # -> prefetched ticket block (per ticket, optional).
+        $runTailLines = @(
+            "## config.json (already read for you - do not Read it from disk)",
+            "``````json",
+            $configRawText.TrimEnd(),
+            "``````",
+            "",
+            "## This run",
+            "- Ticket to work: $ticketId",
+            "- Assigned tier: $tier",
+            "- Current date/time: $nowText ($($config.business_hours.timezone))",
+            "- Currently within business hours (per config): $isBusinessHours",
+            "- Things humans have asked to be remembered for future tickets (or `"none`"): $rememberedNotesText"
+        )
+        $prefetchNote = "prefetch: off"
+        if ($pipelineFlags.prefetch_ticket) {
+            try {
+                $prefetchAsOf = $null
+                if ($isReplay -and $replayAsOfDate) { $prefetchAsOf = $replayAsOfDate }
+                $prefetchJson = Get-PrefetchedTicketBlock -RootPath $RootPath -TicketId $ticketId -AsOf $prefetchAsOf
+                $runTailLines += @(
+                    "",
+                    "## Prefetched ticket $ticketId (fetched at the start of this cycle, $cycleStartUtc UTC)",
+                    "``````json",
+                    $prefetchJson,
+                    "``````"
+                )
+                $prefetchNote = "prefetch: on ($($prefetchJson.Length) chars)"
+            }
+            catch {
+                $prefetchNote = "prefetch: FAILED ($($_.Exception.Message)) - resolver runs without it"
+            }
+        }
+        $resolverPrompt = $resolverPrompt + "`n`n" + ($runTailLines -join "`n") + "`n"
 
         # Which tool list a ticket gets depends on ITS OWN tier, not just the
         # cycle-wide switches - an APPROVED ticket needs the full mutating set to
@@ -5641,7 +5768,7 @@ try {
         try {
             $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
                 -Model $model -Effort $effort
-            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model)" -Content $resolverResult.Raw
+            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model, $prefetchNote, cache ttl: $($script:promptCacheTtl))" -Content $resolverResult.Raw
 
             $ticketCost = 0
             if ($resolverResult.Parsed -and $resolverResult.Parsed.total_cost_usd) {

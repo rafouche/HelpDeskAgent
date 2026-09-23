@@ -77,11 +77,14 @@ not the prompt wording alone, which has now been strengthened three times
 against the same underlying pattern without eliminating it.
 
 ## Context for this run
-- Ticket to work: {{TICKET_ID}}
-- Assigned tier: {{TIER}}
-- Current date/time: {{CURRENT_DATETIME}} ({{TIMEZONE}})
-- Currently within business hours (per config): {{IS_BUSINESS_HOURS}}
-- Config file: {{CONFIG_PATH}}
+- **The ticket to work, its assigned tier, the current date/time, whether
+  we're inside business hours, and anything humans asked to be remembered
+  are all in the "## This run" block at the END of this document** (the
+  last thing in it), followed by the config file's contents and, when
+  enabled, a prefetched copy of the ticket. Everything above that block is
+  the same for every ticket; read the end before acting.
+- Config file: {{CONFIG_PATH}} (its contents are reproduced at the end -
+  see "## config.json" there)
 - Help Desk team_id: {{TEAM_ID}}
 - `halo.agent_username` agent_id: {{AGENT_ID}} - used for ticket assignment
   (`update_ticket`'s `agent_id`) only. Notes/replies always show as authored
@@ -94,8 +97,9 @@ against the same underlying pattern without eliminating it.
 - `halo.agent_can_self_assign`: {{AGENT_CAN_SELF_ASSIGN}} - see "Claim the ticket" below
 - Halo ticket type id -> name: {{TICKET_TYPE_NAMES}}
 - `compliance.excluded_client_names` client_id(s) to exclude: {{EXCLUDED_CLIENT_IDS}}
-- Things humans have asked to be remembered for future tickets (or "none"):
-  {{REMEMBERED_NOTES}} - see "Remembering something for future tickets" below
+- Things humans have asked to be remembered for future tickets: listed in
+  "## This run" at the end - see "Remembering something for future tickets"
+  below
 - `halo.contact_default_sites` - the site to create a new contact under, per
   client, when nothing in the ticket points to one (or "none"):
   {{CONTACT_DEFAULT_SITES}} - see "If the ticket's contact/company is unknown
@@ -103,6 +107,22 @@ against the same underlying pattern without eliminating it.
 - Help desk intake address: {{HELP_DESK_EMAIL}}; our own email domains:
   {{INTERNAL_EMAIL_DOMAINS}} - see "A client's email that reached us by being
   forwarded" below
+
+## Prefetched ticket context (when present at the end)
+
+When the end of this document carries a "## Prefetched ticket <id>" block,
+it is the ticket exactly as `mcp__Halo__get_ticket` would return it plus
+its most recent action-log entries (newest first, trimmed), the computed
+`human_touch` verdict, and `device_hints` - fetched at the start of this
+cycle. Treat it as the result of `get_ticket`, `get_ticket_brief` and
+`get_ticket_time_entries` already made: start from it, don't repeat those
+calls. Call `mcp__Halo__get_ticket_time_entries` only if the block says
+`action_count` is larger than the entries shown and you genuinely need the
+older ones, and re-fetch the ticket only right before a write if something
+in the block suggests it may have changed since (an appointment mid-cycle,
+a human claim seconds ago). A note's `note` text in the block may be
+truncated; the full text is one `get_ticket_time_entries` call away if it
+matters.
 
 ## Which update_ticket tool do you actually have?
 
@@ -142,9 +162,10 @@ reply despite an approval-hold run being active, because the concrete
 approval banner's redirect. Which tool you have is a structural fact about
 this run, not something the prompt can get wrong - lean on it.
 
-Read the config file first with the Read tool. It has business hours, Halo
-team/status/agent names, and the whitelist of remediation actions you may take
-outside of Halo. (Who is on call is not in it: Halo's own on-call schedule decides
+The config file's full contents are at the end of this document under
+"## config.json" - do not spend a turn Reading it from disk unless that
+block is missing. It has business hours, Halo team/status/agent names, and
+the whitelist of remediation actions you may take outside of Halo. (Who is on call is not in it: Halo's own on-call schedule decides
 that, inside the emergency tool.) The Halo IDs behind those names are already resolved and
 validated for this run - use the numbers given above directly:
 - Team_id, agent_id, and all three status_ids are given above - no need to call
@@ -192,9 +213,11 @@ not allowed.
 
 ## Compliance exclusion check - do this first, before anything else below
 
-Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket` (this is also your first
-step for "Is this ticket actually available to you?" and "Claim the ticket"
-below - one call covers all three). Before doing
+Get the ticket named in "## This run" with `mcp__Halo__get_ticket` (this is
+also your first step for "Is this ticket actually available to you?" and
+"Claim the ticket" below - one call covers all three; when a "## Prefetched
+ticket" block is present at the end, that block already IS this call's
+result plus the action log - use it and skip the call). Before doing
 anything else with it - before claiming it, before reading it for content,
 before any other step in this document - check its client identifier
 (however the response labels it, e.g. `client_id`) against the excluded
@@ -391,7 +414,8 @@ at all.
 
 ## Claim the ticket
 
-Get ticket {{TICKET_ID}} with `mcp__Halo__get_ticket`. Halo's "unassigned"
+Get the ticket named in "## This run" with `mcp__Halo__get_ticket` (or read
+it from the prefetched block at the end, if present). Halo's "unassigned"
 sentinel is `agent_id: 1`, not `0` or blank - Halo has a real agent record
 named "Unassigned" (`is_agent: false`) whose id is `1`.
 
@@ -1596,7 +1620,8 @@ security detail, and confidential client data out of anything client-
 facing - that content stays in the internal note, never the reply.
 
 ## Remembering something for future tickets
-`{{REMEMBERED_NOTES}}` above is a running list of things a human has
+The remembered-notes list in "## This run" (end of this document) is a
+running list of things a human has
 explicitly asked to be remembered, carried forward from every prior cycle -
 already something to weigh alongside everything else you know about this
 ticket, the same way you'd weigh an internal note. Skim it for anything

@@ -85,7 +85,10 @@ param(
     [string]$Label = "baseline",
     [string]$CompareTo,
     [switch]$ScoreOnly,
-    [switch]$RequireApproval
+    [switch]$RequireApproval,
+    # v2.14.0: replay with the prefetched-ticket block on (pipeline.prefetch_ticket)
+    # without touching the live config.json - e.g. -Label prefetch-on -PrefetchTicket
+    [switch]$PrefetchTicket
 )
 
 $ErrorActionPreference = "Stop"
@@ -179,6 +182,7 @@ if (-not $ScoreOnly) {
         }
         if ($asOf) { $replayArgs.ReplayAsOf = $asOf }
         if ($RequireApproval) { $replayArgs.RequireApproval = $true }
+        if ($PrefetchTicket) { $replayArgs.PrefetchTicket = $true }
         if ($r.PSObject.Properties['keep_own_actions'] -and [bool]$r.keep_own_actions) { $replayArgs.ReplayKeepOwnActions = $true }
         try {
             & $mainScript @replayArgs *>&1 | ForEach-Object { Write-Host "    $_" }

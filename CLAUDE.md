@@ -3046,6 +3046,31 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.14.0 - cost program increment 3 (2026-09-23).** Roger: "what's in 3
+and what's next?" then gave the go (server on Claude Code 2.1.260).
+Profile of 49 resolver runs, 09-21/22: avg $0.51, 12.6 turns; ~45% cache
+reads, ~35% cache writes (75K-145K tokens written on EVERY run, all
+5-minute TTL - `usage.cache_creation.ephemeral_5m_input_tokens`), ~20%
+output; plus a $0.033 Haiku helper per run (32,886 input tokens - Claude
+Code's tool-search index of all ~400 MCP tools). Why no cache reuse: 10-min
+cadence vs 5-min TTL, and the per-ticket values sat in the first 3K tokens
+of the prompt. Shipped: (1) resolver-prompt.md static-first, per-run
+values in a "## This run" tail after config.json's text (no more Read
+turn), banners left first since they are constant per mode and the prompt
+says "banner above" in five places; (2) CLAUDE_CODE_PROMPT_CACHE_TTL from
+claude.prompt_cache_ttl (default 1h) set around every claude call; (3)
+pipeline.prefetch_ticket + -PrefetchTicket switch (main + Replay-Tickets)
+appending /helpdesk-candidates' brief (history=25, details 6000, notes
+2000, capped 40K chars, replay as-of filtered) as a "## Prefetched ticket"
+block, with a new prompt section telling the resolver it replaces
+get_ticket/get_ticket_brief/get_ticket_time_entries. Verified: parse,
+dry-run gate, the helper live against #22541 (18,952 chars, 25 of 29
+actions; as-of 19:20Z kept 4; missing ticket errors cleanly). Not yet
+measured on real cost - Roger runs the replay comparison, then flips.
+Next per the plan: increment 4 (lean core + playbooks: shrink the 28K-token
+body every turn re-reads), then per-ticket MCP server selection (that
+Haiku helper and the tool prefix), then client cards.
+
 **v2.13.3 / v2.13.4 - the first real NinjaOne script run, end to end
 (2026-09-22).** Ticket #22484 (Wrike update, YB-FAB-01) was the first
 approved ticket whose whitelist entry called for a script. It exposed that
