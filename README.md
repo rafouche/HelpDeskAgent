@@ -1014,6 +1014,28 @@ $0.51. The TICKET line in each log names the prefetch state and cache TTL
 used for that run, and a run's `usage.cache_creation` shows whether the
 one-hour writes are happening (`ephemeral_1h_input_tokens`).
 
+What the first comparison taught (v2.14.1): the block is re-read on every
+resolver turn, so it can cut turns and still raise cost. Two things to get
+right before believing a prefetch number:
+
+- **Every rubric needs an `as_of`.** Without one, the prefetched block
+  carried the ticket's whole later history (the human's fix, the closure)
+  while the replay banner said "judge the first client message" - the
+  resolver went off verifying the fix (#22295: 6 -> 29 turns). The five
+  rubrics that had no `as_of` now do; a replay without one cuts the block
+  at the first client message anyway. `eval/tickets.json` is seed-once, so
+  delete the deployment's copy to pick up the updated list.
+- **Compare against a baseline from the same version.** A `baseline` label
+  recorded before v2.14.0 ran with the 5-minute cache and the old prompt
+  order, so it cannot separate the prefetch effect from the rest. Re-run
+  `-Label v214-base` (no switch) first, then `-Label prefetch-on
+  -PrefetchTicket`, then compare those two. The compare table now shows
+  `$/turn` and cache-read tokens per ticket: turns down but `$/turn` up
+  means the block is too big - shrink it with `pipeline.prefetch_history`
+  (25), `prefetch_max_note_chars` (2000), `prefetch_max_details_chars`
+  (6000) and `prefetch_max_chars` (40000) in config.json (a lean starting
+  point: 12 / 800 / 3000 / 12000) and replay again.
+
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets
 across *every* client (not just the one it's currently working) plus Halo's KB and

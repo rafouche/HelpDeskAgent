@@ -3046,6 +3046,26 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.14.1 - prefetch replay fix and size knobs (2026-09-23).** Roger ran
+the increment-3 comparison: prefetch-on 10/10 pass but $6.59 vs baseline
+$4.94. Split by rubric, the five tickets with an `as_of` went 109 -> 43
+turns and $0.19 cheaper; the five without went 41 -> 71 turns and $1.84
+dearer (22295 6 -> 29). Cause: with no `as_of` the prefetched block carried
+the whole later history (Erick's "users removed/redirected", the closure)
+while the banner said judge the first message, so the resolver verified the
+fix. Fix: replay with no `as_of` cuts the block at the first client message
+(who_type 2, +1 min) and adds `replay_note`; the five rubrics got real
+`as_of` values (22114 09-12T20:00, 22067 09-11T20:45 after Roger's note,
+22295 09-17T11:00, 22296 09-17T11:10, 22278 09-17T13:10 after Erick's
+close). `pipeline.prefetch_history/_max_note_chars/_max_details_chars/
+_max_chars` tune the block from config.json. Replay-Tickets prints cacheRdK
+/ cacheWrK / outK per ticket and `$/turn` + cache-read in the compare table.
+Recommendation given: keep `prefetch_ticket` off live; re-baseline on
+v2.14.x without the switch, then prefetch-on, then a lean block (12 / 800 /
+3000 / 12000) if $/turn is still up. eval/tickets.json is seed-once - Roger
+deletes the server copy to pick up the as_of values (his has 10 rubrics,
+the repo 11).
+
 **v2.14.0 - cost program increment 3 (2026-09-23).** Roger: "what's in 3
 and what's next?" then gave the go (server on Claude Code 2.1.260).
 Profile of 49 resolver runs, 09-21/22: avg $0.51, 12.6 turns; ~45% cache

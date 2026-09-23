@@ -206,6 +206,9 @@ foreach ($r in $rubrics) {
         cost_usd    = 0
         num_turns   = $null
         seconds     = $null
+        cache_read_k  = $null   # v2.14.1: cache-read input tokens (K) - every turn re-reads the context
+        cache_write_k = $null   # cache-write input tokens (K) - prefix/tail written, 5m or 1h TTL
+        output_k      = $null
         failed      = @()
         warnings    = @()
         notes       = $r.notes
@@ -216,6 +219,12 @@ foreach ($r in $rubrics) {
         $row.cost_usd = [double]$res.cost_usd
         $row.num_turns = $res.num_turns
         if ($res.duration_ms) { $row.seconds = [math]::Round(([double]$res.duration_ms) / 1000, 0) }
+        if ($res.usage) {
+            $u = $res.usage
+            if ($u.PSObject.Properties['cache_read_input_tokens']) { $row.cache_read_k = [math]::Round(([double]$u.cache_read_input_tokens) / 1000, 0) }
+            if ($u.PSObject.Properties['cache_creation_input_tokens']) { $row.cache_write_k = [math]::Round(([double]$u.cache_creation_input_tokens) / 1000, 0) }
+            if ($u.PSObject.Properties['output_tokens']) { $row.output_k = [math]::Round(([double]$u.output_tokens) / 1000, 1) }
+        }
         if ($res.is_error) {
             $row.status = "ERROR"
             $row.failed = @("run error: $($res.error)")
@@ -272,10 +281,10 @@ $totalCost = [math]::Round(($rows | Measure-Object -Property cost_usd -Sum).Sum,
 
 Write-Host ""
 Write-Host "=== RESULTS '$Label' - $passCount / $($rows.Count) pass, total `$$totalCost ==="
-Write-Host ("{0,-8} {1,-18} {2,-7} {3,7} {4,6} {5,5}  {6}" -f "ticket", "tier", "status", "cost", "turns", "sec", "checks")
+Write-Host ("{0,-8} {1,-18} {2,-7} {3,7} {4,6} {5,5} {6,8} {7,8} {8,6}  {9}" -f "ticket", "tier", "status", "cost", "turns", "sec", "cacheRdK", "cacheWrK", "outK", "checks")
 foreach ($row in $rows) {
     $checks = @($row.failed + ($row.warnings | ForEach-Object { "warn $_" })) -join "; "
-    Write-Host ("{0,-8} {1,-18} {2,-7} {3,7:N2} {4,6} {5,5}  {6}" -f $row.ticket_id, $row.tier, $row.status, $row.cost_usd, $row.num_turns, $row.seconds, $checks)
+    Write-Host ("{0,-8} {1,-18} {2,-7} {3,7:N2} {4,6} {5,5} {6,8} {7,8} {8,6}  {9}" -f $row.ticket_id, $row.tier, $row.status, $row.cost_usd, $row.num_turns, $row.seconds, $row.cache_read_k, $row.cache_write_k, $row.output_k, $checks)
 }
 
 $summary = [PSCustomObject]@{
@@ -300,13 +309,20 @@ if ($CompareTo) {
     foreach ($o in @($other.tickets)) { $otherRows[[string]$o.ticket_id] = $o }
     Write-Host ""
     Write-Host "=== '$Label' vs '$CompareTo' ==="
-    Write-Host ("{0,-8} {1,-14} {2,10} {3,8}" -f "ticket", "status", "cost diff", "turns")
+    # v2.14.1: $/turn alongside turns - a change that cuts turns but raises
+    # the per-turn price (a bigger prefetched block re-read every turn)
+    # shows up here, not in the cost column alone.
+    $perTurn = { param($r) if ($r.num_turns -and [int]$r.num_turns -gt 0) { [math]::Round([double]$r.cost_usd / [int]$r.num_turns, 3) } else { $null } }
+    Write-Host ("{0,-8} {1,-14} {2,10} {3,8} {4,14} {5,12}" -f "ticket", "status", "cost diff", "turns", "`$/turn", "cacheRdK")
     foreach ($row in $rows) {
         $o = $otherRows[[string]$row.ticket_id]
         if (-not $o) { Write-Host ("{0,-8} {1,-14} {2,10} {3,8}" -f $row.ticket_id, "$($row.status) (new)", "", ""); continue }
         $costDiff = [math]::Round($row.cost_usd - [double]$o.cost_usd, 2)
         $turnsText = "$($o.num_turns)->$($row.num_turns)"
-        Write-Host ("{0,-8} {1,-14} {2,10:+0.00;-0.00;0.00} {3,8}" -f $row.ticket_id, "$($o.status)->$($row.status)", $costDiff, $turnsText)
+        $perTurnText = "$(& $perTurn $o)->$(& $perTurn $row)"
+        $oRead = if ($o.PSObject.Properties['cache_read_k']) { $o.cache_read_k } else { "" }
+        $cacheText = "$oRead->$($row.cache_read_k)"
+        Write-Host ("{0,-8} {1,-14} {2,10:+0.00;-0.00;0.00} {3,8} {4,14} {5,12}" -f $row.ticket_id, "$($o.status)->$($row.status)", $costDiff, $turnsText, $perTurnText, $cacheText)
     }
     $costDelta = [math]::Round($totalCost - [double]$other.total_cost_usd, 2)
     Write-Host ("TOTAL: pass {0}->{1}, cost {2:N2}->{3:N2} ({4:+0.00;-0.00;0.00})" -f $other.pass_count, $passCount, [double]$other.total_cost_usd, $totalCost, $costDelta)

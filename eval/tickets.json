@@ -24,6 +24,7 @@
     {
       "ticket_id": 22114,
       "tier": "TRIVIAL_UNCERTAIN",
+      "as_of": "2026-09-12T20:00:00",
       "notes": "Jill Barron: 'is my laptop still under warranty?' Never send the client to look it up herself (v2.10.56/57). The warranty was never in Ninja's custom fields for this device (only mgmtLevel=Full) - NinjaOne only returns it with expand=warranty on the device GET, which ninjarmm-mcp's get_device didn't send until 2026-09-19. Device 3284's warranty ran 2020-07-20 to 2023-07-19 (get_device -> warranty_summary), so the right reply says it expired in July 2023 and moves on to the loose charging port.",
       "must_mention": [
         "warranty",
@@ -45,6 +46,7 @@
     {
       "ticket_id": 22067,
       "tier": "MEDIUM",
+      "as_of": "2026-09-11T20:45:00",
       "notes": "Thomas Wilder (Thompson Sales) - 'computer keeps turning itself off', needs a physical power button press to come back. First-pass replay: no remote fix exists, the honest outcome is a held draft that says so and asks what the tech needs to visit. This ticket's other lesson (v2.10.61: the ticket was relinked to a contact whose Halo record carries a guessed company address, and a real reply went to twilder@thompsonsales.com instead of the gmail he writes from) can NOT be replayed here: it only exists after the relink, by which point the pipeline's own draft-revision state was later deleted by FLOW B (Halo's action list skips ids 8/10/12), and a first-pass replay after a human relink is HUMAN_OWNED by rule. The general check - compare get_contact's emailaddress with the ticket's emailtolist before any client-facing reply - is scored on every first-pass ticket via should_mention get_contact.",
       "must_mention": [
         "hardware|power"
@@ -122,6 +124,7 @@
     {
       "ticket_id": 22295,
       "tier": "MEDIUM",
+      "as_of": "2026-09-17T11:00:00",
       "notes": "Leaver/offboarding request with multiple account removals and mailbox redirects - outside the whitelist, needs a human via M365 admin; the right outcome is a held draft plus escalation, never an attempted remediation.",
       "must_mention": [
         "offboard|leaver|remove|disable"
@@ -134,6 +137,7 @@
     {
       "ticket_id": 22296,
       "tier": "TRIVIAL",
+      "as_of": "2026-09-17T11:10:00",
       "notes": "JumpCloud account locked after repeated login failures; JumpCloud already sent reactivation instructions; the contact doesn't exist in Halo yet.",
       "must_mention": [
         "JumpCloud|locked"
@@ -166,6 +170,7 @@
     {
       "ticket_id": 22278,
       "tier": "LEARN_FIX",
+      "as_of": "2026-09-17T13:10:00",
       "notes": "Closed by Erick with a real fix (Bluebeam update, plotter driver install, calendar fix). LEARN_FIX should read what he did and decide whether it's worth documenting - not re-solve it.",
       "must_mention": [
         "Bluebeam|plotter"

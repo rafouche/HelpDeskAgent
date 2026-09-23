@@ -73,6 +73,29 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.14.1 - prefetch replay fix and size knobs (2026-09-23). The
+    first increment-3 comparison (prefetch-on vs baseline, 10 tickets) went
+    9 -> 10 pass but $4.94 -> $6.59. Split by rubric: the five tickets WITH
+    an as_of dropped from 109 to 43 turns and cost $0.19 less in total; the
+    five WITHOUT one rose from 41 to 71 turns and cost $1.84 more (22295:
+    6 -> 29). Cause: with no as_of, the prefetched block carried the ticket's
+    whole later history - the human's fix, the closure - while the replay
+    banner told the resolver to judge the first client message; it went off
+    verifying the fix. Now a replay with no as_of cuts the block at the
+    first client message (the ticket's dateoccurred) and the block says so
+    (replay_note); the Worker returns the 25 NEWEST actions, so a cut always
+    fetches all 25 and trims afterwards, and a long ticket whose window is
+    entirely after the cut keeps 0 actions with a note that the ticket body
+    IS the first message. Also fixed on the way: a rubric as_of is Halo time
+    (UTC wall-clock) and was being run through ToUniversalTime(), which on
+    the Central-time server moved every cut 5 hours later.
+    Also: pipeline.prefetch_history / prefetch_max_note_chars /
+    prefetch_max_details_chars / prefetch_max_chars (defaults 25 / 2000 /
+    6000 / 40000) so the block's size can be tuned from config.json - it is
+    re-read every turn, so it is the cost lever; Replay-Tickets now prints
+    cache-read/cache-write tokens and $/turn per ticket so that shows. The
+    baseline label predates v2.14.0 (5-minute cache, old prompt order), so
+    the fair comparison is a fresh no-prefetch run on this version.
     Version: 2.14.0 - cost program increment 3: the resolver starts with the
     ticket in hand, and its prompt can finally be cached (2026-09-23).
     Profiling 49 resolver runs over two days (avg $0.51, 12.6 turns): ~45%
@@ -3987,6 +4010,26 @@ if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline)
 }
 if ($PrefetchTicket) { $pipelineFlags.prefetch_ticket = $true }
 
+# v2.14.1: how much ticket the prefetched block carries (pipeline.prefetch_*
+# in config.json; a missing key means the default). The block is re-read on
+# every resolver turn, so its size is the lever that decides whether
+# prefetching saves money or costs it: the first comparison (25 actions,
+# 2000 chars per note, up to 40K chars) cut turns but not cost. Smaller is
+# the direction to try - the resolver can still call get_ticket_history for
+# anything beyond the block.
+$prefetchSize = @{
+    history           = 25
+    max_note_chars    = 2000
+    max_details_chars = 6000
+    max_chars         = 40000
+}
+if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline) {
+    foreach ($sizeName in @($prefetchSize.Keys)) {
+        $sizeProp = $config.pipeline.PSObject.Properties["prefetch_$sizeName"]
+        if ($sizeProp -and $sizeProp.Value -ne $null -and [int]$sizeProp.Value -gt 0) { $prefetchSize[$sizeName] = [int]$sizeProp.Value }
+    }
+}
+
 # Models confirmed to accept an effort parameter at all - Claude Haiku 4.5
 # (classifier_model/resolver_model_trivial's default) does NOT support it and
 # errors if sent one; only current Sonnet/Opus-tier models do. This list is
@@ -4396,7 +4439,15 @@ function Get-PrefetchedTicketBlock {
         [string]$RootPath,
         [int]$TicketId,
         [datetime]$AsOf,
+        # v2.14.1: replay with no as_of - cut the block at the ticket's first
+        # client message, which is what the replay banner tells the resolver
+        # to judge the ticket as of. Without this the block carried the whole
+        # later history (the human's fix, the closure) and the resolver went
+        # off verifying it: 22295 ran 6 -> 29 turns in the first comparison.
+        [switch]$CutoffAtFirstClientMessage,
         [int]$HistoryCount = 25,
+        [int]$MaxNoteChars = 2000,
+        [int]$MaxDetailsChars = 6000,
         [int]$MaxChars = 40000
     )
     $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
@@ -4405,22 +4456,64 @@ function Get-PrefetchedTicketBlock {
     $auth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
     if ($auth) { $headers['Authorization'] = $auth }
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $resp = Invoke-RestMethod -Uri "$baseUrl/helpdesk-candidates?ids=$TicketId&history=$HistoryCount&max_details_chars=6000&max_note_chars=2000" -Method Get -TimeoutSec 60 -Headers $headers
+    # The Worker returns the N NEWEST actions and caps N at 25. A replay cut
+    # removes the newest ones, so fetch the full 25 whenever a cut applies
+    # and trim to HistoryCount afterwards - otherwise a small window could
+    # miss the first client message entirely (all 12 newest postdating it).
+    $cutApplies = [bool]$AsOf -or [bool]$CutoffAtFirstClientMessage
+    $fetchCount = if ($cutApplies) { 25 } else { [Math]::Min($HistoryCount, 25) }
+    $resp = Invoke-RestMethod -Uri "$baseUrl/helpdesk-candidates?ids=$TicketId&history=$fetchCount&max_details_chars=$MaxDetailsChars&max_note_chars=$MaxNoteChars" -Method Get -TimeoutSec 60 -Headers $headers
     if ($resp.error) { throw "helpdesk-candidates returned an error: $($resp.error)" }
     $cand = @($resp.candidates) | Where-Object { [string]$_.ticket.id -eq [string]$TicketId } | Select-Object -First 1
     if (-not $cand -or -not $cand.found) { throw "ticket $TicketId not found by helpdesk-candidates" }
+    # Halo datetimes are UTC wall-clock; PS 5.1 hands them over as strings,
+    # PS 7 as DateTime.
+    $parseWhen = {
+        param($value)
+        if ($value -is [DateTime]) { return $value }
+        try { return [DateTime]::Parse([string]$value, [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { return $null }
+    }
+    $cutoff = $null
+    $cutoffSource = $null
     if ($AsOf) {
-        # Replay: only what existed at the as-of moment. Halo datetimes are UTC
-        # wall-clock; PS 5.1 hands them over as strings, PS 7 as DateTime.
-        $cutoff = $AsOf.ToUniversalTime()
+        # The rubric's as_of is Halo time (the UTC wall-clock the API returns),
+        # not the server's local time: an Unspecified-kind value is stamped
+        # UTC as-is. (ToUniversalTime() would have treated it as local and,
+        # on the Central-time server, moved the cut 5 hours later.)
+        $cutoff = if ($AsOf.Kind -eq [DateTimeKind]::Local) { $AsOf.ToUniversalTime() } else { [DateTime]::SpecifyKind($AsOf, [DateTimeKind]::Utc) }
+        $cutoffSource = "as_of"
+    }
+    elseif ($CutoffAtFirstClientMessage) {
+        # The ticket's opening moment (dateoccurred) IS the first client
+        # message for a ticket opened by email; plus one minute so Halo's own
+        # same-second bookkeeping entries stay in. Earliest client action
+        # (who_type 2) in the window is the fallback when the field is absent.
+        $opened = $null
+        if ($cand.ticket -and $cand.ticket.dateoccurred) { $opened = & $parseWhen $cand.ticket.dateoccurred }
+        if ($null -ne $opened) { $cutoff = $opened.AddMinutes(1); $cutoffSource = "first client message (ticket dateoccurred)" }
+        else {
+            $first = $null
+            foreach ($a in @($cand.recent_actions)) {
+                if ([string]$a.who_type -ne '2') { continue }
+                $when = & $parseWhen $a.datetime
+                if ($null -ne $when -and ($null -eq $first -or $when -lt $first)) { $first = $when }
+            }
+            if ($null -ne $first) { $cutoff = $first.AddMinutes(1); $cutoffSource = "first client message (earliest client action in the window)" }
+        }
+    }
+    if ($null -ne $cutoff) {
+        # Replay: only what existed at the cutoff moment, newest first, at
+        # most HistoryCount of them.
         $kept = @()
         foreach ($a in @($cand.recent_actions)) {
-            $when = $null
-            if ($a.datetime -is [DateTime]) { $when = $a.datetime } else { try { $when = [DateTime]::Parse([string]$a.datetime, [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { $when = $null } }
+            $when = & $parseWhen $a.datetime
             if ($null -eq $when -or $when -le $cutoff) { $kept += $a }
         }
+        if ($kept.Count -gt $HistoryCount) { $kept = @($kept[0..($HistoryCount - 1)]) }
         $cand.recent_actions = $kept
         $cand | Add-Member -NotePropertyName replay_as_of -NotePropertyValue $cutoff.ToString("yyyy-MM-ddTHH:mm:ss") -Force
+        $emptyNote = if ($kept.Count -eq 0) { "; the 25 newest actions all postdate it, so the ticket's own summary/details ARE the first client message" } else { "" }
+        $cand | Add-Member -NotePropertyName replay_note -NotePropertyValue "recent_actions cut at $cutoffSource ($($kept.Count) kept$emptyNote); ticket fields (status, agent, dates) are TODAY's and may postdate it - judge by the actions" -Force
     }
     $json = $cand | ConvertTo-Json -Depth 8
     if ($json.Length -gt $MaxChars) { $json = $json.Substring(0, $MaxChars) + "`n... [prefetched block truncated at $MaxChars chars - use mcp__Halo__get_ticket_time_entries for the rest]" }
@@ -5727,7 +5820,17 @@ try {
             try {
                 $prefetchAsOf = $null
                 if ($isReplay -and $replayAsOfDate) { $prefetchAsOf = $replayAsOfDate }
-                $prefetchJson = Get-PrefetchedTicketBlock -RootPath $RootPath -TicketId $ticketId -AsOf $prefetchAsOf
+                $prefetchArgs = @{
+                    RootPath        = $RootPath
+                    TicketId        = $ticketId
+                    HistoryCount    = $prefetchSize.history
+                    MaxNoteChars    = $prefetchSize.max_note_chars
+                    MaxDetailsChars = $prefetchSize.max_details_chars
+                    MaxChars        = $prefetchSize.max_chars
+                }
+                if ($prefetchAsOf) { $prefetchArgs.AsOf = $prefetchAsOf }
+                elseif ($isReplay) { $prefetchArgs.CutoffAtFirstClientMessage = $true }
+                $prefetchJson = Get-PrefetchedTicketBlock @prefetchArgs
                 $runTailLines += @(
                     "",
                     "## Prefetched ticket $ticketId (fetched at the start of this cycle, $cycleStartUtc UTC)",
