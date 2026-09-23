@@ -46,7 +46,7 @@
     {
       "ticket_id": 22067,
       "tier": "MEDIUM",
-      "as_of": "2026-09-11T20:45:00",
+      "as_of": "2026-09-11T18:10:00",
       "notes": "Thomas Wilder (Thompson Sales) - 'computer keeps turning itself off', needs a physical power button press to come back. First-pass replay: no remote fix exists, the honest outcome is a held draft that says so and asks what the tech needs to visit. This ticket's other lesson (v2.10.61: the ticket was relinked to a contact whose Halo record carries a guessed company address, and a real reply went to twilder@thompsonsales.com instead of the gmail he writes from) can NOT be replayed here: it only exists after the relink, by which point the pipeline's own draft-revision state was later deleted by FLOW B (Halo's action list skips ids 8/10/12), and a first-pass replay after a human relink is HUMAN_OWNED by rule. The general check - compare get_contact's emailaddress with the ticket's emailtolist before any client-facing reply - is scored on every first-pass ticket via should_mention get_contact.",
       "must_mention": [
         "hardware|power"
