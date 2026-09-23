@@ -53,7 +53,7 @@
     "resolver_model_medium": "claude-sonnet-5",
     "resolver_model_complex": "claude-sonnet-5",
     "id_cache_max_age_hours": 24,
-    "blocked_ticket_retry_hours": 4,
+    "blocked_ticket_retry_hours": 2,
     "human_owned_retry_hours": 24,
     "max_remembered_notes": 50
   },

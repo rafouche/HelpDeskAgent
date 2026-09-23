@@ -73,6 +73,16 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.14.3 - an agent's "Opened" action is not ownership; blocked
+    backoff 2h (2026-09-23). Ticket #22589: Roger opened it for a client and
+    left it unassigned in New; his Opened action counted as a human touch
+    (halopsa-mcp human_touch and this script's $isHuman), so it sat. Both
+    now ignore outcome "Opened" (the Worker reports the opener as
+    human_touch.opened_by). Ticket #22598 arrived while the API balance was
+    negative, so its first resolver run produced nothing and it went on the
+    blocked list for blocked_ticket_retry_hours; Roger asked for two hours
+    instead of four - default changed here and in the repo config.json (a
+    deployment's own config.json keeps its value until edited).
     Version: 2.14.2 - the static resolver text moves into the system prompt
     (2026-09-23). v2.14.0's cache plan did not deliver: every v214-base run
     still wrote 72K-98K cache tokens (usage.cache_creation: all 1h), even a
@@ -3174,7 +3184,7 @@ if ($agentCache.unassigned_last_seen) {
 # (hopeful) assumption a human fixed whatever was actually broken in Halo
 # by then. No new classifier logic needed for the retry itself: aging out
 # is just "stop excluding it," not a special recheck path.
-$blockedTicketRetryHours = 4
+$blockedTicketRetryHours = 2   # v2.14.3: was 4 (Roger, 2026-09-23)
 if ($config.claude.blocked_ticket_retry_hours) { $blockedTicketRetryHours = [double]$config.claude.blocked_ticket_retry_hours }
 $blockedTickets = @{}
 if ($agentCache.blocked_tickets) {
@@ -4171,7 +4181,10 @@ function Invoke-DeterministicClassifier {
     # (Halo's Acronis integration is bound to Allie, agent 17) is neither
     # ours nor human - the who_agentid match must exclude those apps.
     $isOurs = { param($a) ($a.actionby_application_id -eq $PipelineAppId) -or (([string]$a.who_agentid -eq [string]$agentId) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id)) }
-    $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id) }
+    # v2.14.3: an agent's "Opened" action (a ticket opened on a client's
+    # behalf and left unassigned) is not ownership - same rule as the
+    # Worker's human_touch. Ticket #22589 sat untouched because of it.
+    $isHuman = { param($a) ([int]$a.who_type -eq 1) -and -not (& $isOurs $a) -and ($IntegrationAppIds -notcontains [string]$a.actionby_application_id) -and ([string]$a.outcome -ne 'Opened') }
     $isSubstantive = {
         param($a)
         # v2.13.2: System/Automation entries (Halo rules, HaloAI triage,

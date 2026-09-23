@@ -403,7 +403,11 @@ never the problem, reliably noticing the evidence in a list that can run
 well past a dozen entries was. `human_touch.found` is computed for you the
 same way every time: `true` the moment even one action exists where
 `who_type` is `1` (a real Halo agent) and it isn't this pipeline's own
-identity. If `human_touch.found` is `true`, treat this exactly like the
+identity - except an "Opened" action: an agent opening a ticket on a
+client's behalf and leaving it unassigned is not working it, so that alone
+never makes `found` true (the opener shows as `human_touch.opened_by`; work
+the ticket normally, and address the client, not the opener). If
+`human_touch.found` is `true`, treat this exactly like the
 "assigned to a different agent" case above: stop, don't claim or touch it,
 and say in your one-line summary which agent's action you found
 (`human_touch.actions` names them) and why. Only proceed with claiming it

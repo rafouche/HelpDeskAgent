@@ -124,7 +124,9 @@ version history for the real case this was fixed from):
    - **Drop any ticket whose ID is in the human-owned list above.** A prior
      cycle's resolver already confirmed - via the ticket's own action log,
      not just its current status or assignment - that a real human agent
-     already owns this ticket. Real incident: tickets #22114/#22067 were
+     already owns this ticket. (An agent's "Opened" action alone is not
+     ownership: a ticket an agent opened on a client's behalf and left
+     unassigned is a normal candidate.) Real incident: tickets #22114/#22067 were
      each reprocessed 6 times in one day at real Sonnet-tier cost, every
      single pass correctly re-discovering "a human already owns this" the
      expensive way, because a human's own habit of resetting a ticket's

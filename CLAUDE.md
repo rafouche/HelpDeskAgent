@@ -3046,6 +3046,19 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.14.3 - "Opened" is not ownership; blocked backoff 2h (2026-09-23).**
+Roger: "Tickets 22589 and 22598 both have been sitting for awhile and Allie
+hasn't touched them." Both were in the unassigned bucket every cycle and the
+pipeline was alive (drafts on 22591 17:46Z, 22602 19:34Z). 22589: Roger
+opened it himself for SJP Law, so his Opened action was a human touch ->
+HUMAN_OWNED. 22598: arrived 18:29Z while the balance was negative; a run
+that produces nothing goes on the blocked list for
+blocked_ticket_retry_hours. Roger: "Make the change and let's try to lower
+the hold to two hours." Done: halopsa-mcp human_touch and the script's
+$isHuman ignore outcome "Opened" (Worker reports opened_by); both prompts
+say so; blocked_ticket_retry_hours default 2 (script + repo config.json -
+Roger edits his live config.json to 2 himself since it is never synced).
+
 **v2.14.2 - static resolver text into the system prompt (2026-09-23).**
 Roger: "we've blown the $20 I just added... why is Allie chewing this up so
 fast now?" Three replays at ~$6 each were most of it (owned). But v214-base
