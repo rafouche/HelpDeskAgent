@@ -3065,6 +3065,10 @@ different user messages: run 1 write 53.7K/$0.216, run 2 read 48K, write
 5.7K, $0.033. Note: the local CLI here has credentials (that test cost
 about $0.25 on this session's account, not Roger's).
 
+Server verification (Roger, same day): `-TicketIds 22278` twice - cache-a
+4 turns, cacheWrK 92, $0.41; cache-b 4 turns, cacheWrK 23, cacheRdK 222,
+$0.14. Same PASS both times. Cross-run reuse confirmed in production.
+
 **v2.14.1 - prefetch replay fix and size knobs (2026-09-23).** Roger ran
 the increment-3 comparison: prefetch-on 10/10 pass but $6.59 vs baseline
 $4.94. Split by rubric, the five tickets with an `as_of` went 109 -> 43
