@@ -73,6 +73,18 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.13.7 - deterministic call 3 hands an approved ticket straight
+    to APPROVED (2026-09-23). #22532 was tracked AND in AI Approved with a
+    human note beside the approval; call 3 ran first, tiered it (TRIVIAL),
+    and call 6's APPROVED was deduped away - the v2.12.1 PowerShell backstop
+    caught it (TIER OVERRIDE). Now call 3 checks the approved status before
+    anything else. Also the first day's numbers on the deterministic
+    classifier: 09-22 after the 11:40 flip, 28 cycles, classifier $0.85
+    total (the LLM morning: 20 cycles, $6.66); 09-23 to 10:53, 16 cycles,
+    $0.38. Zero fallbacks to the LLM classifier until 11:03 on 09-23, when
+    the Anthropic account ran out of credit ("Credit balance is too low")
+    and every call failed - not a pipeline fault, but the pipeline was
+    down until the balance was topped up.
     Version: 2.13.6 - every read-only Meraki tool is now in the resolver's
     allowlist (2026-09-22). Ticket #22541 (SJP Law, guest Wi-Fi shutting off
     at 5pm): the resolver diagnosed an SSID availability schedule, asked for
@@ -4057,7 +4069,7 @@ function Invoke-DeterministicClassifier {
     if ($triage.unassigned -and $triage.unassigned.truncated) { $report += "NOTE: unassigned bucket truncated at the Worker's page cap (record_count=$($triage.unassigned.record_count))" }
 
     # --- helpers over trimmed actions (newest first) ---
-    $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed', 'Triage', 'Ticket In Progress Email')
+    $bookkeepingOutcomes = @('Re-Assign', 'Change Status', 'SLA Hold', 'SLA Release', 'Change Priority', 'Rule Applied', 'Emailed Confirmation', 'AI Triage', 'User Changed', 'Triage', 'Ticket In Progress Email', 'Responded', 'Appointment Created', 'Appointment Changed')
     # v2.13.3: an integration app posting through our own agent account
     # (Halo's Acronis integration is bound to Allie, agent 17) is neither
     # ours nor human - the who_agentid match must exclude those apps.
@@ -4072,7 +4084,7 @@ function Invoke-DeterministicClassifier {
         if ($bookkeepingOutcomes -notcontains [string]$a.outcome) { return $true }
         $n = [string]$a.note
         if (-not $n) { return $false }
-        if ($n -match '^(Status changed|Priority changed|From: .*; To: |Matched |AI Suggestions)') { return $false }
+        if ($n -match '^(Status changed|Priority changed|From: .*; To: |Matched |AI Suggestions|Response time = |New Appointment )') { return $false }
         return $true
     }
     $statusNameOf = { param($t) $key = [string]$t.status_id; if ($statusNames.ContainsKey($key)) { $statusNames[$key] } else { "" } }
@@ -4152,6 +4164,11 @@ function Invoke-DeterministicClassifier {
         if ($closed) { & $add $id "LEARN_FIX" "tracked (closed: '$statusName' $($t.dateclosed))"; continue }
         $onApprovalStatus = ($Ids.ai_waiting_approval_status_id -and [string]$t.status_id -eq [string]$Ids.ai_waiting_approval_status_id) -or ($Ids.ai_approved_status_id -and [string]$t.status_id -eq [string]$Ids.ai_approved_status_id)
         if ([int]$t.agent_id -ne 1 -and [int]$t.agent_id -ne $agentId -and -not $onApprovalStatus) { & $add $id "UNTRACK" "tracked (now assigned to agent $($t.agent_id) $($t.agent_name))"; continue }
+        # v2.13.7: a tracked ticket sitting in the approved status is APPROVED,
+        # full stop - call 6's answer, decided here because call 3 runs first
+        # and $add dedupes (real run, #22532: a human note next to the approval
+        # made call 3 tier it TRIVIAL; the PowerShell backstop had to override).
+        if ($approvedStatusId -and $Ids.ai_approved_status_id -and [string]$t.status_id -eq [string]$Ids.ai_approved_status_id) { & $add $id "APPROVED" "tracked (in approved status)"; continue }
         $lastSubstantive = $null
         foreach ($a in @($entry.recent_actions)) { if (& $isSubstantive $a) { $lastSubstantive = $a; break } }
         if ($lastSubstantive -and (& $isOurs $lastSubstantive)) { & $drop $id "tracked, unchanged (latest substantive entry is ours, $($lastSubstantive.datetime))"; continue }
