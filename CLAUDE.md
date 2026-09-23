@@ -3046,6 +3046,25 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.14.2 - static resolver text into the system prompt (2026-09-23).**
+Roger: "we've blown the $20 I just added... why is Allie chewing this up so
+fast now?" Three replays at ~$6 each were most of it (owned). But v214-base
+also showed cacheWrK 72K-98K on every run and Roger's usage block showed
+them all `ephemeral_1h` - so v2.14.0's 1h TTL was doubling the write price
+of a prefix that was never read back. His two identical plain `claude -p`
+runs proved cross-process reuse works for the system block (run 2: read
+24.5K, write 0). Cause: the resolver text was the first USER message, cached
+as a whole, and the per-ticket tail at its end made each run distinct
+(the replay banner also carried label/as_of at the top). Fix: banners +
+body + config text -> `--append-system-prompt-file` (generated file, bytes
+rewritten only on change); user message = "## This run" tail (+ replay
+label/as-of lines, + prefetch). CLI flag detected via `claude --help`
+(listed as `--append-system-prompt[-file]`); `claude.static_prompt_in_system`
+false reverts. Verified in this container with a 60K static file and two
+different user messages: run 1 write 53.7K/$0.216, run 2 read 48K, write
+5.7K, $0.033. Note: the local CLI here has credentials (that test cost
+about $0.25 on this session's account, not Roger's).
+
 **v2.14.1 - prefetch replay fix and size knobs (2026-09-23).** Roger ran
 the increment-3 comparison: prefetch-on 10/10 pass but $6.59 vs baseline
 $4.94. Split by rubric, the five tickets with an `as_of` went 109 -> 43

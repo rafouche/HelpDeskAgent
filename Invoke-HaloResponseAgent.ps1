@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.14.2 - the static resolver text moves into the system prompt
+    (2026-09-23). v2.14.0's cache plan did not deliver: every v214-base run
+    still wrote 72K-98K cache tokens (usage.cache_creation: all 1h), even a
+    3-turn run seconds after an identical-tier run. Two identical plain
+    `claude -p` runs on the server proved the mechanism: run 2 read its
+    whole 24.5K prefix and wrote 0 - cross-process reuse works for the
+    SYSTEM block Claude Code marks cacheable, but the resolver's 100K+
+    chars of banners/body/config sat in the first USER message, which is
+    cached only as a whole (breakpoint at its end), so the per-ticket tail
+    made every run a distinct entry. Worse, the 1h TTL bills that write at
+    2x base instead of 1.25x, so v2.14.0 made each run dearer, not cheaper.
+    Now: banners + resolver-prompt.md + config.json text are appended to the
+    system prompt via --append-system-prompt-file (a generated file next to
+    the script, rewritten only when its bytes change); the user message is
+    just the "## This run" tail (+ replay values + prefetched block). The
+    replay banner is static too (label and as-of moved to the tail). Guarded:
+    the CLI is checked once for the flag, and claude.static_prompt_in_system
+    false reverts to the single-message layout. The TICKET log line names
+    the layout. Expected: cache-write per run drops from ~75K to the tail
+    plus tool results, and reads take over - verify with two back-to-back
+    single-ticket replays (-TicketIds 22278): the second should write only
+    a few K.
     Version: 2.14.1 - prefetch replay fix and size knobs (2026-09-23). The
     first increment-3 comparison (prefetch-on vs baseline, 10 tickets) went
     9 -> 10 pass but $4.94 -> $6.59. Split by rubric: the five tickets WITH
@@ -3801,9 +3823,12 @@ $simulationBanner = $simulationBannerLines -join "`n"
 # to be judged as a fresh first pass, exactly as it stood when the pipeline
 # first saw it, not as it stands today after this pipeline's own later notes
 # and drafts landed on it.
-$replayAsOfText = if ($ReplayAsOf) { $ReplayAsOf } else { "(not given - use the ticket's first client message as the reference point)" }
+# v2.14.2: the banner is static (part of the cached system prompt); the
+# label and as-of point are per run and live in the "## This run" tail as
+# "Replay label" / "Replay as-of point" - the banner refers to them there.
+$replayAsOfText = "the 'Replay as-of point' line in the '## This run' block at the end of the user message"
 $replayBannerLines = @(
-    "=== EVALUATION REPLAY ($ReplayLabel) ===",
+    "=== EVALUATION REPLAY (label: see 'Replay label' in the '## This run' block) ===",
     "This run is a replay of a past ticket, used to score this pipeline's own",
     "behavior - it is a simulation (see the simulation banner below), and nothing",
     "you do here reaches Halo, a device, or a client.",
@@ -3815,7 +3840,7 @@ $replayBannerLines = @(
     "- Ignore every action dated after that point.",
     $(if ($replayAsOfDate) {
         "- When you call mcp__Halo__get_ticket_time_entries or mcp__Halo__get_ticket_history," + "`n" +
-        "  pass as_of: `"$($replayAsOfDate.ToString('yyyy-MM-ddTHH:mm:ss'))`" - the response then contains only" + "`n" +
+        "  pass as_of set to the 'Replay as-of point' value - the response then contains only" + "`n" +
         "  the actions up to that point and its human_touch is computed over them," + "`n" +
         "  which makes it the authoritative ownership answer for this replay. A" + "`n" +
         "  human_touch from any call made WITHOUT as_of (or from get_ticket_brief /" + "`n" +
@@ -4526,6 +4551,14 @@ function Invoke-ClaudeCLI {
         [string[]]$Tools,
         [string]$Model,
         [string]$Effort,
+        # v2.14.2: a file whose text is appended to Claude Code's own system
+        # prompt (--append-system-prompt-file). The system block is what the
+        # CLI marks cacheable and what survives from one claude process to
+        # the next (measured: a second identical -p run read its whole
+        # 24.5K prefix and wrote 0); a first user message is cached only as
+        # a whole, so a per-ticket tail at its end made every run rewrite
+        # it. Only used when the installed CLI advertises the flag.
+        [string]$SystemPromptFile,
         # v2.12.0: a call that needs no tools at all (the deterministic
         # classifier's one tiering call) must not pay to load every MCP
         # server's tool schema into its context - that schema block is most
@@ -4559,6 +4592,7 @@ function Invoke-ClaudeCLI {
     # --permission-mode dontAsk nothing is allowed anyway.
     $claudeArgs = @("-p")
     if ($toolsArg) { $claudeArgs += @("--allowedTools", $toolsArg) }
+    if ($SystemPromptFile) { $claudeArgs += @("--append-system-prompt-file", $SystemPromptFile) }
     $claudeArgs += @(
         # Bash/PowerShell (v2.10.58): same belt-and-suspenders reasoning as
         # Agent/Task above - Claude Code registers its built-in Bash tool
@@ -4746,6 +4780,26 @@ $resolverPromptTemplate = $resolverPromptTemplate `
 $configRawText = Get-Content $configPath -Raw -Encoding UTF8
 $script:promptCacheTtl = "1h"
 if ($config.claude.PSObject.Properties['prompt_cache_ttl'] -and $config.claude.prompt_cache_ttl) { $script:promptCacheTtl = [string]$config.claude.prompt_cache_ttl }
+
+# v2.14.2: does this CLI take --append-system-prompt-file? (2.1.2xx does; an
+# older build would reject the unknown option and every resolver run would
+# fail, so check once and fall back to the single-message layout.) A file
+# is required because Windows caps a command line at 32K chars and the
+# static text is over 100K. claude.static_prompt_in_system (default true)
+# turns the layout off without a code change.
+$script:staticPromptInSystem = $true
+if ($config.claude.PSObject.Properties['static_prompt_in_system'] -and $config.claude.static_prompt_in_system -eq $false) { $script:staticPromptInSystem = $false }
+if ($script:staticPromptInSystem) {
+    $cliSupportsSystemFile = $false
+    # 2.1.2xx lists it as "--append-system-prompt[-file]" in a description
+    # line, not as its own option line, so match either spelling.
+    try { $cliSupportsSystemFile = ((& claude --help 2>&1 | Out-String) -match 'append-system-prompt(-file|\[-file\])') } catch { $cliSupportsSystemFile = $false }
+    if (-not $cliSupportsSystemFile) {
+        Write-Host "This claude CLI does not list --append-system-prompt-file; resolver prompt stays in the user message (no cross-run cache reuse)."
+        $script:staticPromptInSystem = $false
+    }
+}
+$script:resolverSystemPromptPath = Join-Path $RootPath "resolver-system-prompt.generated.txt"
 
 if ($DryRun) {
     Write-Host "=== DRY RUN ==="
@@ -5239,7 +5293,7 @@ try {
             "=== APPROVAL MODE (-RequireApproval) ===",
             "This run requires a human to sign off before any client-facing reply or",
             "remediation action happens for real. Two flows - which one applies depends",
-            "on the tier given in the '## This run' block at the END of this document.",
+            "on the tier given in the '## This run' block (the user message that follows this system text).",
             "",
             "FLOW A - tier is APPROVED (a human already approved this ticket's draft):",
             "skip everything else in this document, including re-diagnosing - do only",
@@ -5802,12 +5856,15 @@ try {
         # body, so the prefix (banners + body + config) is cacheable. Order:
         # config.json (constant per deployment) -> "## This run" (per ticket)
         # -> prefetched ticket block (per ticket, optional).
-        $runTailLines = @(
+        # config.json's text is static across runs (v2.14.2: part of the
+        # system prompt); the "## This run" block is the per-run user message.
+        $staticTailLines = @(
             "## config.json (already read for you - do not Read it from disk)",
             "``````json",
             $configRawText.TrimEnd(),
-            "``````",
-            "",
+            "``````"
+        )
+        $runTailLines = @(
             "## This run",
             "- Ticket to work: $ticketId",
             "- Assigned tier: $tier",
@@ -5815,6 +5872,13 @@ try {
             "- Currently within business hours (per config): $isBusinessHours",
             "- Things humans have asked to be remembered for future tickets (or `"none`"): $rememberedNotesText"
         )
+        if ($isReplay) {
+            # v2.14.2: the replay banner is static; its per-run values live here.
+            $runTailLines += @(
+                "- Replay label: $ReplayLabel",
+                "- Replay as-of point (Halo time): $(if ($replayAsOfDate) { $replayAsOfDate.ToString('yyyy-MM-ddTHH:mm:ss') } else { 'not given - use the ticket''s first client message (its dateoccurred) as the reference point' })"
+            )
+        }
         $prefetchNote = "prefetch: off"
         if ($pipelineFlags.prefetch_ticket) {
             try {
@@ -5844,7 +5908,25 @@ try {
                 $prefetchNote = "prefetch: FAILED ($($_.Exception.Message)) - resolver runs without it"
             }
         }
-        $resolverPrompt = $resolverPrompt + "`n`n" + ($runTailLines -join "`n") + "`n"
+        # v2.14.2: static text (banners + body + config block) goes to the
+        # system prompt via a file; the user message is just the per-run
+        # tail. Same words, same order, different API blocks - the static
+        # part is now the cross-run cacheable prefix. The file is rewritten
+        # only when its content changes so its bytes stay identical.
+        $resolverSystemFile = $null
+        if ($script:staticPromptInSystem) {
+            $staticText = $resolverPrompt + "`n`n" + ($staticTailLines -join "`n") + "`n"
+            $existing = $null
+            if (Test-Path $script:resolverSystemPromptPath) { $existing = Get-Content $script:resolverSystemPromptPath -Raw -Encoding UTF8 }
+            if ($existing -ne $staticText) { [IO.File]::WriteAllText($script:resolverSystemPromptPath, $staticText, (New-Object Text.UTF8Encoding $false)) }
+            $resolverSystemFile = $script:resolverSystemPromptPath
+            $resolverPrompt = ($runTailLines -join "`n") + "`n"
+            $layoutNote = "layout: static in system prompt ($($staticText.Length) chars), tail in user message ($($resolverPrompt.Length) chars)"
+        }
+        else {
+            $resolverPrompt = $resolverPrompt + "`n`n" + ($staticTailLines -join "`n") + "`n`n" + ($runTailLines -join "`n") + "`n"
+            $layoutNote = "layout: single user message ($($resolverPrompt.Length) chars)"
+        }
 
         # Which tool list a ticket gets depends on ITS OWN tier, not just the
         # cycle-wide switches - an APPROVED ticket needs the full mutating set to
@@ -5870,8 +5952,8 @@ try {
 
         try {
             $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
-                -Model $model -Effort $effort
-            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model, $prefetchNote, cache ttl: $($script:promptCacheTtl))" -Content $resolverResult.Raw
+                -Model $model -Effort $effort -SystemPromptFile $resolverSystemFile
+            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model, $prefetchNote, cache ttl: $($script:promptCacheTtl), $layoutNote)" -Content $resolverResult.Raw
 
             $ticketCost = 0
             if ($resolverResult.Parsed -and $resolverResult.Parsed.total_cost_usd) {

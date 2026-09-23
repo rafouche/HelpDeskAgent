@@ -1014,6 +1014,28 @@ $0.51. The TICKET line in each log names the prefetch state and cache TTL
 used for that run, and a run's `usage.cache_creation` shows whether the
 one-hour writes are happening (`ephemeral_1h_input_tokens`).
 
+**v2.14.2 - where the static text lives.** v2.14.0 put the per-run tail at
+the end of one big user message. Claude Code caches a user message as a
+whole, so a different tail meant a different cache entry: every v214-base
+run still wrote 72K-98K tokens, billed at the doubled one-hour rate, and
+nothing was ever read back across runs. The banners, resolver-prompt.md and
+config.json text are now appended to the *system* prompt (a generated
+`resolver-system-prompt.generated.txt` next to the script, passed with
+`--append-system-prompt-file`), and the user message is just the "## This
+run" block. Measured on two back-to-back runs with different user messages:
+the second read 48K of its 54K prefix and wrote 5.7K, $0.216 -> $0.033.
+The TICKET line in the log names the layout. `claude.static_prompt_in_system:
+false` in config.json reverts to the single-message layout; a CLI without
+the flag falls back to it on its own (and says so at startup).
+
+To confirm on the server without a full replay, run one rubric twice
+(about $0.40 each): the second run's cacheWrK should be a few K, not 70K.
+
+```powershell
+.\Replay-Tickets.ps1 -Label cache-a -TicketIds 22278
+.\Replay-Tickets.ps1 -Label cache-b -TicketIds 22278
+```
+
 What the first comparison taught (v2.14.1): the block is re-read on every
 resolver turn, so it can cut turns and still raise cost. Two things to get
 right before believing a prefetch number:

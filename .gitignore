@@ -17,3 +17,4 @@ tracked-tickets.json.tmp
 
 # Replay-Tickets.ps1 output - local evaluation artifacts, never committed
 eval/results/
+resolver-system-prompt.generated.txt

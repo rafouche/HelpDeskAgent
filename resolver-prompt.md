@@ -79,12 +79,13 @@ against the same underlying pattern without eliminating it.
 ## Context for this run
 - **The ticket to work, its assigned tier, the current date/time, whether
   we're inside business hours, and anything humans asked to be remembered
-  are all in the "## This run" block at the END of this document** (the
-  last thing in it), followed by the config file's contents and, when
-  enabled, a prefetched copy of the ticket. Everything above that block is
-  the same for every ticket; read the end before acting.
-- Config file: {{CONFIG_PATH}} (its contents are reproduced at the end -
-  see "## config.json" there)
+  are all in the "## This run" block** - it is the user message that
+  follows this document (or, on an older CLI, the last thing appended to
+  it), followed when enabled by a prefetched copy of the ticket. Everything
+  in this document is the same for every ticket; read that block before
+  acting.
+- Config file: {{CONFIG_PATH}} (its contents are reproduced right after
+  this document - see "## config.json")
 - Help Desk team_id: {{TEAM_ID}}
 - `halo.agent_username` agent_id: {{AGENT_ID}} - used for ticket assignment
   (`update_ticket`'s `agent_id`) only. Notes/replies always show as authored
@@ -108,7 +109,7 @@ against the same underlying pattern without eliminating it.
   {{INTERNAL_EMAIL_DOMAINS}} - see "A client's email that reached us by being
   forwarded" below
 
-## Prefetched ticket context (when present at the end)
+## Prefetched ticket context (when present after the "## This run" block)
 
 When the end of this document carries a "## Prefetched ticket <id>" block,
 it is the ticket exactly as `mcp__Halo__get_ticket` would return it plus
@@ -162,7 +163,7 @@ reply despite an approval-hold run being active, because the concrete
 approval banner's redirect. Which tool you have is a structural fact about
 this run, not something the prompt can get wrong - lean on it.
 
-The config file's full contents are at the end of this document under
+The config file's full contents are right after this document under
 "## config.json" - do not spend a turn Reading it from disk unless that
 block is missing. It has business hours, Halo team/status/agent names, and
 the whitelist of remediation actions you may take outside of Halo. (Who is on call is not in it: Halo's own on-call schedule decides
