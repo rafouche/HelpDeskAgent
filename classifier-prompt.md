@@ -246,7 +246,10 @@ version history for the real case this was fixed from):
    - **Still open, but now assigned to a real human agent (`agent_id` is
      neither `1`/Unassigned nor `{{AGENT_ID}}`) - UNLESS its current
      `status_id` is `{{AI_WAITING_APPROVAL_STATUS_ID}}` or
-     `{{AI_APPROVED_STATUS_ID}}`, see the exception right below:** someone
+     `{{AI_APPROVED_STATUS_ID}}`, see the exception right below, or it is
+     in the Ready for AI status (`{{READY_FOR_AI_STATUS_ID}}`), which call 4
+     handles whoever it is assigned to - never UNTRACK a Ready for AI
+     ticket:** someone
      else is actively working it and it isn't resolved yet, nothing to
      learn - emit `{"ticket_id": <id>, "tier": "UNTRACK"}` and move on, no
      further investigation needed. `UNTRACK` is not a real tier - it never

@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.2 - Ready for AI on a ticket assigned to a person
+    (2026-09-24). Ticket #22609: Michael, assigned, set it to Ready for AI
+    and forced a run; nothing happened. Two bugs. (1) The deterministic
+    classifier's tracked loop runs before call 4 and saw "assigned to a
+    person", so it UNTRACKed the ticket; call 4's add was then ignored as
+    already seen, and UNTRACK never reaches the resolver. The tracked loop
+    now leaves a Ready for AI ticket to call 4 (the classifier prompt's
+    UNTRACK rule got the same exception for the LLM fallback). (2) The
+    pre-flight gate fingerprinted only unassigned and tracked tickets, so
+    once #22609 was untracked every cycle skipped as "nothing changed".
+    halopsa-mcp's /helpdesk-gate now also returns the Ready for AI (and,
+    under approval mode, AI Approved) tickets with lastactiondate, and the
+    gate runs the classifier when one is new or has changed.
     Version: 2.15.1 - Hudu over an API key (2026-09-24). Hudu's hosted MCP
     accepts only an OAuth sign-in, which expired on the server (22635's run
     reported Hudu unauthenticated); Roger supplied an API key, which that
@@ -4511,6 +4524,12 @@ function Invoke-DeterministicClassifier {
         $closed = ($null -ne $t.dateclosed) -or ($t.hasbeenclosed -eq $true) -or ($deterministicClosedStatusNames -contains $statusName)
         if ($closed) { & $add $id "LEARN_FIX" "tracked (closed: '$statusName' $($t.dateclosed))"; continue }
         $onApprovalStatus = ($Ids.ai_waiting_approval_status_id -and [string]$t.status_id -eq [string]$Ids.ai_waiting_approval_status_id) -or ($Ids.ai_approved_status_id -and [string]$t.status_id -eq [string]$Ids.ai_approved_status_id)
+        # v2.15.2: a tracked ticket a human set to Ready for AI belongs to
+        # call 4 below, whoever it is assigned to. Real incident, #22609:
+        # Michael (assigned) set it to Ready for AI; this loop saw "assigned
+        # to a person", UNTRACKed it, and call 4's add was then ignored as
+        # already seen - nothing ran.
+        if ($readyStatusId -and [string]$t.status_id -eq $readyStatusId) { continue }
         if ([int]$t.agent_id -ne 1 -and [int]$t.agent_id -ne $agentId -and -not $onApprovalStatus) { & $add $id "UNTRACK" "tracked (now assigned to agent $($t.agent_id) $($t.agent_name))"; continue }
         # v2.13.7: a tracked ticket sitting in the approved status is APPROVED,
         # full stop - call 6's answer, decided here because call 3 runs first
@@ -5786,6 +5805,11 @@ try {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
                 $gateUri = "$gateBaseUrl/helpdesk-gate?team_id=$($ids.team_id)&agent_id=$($ids.agent_id)"
                 if ($trackedTicketIds.Count -gt 0) { $gateUri += "&tracked_ids=$($trackedTicketIds -join ',')" }
+                # v2.15.2: fingerprint Ready for AI and AI Approved too (#22609
+                # sat in Ready for AI, assigned to a person and untracked, while
+                # every cycle skipped as "nothing changed").
+                if ($ids.ready_for_ai_status_id) { $gateUri += "&ready_status_id=$($ids.ready_for_ai_status_id)" }
+                if ($RequireApproval -and $ids.ai_approved_status_id) { $gateUri += "&approved_status_id=$($ids.ai_approved_status_id)" }
                 $gateHeaders = @{}
                 $gateAuth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
                 if ($gateAuth) { $gateHeaders['Authorization'] = $gateAuth }
@@ -5837,10 +5861,24 @@ try {
                     if (-not $previousSeen -or $previousSeen -ne $u.last_action_date) { $anyUnassignedChanged = $true }
                     $unassignedLastSeen[$key] = $u.last_action_date
                 }
+                # Same fingerprint for the Ready for AI / AI Approved lists, kept
+                # in the same map under "ready:<id>" / "approved:<id>" keys.
+                $anyStatusBucketChanged = $false
+                foreach ($bucketName in @('ready_for_ai', 'approved')) {
+                    $prefix = if ($bucketName -eq 'ready_for_ai') { 'ready' } else { 'approved' }
+                    if (-not $gate.PSObject.Properties[$bucketName]) { continue }
+                    foreach ($r in @($gate.$bucketName)) {
+                        $key = "${prefix}:$($r.id)"
+                        $seenUnassignedIds[$key] = $true
+                        $previousSeen = $unassignedLastSeen[$key]
+                        if (-not $previousSeen -or $previousSeen -ne $r.last_action_date) { $anyStatusBucketChanged = $true }
+                        $unassignedLastSeen[$key] = $r.last_action_date
+                    }
+                }
                 foreach ($key in @($unassignedLastSeen.Keys)) {
                     if (-not $seenUnassignedIds.ContainsKey($key)) { $unassignedLastSeen.Remove($key) }
                 }
-                $shouldRunClassifier = $anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged
+                $shouldRunClassifier = $anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged -or $anyStatusBucketChanged
                 if ($gate.unassigned_truncated) {
                     $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                     Add-Content -Path $logFile -Value "[$gateTimestamp] NOTE: unassigned gate fingerprint truncated - the Help Desk unassigned bucket has more tickets than the Worker's page cap covered this cycle (unassigned_count=$($gate.unassigned_count)); a change on a ticket past the cap could be missed until it's covered by a future cycle." -Encoding UTF8

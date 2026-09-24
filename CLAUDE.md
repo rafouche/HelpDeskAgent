@@ -3046,6 +3046,17 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.15.2 - Ready for AI on an assigned ticket (2026-09-24).** Roger: "We
+changed the status to Ready for AI on ticket 22609, forced a run of the
+scheduled task, and nothing has happened." 22609 was tracked and assigned to
+Michael; the deterministic tracked loop (runs before call 4) UNTRACKed it,
+call 4's add was ignored as already seen, and the gate never looked at Ready
+for AI, so later cycles skipped. Fixed both (tracked loop skips Ready for
+AI; gate fingerprints Ready for AI / AI Approved via halopsa-mcp
+/helpdesk-gate). Verified: live triage with 22609 tracked -> "22609 (to
+tier) - ready_for_ai"; gate logic against the live route triggers once,
+then settles.
+
 **v2.15.1 - Hudu over an API key (2026-09-24).** Roger: "Build the Hudu
 worker using the API key." Hudu's hosted /mcp is OAuth-only (401 to the key
 under both x-api-key and Bearer; resource metadata advertises OAuth). Built
