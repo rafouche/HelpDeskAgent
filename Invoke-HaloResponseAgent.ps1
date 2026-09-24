@@ -73,6 +73,12 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.1 - Hudu over an API key (2026-09-24). Hudu's hosted MCP
+    accepts only an OAuth sign-in, which expired on the server (22635's run
+    reported Hudu unauthenticated); Roger supplied an API key, which that
+    endpoint refuses. New rafouche/MCPs hudu-mcp Worker serves the same
+    tool names over Hudu's REST API, registered as HUDU so nothing else
+    here changes; allowlist adds its hudu_api_get and healthcheck.
     Version: 2.15.0 - duplicate guard, investigation budget, and the full
     read-only diagnostic surface (2026-09-24). From the 09-23/24 logs:
     (1) $4.70 of 09-24's first $5.64 went on three new tickets that were
@@ -3794,6 +3800,9 @@ $resolverTools = @(
     "mcp__HUDU__process_index_tool", "mcp__HUDU__process_show_tool", "mcp__HUDU__run_index_tool", "mcp__HUDU__run_show_tool",
     "mcp__HUDU__label_index_tool", "mcp__HUDU__label_type_index_tool",
     "mcp__HUDU__activity_logs_index_tool", "mcp__HUDU__activity_logs_show_tool", "mcp__HUDU__public_photo_show_tool",
+    # v2.15.1: rafouche/MCPs hudu-mcp (API-key REST server registered as
+    # HUDU in place of Hudu's OAuth-only hosted MCP) adds these two.
+    "mcp__HUDU__hudu_api_get", "mcp__HUDU__healthcheck",
     # --- Documentation, write. article_create_tool/article_edit_tool only ever
     #     write to the "AI-Documented Fixes" folder from config.json (never edit
     #     client-facing docs), so they don't need a remediation_whitelist entry -

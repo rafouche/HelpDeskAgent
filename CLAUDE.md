@@ -3046,6 +3046,18 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.15.1 - Hudu over an API key (2026-09-24).** Roger: "Build the Hudu
+worker using the API key." Hudu's hosted /mcp is OAuth-only (401 to the key
+under both x-api-key and Bearer; resource metadata advertises OAuth). Built
+rafouche/MCPs hudu-mcp: same tool names/args as the hosted server over REST
+(x-api-key), registered as HUDU so the allowlist/prompt are unchanged; fails
+closed until HUDU_API_KEY + MCP_AUTH_TOKEN are set (auto-mode blocked me from
+`wrangler secret put`, Roger sets them); redacts password fields,
+secret-named keys and "Label: value" secrets in article text (a VPN shared
+secret sat in a plain article). Tested every tool locally with wrangler dev
++ .dev.vars (deleted afterwards), writes included (test article/asset
+created, edited, deleted in Altec's company 2).
+
 **v2.15.0 - duplicate guard, investigation budget, full read surface
 (2026-09-24).** Roger, after the 09-23/24 log analysis: "Do 1 and 2, and add
 the CIPP tools. All MCP's needed for diagnostics should expose all api tools

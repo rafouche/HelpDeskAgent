@@ -982,8 +982,11 @@ calls and about $0.50.)
    `mcp__Unifi__unifi_network_get` (one console's local Network API through
    the connector - device statistics, clients, ports, given a `host_id` from
    `list_hosts`), `mcp__Peplink__peplink_api_get` (any InControl2 `/rest/`
-   path - interfaces, bandwidth, event log, cellular, PepVPN), and
-   `mcp__JumpCloud__jc_api_get` (any JumpCloud v1/v2 path). For an account
+   path - interfaces, bandwidth, event log, cellular, PepVPN),
+   `mcp__JumpCloud__jc_api_get` (any JumpCloud v1/v2 path), and
+   `mcp__HUDU__hudu_api_get` (any Hudu path - `/networks`, `/ip_addresses`,
+   `/vlans`, `/websites`, `/relations`). Hudu returns secrets as
+   `[redacted]`; that is deliberate, never ask a client for one. For an account
    that "can't sign in", check JumpCloud too when the client uses it:
    `mcp__JumpCloud__get_user` shows `account_locked`, `password_expired` and
    MFA state. The dedicated `get_`/`list_` tools come first when one fits;
