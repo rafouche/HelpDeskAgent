@@ -3046,6 +3046,21 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.15.4 - Hudu gets step-by-step SOPs only (2026-09-24).** Roger: LEARN_FIX
+"is taking closed tickets and basically just making a synopsis of what was
+done, not really documenting a fix. I don't want this in hudu. If you're
+saving this for your own reference it's needs to be cached somewhere else.
+Only actual step by step fixes should ever be documented. Like an SOP" - he
+deleted the last two such articles. Prompt: four conditions (confirmed,
+exact steps, reusable, not routine) + the "could a tech fix this for a
+different client from this article alone" test + fixed SOP format; LEARN_FIX
+treats a list of what was done as a summary -> nothing to document, never
+reconstruct steps. No separate cache: Halo's ticket history is Allie's
+reference (already searched as prior art). article_create/edit added to
+$mutatingTools and stripped from the LEARN_FIX list under -WhatIf, so
+simulations/replays never write to Hudu. Rubric 22278 now expects "nothing
+to document" and no article (seed-once file on the server).
+
 **v2.15.3 - web search and page fetching (2026-09-24).** Roger: "Again, any
 diagnostic tools should be allowed. This includes web search and page
 fetching." After the Ready for AI fix, #22609 ran (18:01Z) but Allie could

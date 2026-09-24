@@ -1078,10 +1078,15 @@ been solved. If a fix doesn't pan out, it tries other genuinely different fixes
 across ticket cycles — there's no fixed attempt cap, it uses judgment, but client
 frustration always overrides and triggers escalation regardless.
 
-When a fix works and isn't already documented, it writes a short internal SOP-style
-article into Hudu under the folder named in `config.json`'s `hudu_fix_folder_name`
-(default: "AI-Documented Fixes") — create that folder once in Hudu if it doesn't
-exist yet. This is the one place the agent writes outside of Halo, and it's
+Hudu's fix folder (`config.json`'s `hudu_fix_folder_name`, default
+"AI-Documented Fixes" — create it once in Hudu) gets **step-by-step SOPs only**
+(v2.15.4): a confirmed, reusable, non-routine fix written as numbered steps a
+technician could follow for a different client (Applies to, Symptoms, Cause,
+Steps, Verify, Notes). A summary of what was done on a ticket never goes
+there, including from the pass over closed tickets, where "nothing to
+document" is the normal result. Simulations and replays never write to Hudu.
+Past tickets stay in Halo, which is what the agent searches as its own
+reference. This is the one place the agent writes outside of Halo, and it's
 deliberately not gated by the remediation whitelist: it only ever writes internal
 documentation, never touches a client's live systems.
 

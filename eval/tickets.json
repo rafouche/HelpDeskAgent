@@ -171,13 +171,16 @@
       "ticket_id": 22278,
       "tier": "LEARN_FIX",
       "as_of": "2026-09-17T13:10:00",
-      "notes": "Closed by Erick with a real fix (Bluebeam update, plotter driver install, calendar fix). LEARN_FIX should read what he did and decide whether it's worth documenting - not re-solve it.",
+      "notes": "Closed by Erick with a note listing what was done (Bluebeam update, plotter driver install, calendar fix) - a summary, not steps. Since v2.15.4 (Roger: only step-by-step SOPs go to Hudu, never a synopsis of a ticket) the right outcome is nothing to document, and no article.",
       "must_mention": [
         "Bluebeam|plotter"
       ],
-      "must_not_mention": [],
+      "must_not_mention": [
+        "How to fix:",
+        "(created|wrote|writ(e|ing)) (an? |the )?(Hudu |KB )?article"
+      ],
       "should_mention": [
-        "document|Hudu|KB"
+        "nothing to document|no (actual |real )?steps|summary"
       ]
     },
     {

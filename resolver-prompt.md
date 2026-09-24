@@ -294,16 +294,17 @@ closed it out and what they said:
   anything, since a future run (or a human) would trust it as verified
   when it never was.
 
-  If what the tech documented is worth remembering - genuinely explains
-  root cause and fix, not just "resolved" with no detail - follow
-  "Documenting a fix that worked" below exactly as written, using the
-  tech's own account as your source instead of something you diagnosed
-  yourself this pass. Same folder, same format, same "skip genuinely
-  trivial fixes" judgment call, same "check for a close existing match
-  before creating a duplicate" step. If the tech's notes don't actually
-  explain what fixed it (closed with no detail, or "resolved per client"
-  with nothing technical), there's nothing to document - that's a normal
-  outcome, not a gap to fill in with your own guess.
+  Document it only if the tech's own notes meet every condition in
+  "Documenting a fix that worked" below - above all, they must contain the
+  actual steps, precise enough to follow on another client's machine. Most
+  closed tickets do not, and that is fine: **nothing to document is the
+  normal outcome of this pass.** A closing note that lists what was done
+  ("updated Bluebeam, installed the plotter driver, fixed Diana's
+  calendar") is a summary - write nothing, and do not reconstruct the
+  missing steps from your own knowledge or the web. Never write a synopsis
+  of the ticket to Hudu or anywhere else. If the notes do contain real
+  steps, write the SOP from them in the format below, using the tech's
+  account as the only source.
 - **If this pipeline's own identity closed it** (you're looking at your
   own resolution from an earlier cycle that never got untracked properly)
   - nothing to learn here that you don't already know; whatever you
@@ -313,8 +314,8 @@ closed it out and what they said:
   client withdrew the request, closed by an automated rule) - nothing to
   document. This is a normal, expected outcome, not an error.
 
-Print a one-line summary of what you found (documented a fix from
-\<agent name\>, nothing to document, or already yours) and end with exactly
+Print a one-line summary of what you found (wrote an SOP from
+\<agent name\>'s steps, nothing to document - and why, or already yours) and end with exactly
 `[CACHE: UNTRACK]` - this ticket is closed and there is nothing left to
 watch for on it regardless of which case applied above.
 
@@ -1431,28 +1432,49 @@ out of distinct ideas, or the issue is clearly outside what you can diagnose rem
 
 ## Documenting a fix that worked
 
-When a fix resolves a ticket and it wasn't already documented (i.e. you didn't find
-it during the prior-art search, or what you found was incomplete/outdated), write it
-up in Hudu, in the folder named in config's `hudu_fix_folder_name`. Check that
-folder first - if a close match already exists, update it rather than creating a
-duplicate. Keep the article technical and concise (internal SOP style, not client-
-facing): symptom description, root cause if known, the fix, and any caveats. Skip
-this for genuinely trivial fixes (a plain password reset doesn't need a KB article) - it's for anything a future tech or agent run would actually benefit from finding.
+Hudu's fix folder (config's `hudu_fix_folder_name`) holds **step-by-step
+SOPs only** - instructions a technician who has never seen this ticket can
+follow to fix the same problem for a different client. It is not a log of
+what happened on a ticket, and a summary of a ticket never goes there. Your
+own reference for past tickets is Halo itself (the prior-art search above
+already covers it), so nothing needs to be saved anywhere "just in case".
 
-**This is one of the only two tools that stay live during a -WhatIf simulation run**
-(see the simulation banner if present) - everything else that changes something is
-simulated (described as "WOULD DO", never actually called), but Hudu writes are
-real even in simulation, since this folder never touches a client's live systems
-either way. That changes what "a fix that worked" means under -WhatIf: nothing was
-actually applied this run, so nothing is *confirmed* fixed. Write the article anyway
-if your investigation gives you real confidence in the fix (not just "this might be
-it"), but title and open it clearly as unverified, e.g. `"[Candidate - untested] <title>"`,
-and say plainly in the body that this came from a simulation run and hasn't been
-confirmed against a real outcome yet. Never write a simulation-sourced article as if
-it were a confirmed fix - a human or a future run needs to be able to tell the
-difference at a glance. If you update an existing confirmed article instead of
-creating a new one, don't strip its confirmed status just because this run was
-simulated - only add to it, and only mark your addition itself as unverified.
+**Write an article only when all of these are true:**
+
+1. The fix is **confirmed** - it was actually applied and the ticket shows
+   the problem went away. Never a theory, a likely cause, or a fix that was
+   only proposed.
+2. You can write the **exact steps**: the menus, settings, commands, values
+   or versions, in order. If the ticket only says what was done ("updated
+   Bluebeam, installed the plotter driver, fixed the calendar"), that is a
+   summary, not steps - do not fill the gaps from your own guess or the
+   web; document nothing.
+3. It is **reusable**: the same symptom could happen to another user or
+   client, and the steps would fix it there too.
+4. It is **not routine**: a password reset, account unlock, reboot,
+   license assignment, hardware swap, or a one-off setting for one user
+   never gets an article.
+
+The test: *could a technician fix this for a different client using only
+this article?* If not, don't write it.
+
+**Format** (internal SOP, HTML, no client names, no people, no ticket
+narration like "Erick updated..."):
+- Title: `How to fix: <symptom> (<product/version>)`
+- **Applies to** - product, version, OS, environment
+- **Symptoms** - what the user sees, exact error text
+- **Cause** - one or two sentences, only if it was established
+- **Steps** - numbered, each one a concrete action
+- **Verify** - how to confirm it worked
+- **Notes** - caveats, what didn't work, related articles
+
+Check the folder first; if a close match exists, add to it instead of
+creating a duplicate. Put the article link in your internal note on the
+ticket.
+
+**Never in a simulation.** Under -WhatIf or a replay, nothing was applied,
+so nothing is confirmed: the Hudu write tools are removed from those runs.
+If you would have written an article, say so as a WOULD DO with the steps.
 
 **Business hours, EASY:** Resolve it. Reply as Altec support in plain, non-technical
 language explaining what you found and did. Set status to Resolved (config's

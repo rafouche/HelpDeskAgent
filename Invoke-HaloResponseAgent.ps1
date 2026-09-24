@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.4 - Hudu gets step-by-step SOPs only (2026-09-24). Roger:
+    LEARN_FIX was "taking closed tickets and basically just making a
+    synopsis of what was done, not really documenting a fix... Only actual
+    step by step fixes should ever be documented. Like an SOP" - he deleted
+    the last two such articles. resolver-prompt.md "Documenting a fix that
+    worked" now requires a confirmed, reusable, non-routine fix with exact
+    steps, in a fixed SOP format (Applies to / Symptoms / Cause / Steps /
+    Verify / Notes, no client names or ticket narration); the LEARN_FIX
+    section says a list of what was done is a summary and nothing to
+    document is the normal outcome. Allie's own reference is Halo's ticket
+    history (already searched as prior art), so nothing is cached
+    elsewhere. article_create/edit joined $mutatingTools, so -WhatIf and
+    replays (including LEARN_FIX, whose list was never stripped) no longer
+    write to Hudu - the "[Candidate - untested]" allowance is gone.
     Version: 2.15.3 - web search and page fetching for the resolver
     (2026-09-24). Roger: "any diagnostic tools should be allowed. This
     includes web search and page fetching." #22609's Ready for AI run
@@ -3832,6 +3846,8 @@ $resolverTools = @(
     # v2.15.1: rafouche/MCPs hudu-mcp (API-key REST server registered as
     # HUDU in place of Hudu's OAuth-only hosted MCP) adds these two.
     "mcp__HUDU__hudu_api_get", "mcp__HUDU__healthcheck",
+    # v2.15.4: the article tools are in $mutatingTools (simulated under
+    # -WhatIf/replay); the paragraph below describes the pre-2.15.4 design.
     # --- Documentation, write. article_create_tool/article_edit_tool only ever
     #     write to the "AI-Documented Fixes" folder from config.json (never edit
     #     client-facing docs), so they don't need a remediation_whitelist entry -
@@ -3861,13 +3877,10 @@ $resolverTools = @(
 
 # Keep this list in sync with $resolverTools above whenever a new mutating tool
 # is added (a new remediation action reuses an existing entry here, so it's rare).
-# mcp__HUDU__article_create_tool/article_edit_tool are deliberately NOT here -
-# see the note where $resolverTools declares them: they only ever write to the
-# isolated "AI-Documented Fixes" folder, never a client's live systems, so they
-# stay live even during -WhatIf runs rather than being simulated like everything
-# else below. resolver-prompt.md's "Documenting a fix that worked" section tells
-# the model how to label a simulation-sourced article so it's never mistaken for
-# a confirmed fix.
+# mcp__HUDU__article_create_tool/article_edit_tool were once kept OFF this list
+# so simulations could write "[Candidate - untested]" articles; since v2.15.4
+# they are on it - Hudu gets confirmed step-by-step SOPs only, and a
+# simulation confirms nothing.
 $mutatingTools = @(
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
     "mcp__Halo__escalate_emergency", "mcp__Halo__send_approved_draft",
@@ -3881,9 +3894,14 @@ $mutatingTools = @(
     "mcp__Ninja__run_script_and_wait", "mcp__Meraki__run_throughput_test",
     # v2.10.55: writes to a client's real Hudu asset records (Firewalls/Switches/
     # Wireless), not the isolated "AI-Documented Fixes" folder - see the note where
-    # $resolverTools declares these two for why they're treated differently from
-    # article_create_tool/article_edit_tool, which stay live under -WhatIf.
-    "mcp__HUDU__asset_create_tool", "mcp__HUDU__asset_edit_tool"
+    # $resolverTools declares these two. (The article tools below were live
+    # under -WhatIf until v2.15.4; they are simulated now too.)
+    "mcp__HUDU__asset_create_tool", "mcp__HUDU__asset_edit_tool",
+    # v2.15.4: the fix-folder article tools are simulated too now. Roger:
+    # "Only actual step by step fixes should ever be documented" - a
+    # simulation or replay applies nothing, so it can never confirm a fix,
+    # and summaries of closed tickets had been landing in Hudu.
+    "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool"
 )
 
 # Subset of $mutatingTools that -RequireApproval strips from a non-APPROVED-tier
@@ -3976,10 +3994,8 @@ $simulationBannerLines = @(
     "justification, any on-call notification. Label each one clearly as 'WOULD DO:'",
     "so it's obvious this is a simulation. Do not attempt to call a tool you no",
     "longer have - if investigation alone can't rule out an action, just say so.",
-    "ONE EXCEPTION: mcp__HUDU__article_create_tool and article_edit_tool are still",
-    "live and really write, same as any other run - see resolver-prompt.md's",
-    "'Documenting a fix that worked' section for how to label a simulation-sourced",
-    "article so it's never mistaken for a confirmed fix.",
+    "Hudu writes are removed in a simulation too: nothing was applied, so no fix",
+    "is confirmed - describe any article you would have written as a WOULD DO.",
     "==="
 )
 $simulationBanner = $simulationBannerLines -join "`n"
@@ -6257,6 +6273,8 @@ try {
         # strip either way, so -RequireApproval/-WhatIf don't apply to it at all.
         if ($tier -eq 'LEARN_FIX') {
             $ticketTools = $resolverToolsLearnFix
+            # v2.15.4: no Hudu writes from a simulated/replayed LEARN_FIX pass.
+            if ($WhatIf) { $ticketTools = @($ticketTools | Where-Object { $mutatingTools -notcontains $_ }) }
         }
         else {
             $ticketTools = $resolverToolsFull
