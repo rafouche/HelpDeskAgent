@@ -3046,6 +3046,16 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**Updater pins downloads to the commit (2026-09-24).** After v2.15.2 was
+pushed, Roger forced the updater and it still reported v2.15.1:
+raw.githubusercontent.com caches a branch URL for up to 5 minutes per edge
+(max-age=300; a query string does not bust it). Update-HaloResponseAgent.ps1
+now asks the GitHub API for the branch's commit SHA and downloads
+raw/<sha>/<file> (immutable), falling back to the branch URL if the API call
+fails; the log line names the commit. Note: Invoke-WebRequest with
+Accept: application/vnd.github.sha returns bytes in PowerShell 7, so it uses
+the JSON commit response instead.
+
 **v2.15.2 - Ready for AI on an assigned ticket (2026-09-24).** Roger: "We
 changed the status to Ready for AI on ticket 22609, forced a run of the
 scheduled task, and nothing has happened." 22609 was tracked and assigned to

@@ -162,13 +162,31 @@ function Write-UpdateLog {
 $changedFiles = @()
 $downloadErrors = @()
 
+# Pin every download to the branch's current commit. raw.githubusercontent.com
+# caches a branch URL for up to 5 minutes per edge location (Cache-Control
+# max-age=300, and a query string does not bypass it), so a run shortly after
+# a push can be handed the previous version and conclude nothing changed -
+# real incident 2026-09-24: v2.15.2 was live on GitHub while a forced update
+# on the server still got v2.15.1. A commit-SHA URL is immutable, so it is
+# never stale. If the GitHub API call fails (rate limit: 60/hour per IP
+# unauthenticated, this runs 12/hour), fall back to the branch URL.
+$ref = $Branch
+try {
+    $commit = Invoke-RestMethod -Uri "https://api.github.com/repos/$RepoOwner/$RepoName/commits/$Branch" -Headers @{ Accept = "application/vnd.github+json" } -TimeoutSec 20 -ErrorAction Stop
+    $sha = ([string]$commit.sha).Trim()
+    if ($sha -match '^[0-9a-f]{40}$') { $ref = $sha }
+}
+catch {
+    $ref = $Branch
+}
+
 $syncPlan = @()
 foreach ($file in $filesToSync) { $syncPlan += [PSCustomObject]@{ file = $file; seedOnly = $false } }
 foreach ($file in $filesToSeedOnce) { $syncPlan += [PSCustomObject]@{ file = $file; seedOnly = $true } }
 
 foreach ($entry in $syncPlan) {
     $file = $entry.file
-    $url = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch/$file"
+    $url = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$ref/$file"
     # Repo paths use forward slashes; Join-Path handles a nested relative
     # path on Windows fine, but the parent folder has to exist before
     # Invoke-WebRequest can write into it.
@@ -231,7 +249,7 @@ if ($changedFiles.Count -eq 0) {
     exit 0
 }
 
-Write-UpdateLog "Updated file(s): $($changedFiles -join ', ')"
+Write-UpdateLog "Updated file(s) from $(if ($ref -eq $Branch) { "branch $Branch (commit lookup failed)" } else { "commit $($ref.Substring(0, 7))" }): $($changedFiles -join ', ')"
 
 # Smoke test: does the just-downloaded Invoke-HaloResponseAgent.ps1 still run
 # at all? -DryRun does no Halo calls and spends no API cost, so this is
