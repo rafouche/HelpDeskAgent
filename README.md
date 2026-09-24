@@ -1014,6 +1014,18 @@ $0.51. The TICKET line in each log names the prefetch state and cache TTL
 used for that run, and a run's `usage.cache_creation` shows whether the
 one-hour writes are happening (`ephemeral_1h_input_tokens`).
 
+**v2.15.0 - duplicate guard and investigation budget.** A new ticket from a
+contact who already has an older ticket waiting for approval is held, not
+investigated: Allie posts one private note naming the earlier ticket and a
+person merges it (or sets it to Ready for AI if it is a different issue).
+The hold lifts once the earlier ticket leaves AI Waiting Approval. Contact
+means the Halo user, the ticket's email, or the "Email:" line of a web-form
+ticket; your own staff domains (`pipeline.duplicate_guard_ignore_domains`)
+never count. On by default; `"duplicate_guard": false` in the pipeline
+block turns it off. The resolver prompt also carries an investigation
+budget (`claude.resolver_tool_call_budget`, default 20 tool calls, hard stop
+at twice that), because a 50-call run costs four times a 12-call one.
+
 **v2.14.2 - where the static text lives.** v2.14.0 put the per-run tail at
 the end of one big user message. Claude Code caches a user message as a
 whole, so a different tail meant a different cache entry: every v214-base

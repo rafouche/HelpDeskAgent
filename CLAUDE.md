@@ -3046,6 +3046,29 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.15.0 - duplicate guard, investigation budget, full read surface
+(2026-09-24).** Roger, after the 09-23/24 log analysis: "Do 1 and 2, and add
+the CIPP tools. All MCP's needed for diagnostics should expose all api tools
+needed for diagnostics, at least in Read only mode." (1) Duplicate guard in
+Invoke-DeterministicClassifier: new unassigned ticket + contact key
+(user_id unless generic/staff, user_email, web-form "Email:" line) matching
+an OLDER ticket in the waiting_approval bucket -> dropped as "held", one
+private [PIPELINE NOTE] via Invoke-HaloWorkerTool (JSON-RPC tools/call to
+halopsa-mcp /mcp, update_ticket note_is_private), agent-cache
+duplicate_held {new: earlier} so it posts once; lifts when the earlier one
+leaves waiting-approval; Ready for AI overrides. Tested in
+scratchpad/det-test/dup.ps1 (web-form email match, user_id match, unrelated,
+older-than-pending, staff contact, repeat pass, lift, guard off). The staff
+exclusion came from that test: Michael's own contact matched by user_id.
+(2) "## Investigation budget" in resolver-prompt.md with
+{{TOOL_CALL_BUDGET}} / {{TOOL_CALL_HARD_LIMIT}} from
+claude.resolver_tool_call_budget (20 / 40). (3) Allowlist: all read tools
+for CIPP, Halo, NinjaOne, Huntress, Hudu, JumpCloud (new, name
+"JumpCloud" unconfirmed on the server), UniFi/Peplink raw reads. Permission
+denials over 09-20..24 drove the Halo/Ninja picks (get_ticket_brief 19,
+CIPP list_users 15). Hudu: Roger supplied a new API key in chat for the
+server's HUDU registration - not stored anywhere in either repo.
+
 **v2.14.4 - whole Meraki read surface (2026-09-24).** Roger: "Noticed in
 one ticket it said it could see the meraki firewall rules for investigation.
 Mcp needs to allow this for troubleshooting. Basically any meraki api should

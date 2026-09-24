@@ -73,6 +73,43 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.0 - duplicate guard, investigation budget, and the full
+    read-only diagnostic surface (2026-09-24). From the 09-23/24 logs:
+    (1) $4.70 of 09-24's first $5.64 went on three new tickets that were
+    clients writing in again about issues whose drafts were already waiting
+    for approval (22635 -> 22607, 22636 -> 22589, 22639 -> 22598; Erick
+    merged all three). The deterministic classifier now holds a new
+    unassigned ticket whose contact - Halo user id, the ticket's email, or
+    an "Email:" line in a web-form body - already has an older ticket in
+    AI Waiting Approval: one private [PIPELINE NOTE] naming it (posted
+    straight to halopsa-mcp's update_ticket via the new
+    Invoke-HaloWorkerTool, no model call), recorded in agent-cache.json
+    duplicate_held so it is posted once, lifted automatically when the
+    earlier ticket leaves waiting-approval, overridden by Ready for AI.
+    Staff addresses (pipeline.duplicate_guard_ignore_domains, default
+    altecusa.com / altecsales.com) never match, by id or email. Notes only
+    on live runs with deterministic_classifier on (not -WhatIf, replay or
+    shadow); the LLM-classifier fallback has no guard. pipeline.
+    duplicate_guard defaults ON (the flag loop now honors an explicit
+    false). (2) Runs over 40 turns were 46% of spend since v2.14.2
+    (22635 47 turns $1.54, 22636 57 turns $2.25): resolver-prompt.md's new
+    "Investigation budget" - write by about claude.resolver_tool_call_budget
+    (20) calls, hard stop at twice that; baked into the static prompt from
+    config so the cache is unaffected. (3) Roger: "All MCP's needed for
+    diagnostics should expose all api tools needed for diagnostics, at
+    least in Read only mode." Allowlist gains every read-only tool of CIPP
+    (list_users was denied 15 times, list_onedrive_usage and list_standards
+    too), Halo (get_ticket_brief - denied 19 times though the prompt names
+    it - get_ticket_history, halo_api_get, sites, appointments, on-call,
+    contracts, licences, outcomes, SLAs, priorities), NinjaOne
+    (device/org activities, organization, policies, locations, contacts,
+    users, groups, tickets, ninja_api_get), Huntress (its whole read
+    surface except billing), Hudu (semantic search, processes, runs,
+    labels, activity log), JumpCloud (new block: users, systems, groups,
+    apps, policies, directory insights, jc_api_get), UniFi and Peplink raw
+    reads. New GET-only Worker tools: unifi_api_get, unifi_network_get
+    (console Network API through the connector), peplink_api_get,
+    jc_api_get. The prompt lists every system's escape hatch.
     Version: 2.14.4 - the whole Meraki read surface for troubleshooting
     (2026-09-24). meraki-mcp gained meraki_api_get (GET any Dashboard API
     v1 path, query params, 60K cap; GET only); it is in every resolver
@@ -3161,6 +3198,13 @@ if ($agentCache.PSObject.Properties['tracked_evaluated'] -and $agentCache.tracke
     foreach ($prop in $agentCache.tracked_evaluated.PSObject.Properties) { $trackedEvaluated[$prop.Name] = [string]$prop.Value }
 }
 
+# v2.15.0: duplicate guard holds - new ticket id -> the earlier ticket id its
+# hold note named, so the note is posted once per hold, not every cycle.
+$duplicateHeld = @{}
+if ($agentCache.PSObject.Properties['duplicate_held'] -and $agentCache.duplicate_held) {
+    foreach ($prop in $agentCache.duplicate_held.PSObject.Properties) { $duplicateHeld[$prop.Name] = [int]$prop.Value }
+}
+
 # Same pattern, for the unassigned-bucket fingerprint the gate check uses
 # below - absent entirely on a cache file from before this existed, which
 # just means "nothing seen yet," not an error.
@@ -3416,6 +3460,15 @@ $resolverTools = @(
     # resolver-prompt.md's emergency-escalation section).
     "mcp__Halo__list_tickets", "mcp__Halo__get_ticket", "mcp__Halo__get_ticket_time_entries",
     "mcp__Halo__list_kb_articles", "mcp__Halo__get_kb_article",
+    # v2.15.0: the rest of Halo's read surface. get_ticket_brief and
+    # get_ticket_history are what resolver-prompt.md and the replay banner
+    # tell the resolver to use, yet were never allowed - get_ticket_brief
+    # alone was denied 19 times in five days of logs, a wasted turn each.
+    # halo_api_get is the GET-only escape hatch for anything else.
+    "mcp__Halo__get_ticket_brief", "mcp__Halo__get_ticket_history", "mcp__Halo__halo_api_get",
+    "mcp__Halo__get_site", "mcp__Halo__get_appointment", "mcp__Halo__list_appointments", "mcp__Halo__get_on_call",
+    "mcp__Halo__list_contracts", "mcp__Halo__get_contract", "mcp__Halo__list_software_licences",
+    "mcp__Halo__list_outcomes", "mcp__Halo__list_slas", "mcp__Halo__list_priorities",
     "mcp__Halo__update_ticket",
     # delete_ticket_note: structurally narrow (see its own tool description) -
     # can only remove a private note that starts with the literal
@@ -3515,6 +3568,14 @@ $resolverTools = @(
     # BEC-style mailbox compromise (Defender/CIPP alerts, unexpected mailbox
     # delegate access) - second straight round of CIPP gaps on this ticket type.
     "mcp__CIPP__list_alerts", "mcp__CIPP__list_mailbox_permissions",
+    # v2.15.0: every read-only CIPP tool. Roger: "All MCP's needed for
+    # diagnostics should expose all api tools needed for diagnostics, at
+    # least in Read only mode" - after two resolver runs were denied
+    # list_users and list_onedrive_usage. None of these change anything.
+    "mcp__CIPP__list_users", "mcp__CIPP__list_user_devices", "mcp__CIPP__list_licenses", "mcp__CIPP__list_user_licenses",
+    "mcp__CIPP__list_groups", "mcp__CIPP__list_group_members", "mcp__CIPP__list_defender_status", "mcp__CIPP__list_secure_score",
+    "mcp__CIPP__list_intune_devices", "mcp__CIPP__list_autopilot_devices", "mcp__CIPP__list_intune_policies",
+    "mcp__CIPP__list_sharepoint_sites", "mcp__CIPP__list_onedrive_usage", "mcp__CIPP__list_logs", "mcp__CIPP__list_standards",
 
     # --- NinjaOne: read + reboot + run-script + script lookup by name ---
     # Three straight real runs each turned up a different missing read-only
@@ -3537,6 +3598,13 @@ $resolverTools = @(
     # questions can actually be answered from what Altec already has,
     # instead of asking the client or telling them to check the
     # manufacturer's site themselves.
+    # v2.15.0: NinjaOne reads the logs show being denied (device activities,
+    # organization, policies) plus the rest of its read surface and the
+    # GET-only escape hatch ninja_api_get.
+    "mcp__Ninja__list_device_activities", "mcp__Ninja__list_activities", "mcp__Ninja__get_organization",
+    "mcp__Ninja__list_org_policies", "mcp__Ninja__list_policies", "mcp__Ninja__list_org_locations", "mcp__Ninja__list_org_contacts",
+    "mcp__Ninja__list_users", "mcp__Ninja__list_device_groups", "mcp__Ninja__list_tickets", "mcp__Ninja__get_ticket",
+    "mcp__Ninja__healthcheck", "mcp__Ninja__ninja_api_get",
     "mcp__Ninja__get_device", "mcp__Ninja__get_device_custom_fields", "mcp__Ninja__get_device_os_info", "mcp__Ninja__get_device_software",
     "mcp__Ninja__get_device_software_patches", "mcp__Ninja__get_device_disks", "mcp__Ninja__get_device_processors",
     "mcp__Ninja__get_device_maintenance", "mcp__Ninja__list_devices_detailed",
@@ -3565,6 +3633,10 @@ $resolverTools = @(
     "mcp__Unifi__list_clients", "mcp__Unifi__get_device", "mcp__Unifi__list_devices", "mcp__Unifi__list_sites",
     "mcp__Unifi__get_host", "mcp__Unifi__list_hosts", "mcp__Unifi__get_isp_metrics",
     "mcp__Unifi__list_network_devices", "mcp__Unifi__list_network_sites",
+    # v2.15.0: GET-only escape hatches - any Site Manager path, and any path
+    # on one console's local Network Integration API (device statistics,
+    # clients, ports) through the Cloud Connector.
+    "mcp__Unifi__unifi_api_get", "mcp__Unifi__unifi_network_get", "mcp__Unifi__healthcheck",
     # list_organizations/list_networks: a real run showed the resolver denied on
     # list_organizations while investigating a client's network, mirroring the
     # same Ninja gap fixed earlier - discovering an org without then listing its
@@ -3666,6 +3738,9 @@ $resolverTools = @(
     # simultaneously).
     "mcp__Peplink__list_organizations", "mcp__Peplink__list_groups", "mcp__Peplink__list_devices",
     "mcp__Peplink__get_device", "mcp__Peplink__get_device_wan_status", "mcp__Peplink__healthcheck",
+    # v2.15.0: GET-only escape hatch for any InControl2 /rest/ path
+    # (interfaces, bandwidth, event log, client list, cellular, PepVPN).
+    "mcp__Peplink__peplink_api_get",
 
     # --- Security context, read-only ---
     # get_escalation/list_identities/list_organizations: a real run working a
@@ -3675,6 +3750,27 @@ $resolverTools = @(
     # added yet, same class of gap as the earlier Ninja/UniFi/Meraki rounds.
     "mcp__Huntress__list_incident_reports", "mcp__Huntress__get_agent",
     "mcp__Huntress__get_escalation", "mcp__Huntress__list_identities", "mcp__Huntress__list_organizations",
+    # v2.15.0: the rest of Huntress's read surface (it is Huntress's own MCP,
+    # proxied; every tool it exposes is read-only). Billing tools left out.
+    "mcp__Huntress__get_account", "mcp__Huntress__get_actor", "mcp__Huntress__get_external_port", "mcp__Huntress__get_identity",
+    "mcp__Huntress__get_incident_report", "mcp__Huntress__get_organization", "mcp__Huntress__get_platform_action",
+    "mcp__Huntress__get_remediation", "mcp__Huntress__get_report", "mcp__Huntress__get_signal", "mcp__Huntress__get_unwanted_access_rule",
+    "mcp__Huntress__list_agents", "mcp__Huntress__list_escalations", "mcp__Huntress__list_external_ports", "mcp__Huntress__list_known_vpns",
+    "mcp__Huntress__list_platform_actions", "mcp__Huntress__list_remediations", "mcp__Huntress__list_reports", "mcp__Huntress__list_signals",
+    "mcp__Huntress__list_unwanted_access_rules",
+
+    # --- JumpCloud, read-only (v2.15.0): account lockouts, MFA, device
+    #     bindings, directory insights. jc_api_get is the GET-only escape
+    #     hatch; jc_raw_request (any method) and every create/update/delete/
+    #     bind/unlock/reset/suspend/run tool stay out. Registered as
+    #     "JumpCloud" - confirm with `claude mcp list` on the server. ---
+    "mcp__JumpCloud__healthcheck", "mcp__JumpCloud__list_users", "mcp__JumpCloud__get_user", "mcp__JumpCloud__list_user_system_bindings",
+    "mcp__JumpCloud__list_systems", "mcp__JumpCloud__get_system", "mcp__JumpCloud__get_system_user_associations",
+    "mcp__JumpCloud__list_user_groups", "mcp__JumpCloud__get_user_group", "mcp__JumpCloud__list_user_group_members",
+    "mcp__JumpCloud__list_system_groups", "mcp__JumpCloud__list_system_group_members",
+    "mcp__JumpCloud__list_applications", "mcp__JumpCloud__get_application", "mcp__JumpCloud__get_application_user_associations",
+    "mcp__JumpCloud__search_directory_insights", "mcp__JumpCloud__list_policies", "mcp__JumpCloud__get_policy",
+    "mcp__JumpCloud__list_commands", "mcp__JumpCloud__jc_api_get",
 
     # --- Documentation, read-only (also where per-client 3CX connection details
     #     would live once that system is added - see README) ---
@@ -3691,6 +3787,13 @@ $resolverTools = @(
     # differs slightly per layout) - see resolver-prompt.md's network-stack-caching
     # section for why this replaced the v2.10.54 custom-KB-article design.
     "mcp__HUDU__asset_layout_index_tool", "mcp__HUDU__asset_layout_show_tool",
+    # v2.15.0: the rest of Hudu's read surface - semantic article search,
+    # company/folder detail, processes and their runs, labels, activity log,
+    # public photos. All read-only.
+    "mcp__HUDU__article_semantic_search_tool", "mcp__HUDU__article_folder_show_tool", "mcp__HUDU__company_show_tool",
+    "mcp__HUDU__process_index_tool", "mcp__HUDU__process_show_tool", "mcp__HUDU__run_index_tool", "mcp__HUDU__run_show_tool",
+    "mcp__HUDU__label_index_tool", "mcp__HUDU__label_type_index_tool",
+    "mcp__HUDU__activity_logs_index_tool", "mcp__HUDU__activity_logs_show_tool", "mcp__HUDU__public_photo_show_tool",
     # --- Documentation, write. article_create_tool/article_edit_tool only ever
     #     write to the "AI-Documented Fixes" folder from config.json (never edit
     #     client-facing docs), so they don't need a remediation_whitelist entry -
@@ -4051,11 +4154,15 @@ $pipelineFlags = @{
     prefetch_ticket          = $false   # increment 3: ticket brief/history/contact/device injected into the resolver prompt
     playbooks                = $false   # increment 4: lean core prompt + per-topic playbooks selected per ticket
     client_cards             = $false   # increment 5: per-client context cards (network stack, VLANs, servers) injected per ticket
+    duplicate_guard          = $true    # v2.15.0: hold a new ticket whose contact already has a draft waiting for approval (the one flag that defaults ON)
 }
 if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline) {
     foreach ($flagName in @($pipelineFlags.Keys)) {
         $flagValue = $config.pipeline.PSObject.Properties[$flagName]
-        if ($flagValue -and $flagValue.Value -eq $true) { $pipelineFlags[$flagName] = $true }
+        # v2.15.0: a key that is present sets the flag either way (so
+        # duplicate_guard, which defaults on, can be turned off); a missing
+        # key keeps the default above.
+        if ($flagValue -and $null -ne $flagValue.Value) { $pipelineFlags[$flagName] = ($flagValue.Value -eq $true) }
     }
 }
 if ($PrefetchTicket) { $pipelineFlags.prefetch_ticket = $true }
@@ -4124,6 +4231,26 @@ function Test-DeterministicSkipStatus {
     return $false
 }
 
+# v2.15.0: call one halopsa-mcp tool directly (JSON-RPC tools/call on the
+# Worker's /mcp route), with the same bearer token as the gate/triage routes.
+# Used by the duplicate guard to post its one private note without a model
+# call; the Worker's own guards apply exactly as for the resolver (a note
+# starting with a pipeline marker is forced hidden from the client).
+function Invoke-HaloWorkerTool {
+    param([string]$RootPath, [string]$Name, [hashtable]$Arguments)
+    $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
+    if (-not $baseUrl) { throw "no Halo Worker URL in .mcp.json" }
+    $headers = @{ Accept = 'application/json' }
+    $auth = Get-HelpDeskGateAuthHeader -RootPath $RootPath
+    if ($auth) { $headers['Authorization'] = $auth }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $body = @{ jsonrpc = '2.0'; id = 1; method = 'tools/call'; params = @{ name = $Name; arguments = $Arguments } } | ConvertTo-Json -Depth 8 -Compress
+    $resp = Invoke-RestMethod -Uri "$baseUrl/mcp" -Method Post -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 60
+    if ($resp.error) { throw "halopsa-mcp $Name failed: $($resp.error.message)" }
+    if ($resp.result -and $resp.result.isError) { throw "halopsa-mcp $Name returned an error: $(@($resp.result.content)[0].text)" }
+    return $resp.result
+}
+
 function Invoke-DeterministicClassifier {
     param(
         [string]$RootPath,
@@ -4143,7 +4270,12 @@ function Invoke-DeterministicClassifier {
         # (who_type 1) but aren't: Huntress's alert intake, seen live on
         # #22389/#22390. Same list halopsa-mcp's human_touch now ignores.
         [string[]]$IntegrationAppIds = @("Huntress", "Acronis Client Portal"),
-    [hashtable]$EvaluatedAt = @{}
+    [hashtable]$EvaluatedAt = @{},
+        # v2.15.0 duplicate guard (see the block before the unassigned loop)
+        [bool]$DuplicateGuard = $true,
+        [hashtable]$DuplicateHeld = @{},
+        [string[]]$GenericContactDomains = @("altecusa.com", "altecsales.com"),
+        [bool]$AllowWrites = $false
     )
     $report = @()
     $baseUrl = Get-HelpDeskGateBaseUrl -RootPath $RootPath
@@ -4246,6 +4378,56 @@ function Invoke-DeterministicClassifier {
     $drop = { param([int]$id, [string]$reason) [void]$dropped.Add("$id`: $reason") }
 
     # --- Call 1: unassigned ---
+    # --- v2.15.0: duplicate guard ---
+    # Real incident (2026-09-24): three new tickets in one morning were the
+    # same clients writing in again about issues whose drafts were already
+    # waiting for approval (22635 -> 22607, 22636 -> 22589, 22639 -> 22598);
+    # each got a full fresh investigation ($4.70 of that morning's $5.64) and
+    # a human merged all three. A new unassigned ticket whose contact already
+    # has an OLDER ticket waiting on approval is now held instead: one private
+    # note naming the earlier ticket, no model call, left for a person to
+    # merge. The hold lifts by itself once the earlier ticket leaves the
+    # waiting-approval status; Ready for AI overrides it (call 4 is separate).
+    # Contact = Halo user_id (unless generic, e.g. "No User") or email - the
+    # ticket's own user_email and any "Email: x@y" line in a web-form body
+    # (22635 arrived as "No User" with Ken's address only in the form text).
+    $contactKeys = {
+        param($tk)
+        $keys = @()
+        $uname = ([string]$tk.user_name).Trim()
+        # A staff contact (an Altec address opening or forwarding on a
+        # client's behalf) is never a match key, by id or by email: two
+        # tickets under Michael's own contact are usually different clients.
+        $ownEmail = ([string]$tk.user_email).Trim().ToLowerInvariant()
+        $ownIsStaff = ($ownEmail -match '@' -and $GenericContactDomains -contains $ownEmail.Split('@')[-1])
+        if (-not $ownIsStaff -and $uname -and $uname -notmatch '^(no user|unknown|general user)$' -and $tk.user_id -and [int]$tk.user_id -gt 0) { $keys += "user_id $([int]$tk.user_id)" }
+        $emails = @()
+        if ($tk.user_email) { $emails += [string]$tk.user_email }
+        if ($tk.details) {
+            foreach ($m in [regex]::Matches([string]$tk.details, '(?i)\bE-?mail(?:\s+address)?\s*:\s*([^\s<>;,"()]+@[^\s<>;,"()]+)')) { $emails += $m.Groups[1].Value }
+        }
+        foreach ($e in $emails) {
+            $e = $e.Trim().TrimEnd('.').ToLowerInvariant()
+            if ($e -notmatch '^[^@\s]+@[^@\s]+\.[a-z]{2,}$') { continue }
+            if ($e -match '^(no-?reply|do-?not-?reply|mailer-daemon|postmaster)@') { continue }
+            if ($GenericContactDomains -contains $e.Split('@')[1]) { continue }
+            $keys += "email $e"
+        }
+        return @($keys | Select-Object -Unique)
+    }
+    $pendingByContact = @{}
+    if ($DuplicateGuard -and $triage.waiting_approval) {
+        foreach ($pEntry in @($triage.waiting_approval.tickets)) {
+            $pt = $pEntry.ticket
+            if (-not $pt) { continue }
+            foreach ($ck in (& $contactKeys $pt)) {
+                # keep the oldest pending ticket per contact
+                if (-not $pendingByContact.ContainsKey($ck) -or [int]$pt.id -lt [int]$pendingByContact[$ck].id) { $pendingByContact[$ck] = $pt }
+            }
+        }
+    }
+    $heldNow = @{}
+
     foreach ($entry in @($triage.unassigned.tickets)) {
         $t = $entry.ticket; $id = [int]$t.id; $key = [string]$id
         $statusName = & $statusNameOf $t
@@ -4269,6 +4451,38 @@ function Invoke-DeterministicClassifier {
         $latest = $null
         if (@($entry.recent_actions).Count -gt 0) { $latest = @($entry.recent_actions)[0] }
         if ($latest -and (& $isHuman $latest) -and ($latest.hiddenfromuser -eq $false)) { & $drop $id "latest action is a colleague's client-facing entry ($($latest.who), $($latest.datetime))"; continue }
+        if ($pendingByContact.Count -gt 0) {
+            $dupMatch = $null
+            foreach ($ck in (& $contactKeys $t)) {
+                if ($pendingByContact.ContainsKey($ck) -and [int]$pendingByContact[$ck].id -lt $id) { $dupMatch = @{ contact = $ck; ticket = $pendingByContact[$ck] }; break }
+            }
+            if ($dupMatch) {
+                $earlierId = [int]$dupMatch.ticket.id
+                $heldNow[$key] = $earlierId
+                if ($DuplicateHeld.ContainsKey($key) -and [int]$DuplicateHeld[$key] -eq $earlierId) {
+                    & $drop $id "held: likely follow-up to #$earlierId (same contact, $($dupMatch.contact); its draft is waiting for approval) - hold note already posted"
+                    continue
+                }
+                $holdNote = "[PIPELINE NOTE] Likely follow-up to #$earlierId from the same contact ($($dupMatch.contact)). #$earlierId already has a draft waiting for approval, so Allie is holding this ticket instead of investigating the same issue again. Merge it into #$earlierId, or set it to Ready for AI if it is a different issue and Allie should work it separately. The hold lifts by itself once #$earlierId is no longer waiting for approval."
+                if ($AllowWrites) {
+                    try {
+                        Invoke-HaloWorkerTool -RootPath $RootPath -Name 'update_ticket' -Arguments @{ ticket_id = $id; note = $holdNote; note_is_private = $true } | Out-Null
+                        $DuplicateHeld[$key] = $earlierId
+                        & $drop $id "held: likely follow-up to #$earlierId (same contact, $($dupMatch.contact); its draft is waiting for approval) - hold note posted"
+                    }
+                    catch {
+                        # Could not post the note: hold anyway this cycle (the
+                        # point is not to pay for a duplicate investigation) and
+                        # retry the note next cycle.
+                        & $drop $id "held: likely follow-up to #$earlierId ($($dupMatch.contact)) - hold note FAILED, will retry: $($_.Exception.Message)"
+                    }
+                }
+                else {
+                    & $drop $id "held: likely follow-up to #$earlierId ($($dupMatch.contact)) - note not posted (no writes this run)"
+                }
+                continue
+            }
+        }
         & $add $id $null "unassigned"
     }
 
@@ -4334,6 +4548,9 @@ function Invoke-DeterministicClassifier {
         }
     }
 
+    # v2.15.0: forget holds that no longer apply (merged/closed, picked up,
+    # or the earlier ticket left waiting-approval) so a new hold posts a note.
+    foreach ($hk in @($DuplicateHeld.Keys)) { if (-not $heldNow.ContainsKey($hk)) { $DuplicateHeld.Remove($hk) } }
     $report += "dropped ($($dropped.Count)):"
     foreach ($d in $dropped) { $report += "  $d" }
     $report += "candidates ($($candidates.Count)):"
@@ -4796,7 +5013,14 @@ $classifierPrompt = $classifierPromptTemplate `
 #     substituted later - ticket ID/tier per ticket, resolved IDs once after ID
 #     resolution runs) ---
 $resolverPromptTemplate = Get-Content $resolverPromptPath -Raw -Encoding UTF8
+# v2.15.0: soft investigation budget (resolver-prompt.md "Investigation
+# budget"). A config value, not a per-run one, so the prompt text stays
+# identical across runs and cacheable. Hard limit is twice the budget.
+$toolCallBudget = 20
+if ($config.claude.PSObject.Properties['resolver_tool_call_budget'] -and [int]$config.claude.resolver_tool_call_budget -gt 0) { $toolCallBudget = [int]$config.claude.resolver_tool_call_budget }
 $resolverPromptTemplate = $resolverPromptTemplate `
+    -replace '\{\{TOOL_CALL_BUDGET\}\}', $toolCallBudget `
+    -replace '\{\{TOOL_CALL_HARD_LIMIT\}\}', (2 * $toolCallBudget) `
     -replace '\{\{CURRENT_DATETIME\}\}', $nowText `
     -replace '\{\{TIMEZONE\}\}', $config.business_hours.timezone `
     -replace '\{\{IS_BUSINESS_HOURS\}\}', $isBusinessHours `
@@ -4840,7 +5064,7 @@ if ($DryRun) {
     Write-Host "WhatIf (simulation) mode: $WhatIf"
     Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
     Write-Host "Replay (evaluation) mode: $(if ($isReplay) { "ON - tickets $($ReplayTicketIds -join ','), tier $ReplayTier, label '$ReplayLabel', as-of $replayAsOfText$(if ($ReplayKeepOwnActions) { ', own prior actions kept' })" } else { 'off' })"
-    Write-Host "Pipeline flags (config.json 'pipeline' block, all default off): $(($pipelineFlags.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ')"
+    Write-Host "Pipeline flags (config.json 'pipeline' block; all default off except duplicate_guard): $(($pipelineFlags.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ')"
     Write-Host "Ready-for-AI hand-back status: $(if ($config.halo.ready_for_ai_status_name) { "'$($config.halo.ready_for_ai_status_name)' (resolved to an ID at Stage 0, not shown here)" } else { 'NOT CONFIGURED - halo.ready_for_ai_status_name is blank, so this feature is off' })"
     if ($RequireApproval) {
         Write-Host "  NOTE: the approval banner (FLOW A/FLOW B, per-ticket tool selection)" -ForegroundColor Yellow
@@ -5652,6 +5876,9 @@ try {
                 -BlockedTickets $blockedTickets -HumanOwnedTickets $humanOwnedTickets -ApprovalMode ([bool]$RequireApproval) `
                 -SkipStatusNames $skipStatusNames -ClassifierPromptPath $classifierPromptPath `
                 -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone -EvaluatedAt $trackedEvaluated `
+                -DuplicateGuard $pipelineFlags.duplicate_guard -DuplicateHeld $duplicateHeld `
+                -GenericContactDomains $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['duplicate_guard_ignore_domains'] -and $config.pipeline.duplicate_guard_ignore_domains) { @($config.pipeline.duplicate_guard_ignore_domains | ForEach-Object { ([string]$_).ToLowerInvariant() }) } else { @("altecusa.com", "altecsales.com") }) `
+                -AllowWrites ([bool]$pipelineFlags.deterministic_classifier -and -not $WhatIf -and -not $isReplay) `
                 -IntegrationAppIds $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['integration_application_ids'] -and $config.pipeline.integration_application_ids) { @($config.pipeline.integration_application_ids | ForEach-Object { [string]$_ }) } else { @("Huntress", "Acronis Client Portal") })
             Write-LogSection -LogFile $logFile -Header "DETERMINISTIC CLASSIFIER$(if (-not $pipelineFlags.deterministic_classifier) { ' (SHADOW)' })" -Content $deterministic.Report
         }
@@ -6141,6 +6368,7 @@ finally {
                 tracked_tickets      = @($trackedTicketIds | Select-Object -Unique)
                 tracked_last_seen    = $prunedTrackedLastSeen
                 tracked_evaluated    = $prunedTrackedEvaluated
+                duplicate_held       = $duplicateHeld
                 unassigned_last_seen = $unassignedLastSeen
                 blocked_tickets      = $blockedTickets
                 human_owned_tickets  = $humanOwnedTickets
