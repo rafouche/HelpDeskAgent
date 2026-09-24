@@ -928,6 +928,26 @@ on Jill when she'd actually never been asked anything.
    events - DHCP, auth failures, uplink flaps), `mcp__Meraki__get_network_alerts_settings`,
    `mcp__Meraki__list_org_inventory`. Cameras: the `get_camera_*` /
    `*_camera_*` reads (video settings, retention, analytics, snapshot URL).
+   **Anything the dedicated tools don't cover: `mcp__Meraki__meraki_api_get`**
+   GETs any Dashboard API v1 path (relative to `/api/v1`, optional query
+   params). It is read-only by construction, so use it freely for
+   troubleshooting - never say you "can't see" a Meraki setting. Paths you
+   will actually need: firewall
+   `/networks/{networkId}/appliance/firewall/l7FirewallRules`,
+   `.../firewall/portForwardingRules`, `.../firewall/oneToOneNatRules`,
+   `.../firewall/inboundFirewallRules`, `.../firewall/cellularFirewallRules`;
+   `/networks/{networkId}/appliance/contentFiltering`,
+   `/networks/{networkId}/appliance/trafficShaping`,
+   `/networks/{networkId}/appliance/vlans/{vlanId}` (DHCP options and
+   reservations), `/networks/{networkId}/appliance/security/events`;
+   uplinks `/organizations/{orgId}/appliance/uplink/statuses`,
+   `/devices/{serial}/appliance/uplinks/settings`; switching
+   `/devices/{serial}/switch/ports/statuses` (link, PoE, errors per port),
+   `/devices/{serial}/lldpCdp` (what is plugged in where); clients
+   `/devices/{serial}/clients`, `/networks/{networkId}/clients/{clientId}`
+   and `/networks/{networkId}/wireless/clients/{clientId}/connectionStats`;
+   wireless health `/networks/{networkId}/wireless/failedConnections`
+   (`timespan` in seconds), `/networks/{networkId}/wireless/rfProfiles`.
    All of these are read-only and always allowed - quote what you actually
    found (e.g. the SSID's schedule) in the note for the tech instead of
    telling them where to look. Changing any of it is a human's job.

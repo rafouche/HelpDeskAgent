@@ -3046,6 +3046,17 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.14.4 - whole Meraki read surface (2026-09-24).** Roger: "Noticed in
+one ticket it said it could see the meraki firewall rules for investigation.
+Mcp needs to allow this for troubleshooting. Basically any meraki api should
+be exposed, at least in read only." meraki-mcp: `meraki_api_get` (GET any
+/api/v1 path, params, 60K cap, no `..`/`?`), same shape as halo_api_get /
+ninja_api_get. Script: added to the Meraki resolver allowlist (all tiers).
+Prompt: paragraph listing the firewall (L7, port forwarding, 1:1 NAT,
+inbound, cellular), content filtering, traffic shaping, VLAN DHCP, security
+events, uplink, switch port status, LLDP/CDP, client and wireless-health
+paths, and "never say you can't see a Meraki setting".
+
 **v2.14.3 - "Opened" is not ownership; blocked backoff 2h (2026-09-23).**
 Roger: "Tickets 22589 and 22598 both have been sitting for awhile and Allie
 hasn't touched them." Both were in the unassigned bucket every cycle and the

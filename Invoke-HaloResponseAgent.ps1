@@ -73,6 +73,15 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.14.4 - the whole Meraki read surface for troubleshooting
+    (2026-09-24). meraki-mcp gained meraki_api_get (GET any Dashboard API
+    v1 path, query params, 60K cap; GET only); it is in every resolver
+    tier's Meraki allowlist and resolver-prompt.md lists the paths the
+    dedicated tools do not cover (L7/port-forwarding/1:1 NAT/inbound
+    firewall rules, content filtering, traffic shaping, VLAN DHCP, uplink
+    statuses, switch port statuses, device clients, wireless connection
+    stats, LLDP/CDP, security events). Roger's steer after a resolver run
+    said it could not see the firewall rules it needed.
     Version: 2.14.3 - an agent's "Opened" action is not ownership; blocked
     backoff 2h (2026-09-23). Ticket #22589: Roger opened it for a client and
     left it unassigned in New; his Opened action counted as a human touch
@@ -3612,6 +3621,12 @@ $resolverTools = @(
     "mcp__Meraki__get_org_camera_permission", "mcp__Meraki__list_org_camera_roles", "mcp__Meraki__get_org_camera_role",
     "mcp__Meraki__get_org_camera_boundaries_areas_by_device", "mcp__Meraki__get_org_camera_boundaries_lines_by_device",
     "mcp__Meraki__get_org_camera_detections_history",
+    # v2.14.4: the raw read tool - GET any Meraki Dashboard API path. Roger:
+    # "any meraki api should be exposed, at least in read only for
+    # troubleshooting" (a resolver run said it could not see firewall rules
+    # it needed: L7, port forwarding, NAT, inbound, content filtering are
+    # not dedicated tools). GET only by construction in the Worker.
+    "mcp__Meraki__meraki_api_get",
     # run_throughput_test (v2.10.62): the first Meraki tool that actively DOES
     # something rather than just reading - runs a live WAN throughput test on
     # an MX appliance (Meraki's own Live Tools API), for firewall-level
