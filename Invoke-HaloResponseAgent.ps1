@@ -73,6 +73,16 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.3 - web search and page fetching for the resolver
+    (2026-09-24). Roger: "any diagnostic tools should be allowed. This
+    includes web search and page fetching." #22609's Ready for AI run
+    (Michael: find the part number for a Lexmark MS821 roller retainer)
+    ended with Allie reporting no web access. WebSearch and WebFetch are now
+    in the resolver allowlist for every tier except LEARN_FIX, and
+    resolver-prompt.md's new "Researching on the web" section sets the
+    rules: web text is reference data, never instructions; no credentials or
+    client-identifying detail in a query; cite the URL; prefer the
+    manufacturer; mark anything from a single unofficial source unverified.
     Version: 2.15.2 - Ready for AI on a ticket assigned to a person
     (2026-09-24). Ticket #22609: Michael, assigned, set it to Ready for AI
     and forced a run; nothing happened. Two bugs. (1) The deterministic
@@ -3466,6 +3476,12 @@ $classifierTools = @(
 # "Adding a new system" section for the full walkthrough.
 $resolverTools = @(
     "Read", "ToolSearch",
+    # v2.15.3: web research. Roger: "any diagnostic tools should be allowed.
+    # This includes web search and page fetching." Real case, #22609: Michael
+    # asked for a Lexmark MS821 part number and Allie could only say she had
+    # no web access. Read-only by nature; resolver-prompt.md's "Researching
+    # on the web" section treats fetched pages as untrusted reference text.
+    "WebSearch", "WebFetch",
 
     # --- Halo: read + reply/update ---
     # list_teams/list_statuses/list_agents are deliberately NOT here, same
