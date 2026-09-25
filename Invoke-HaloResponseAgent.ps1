@@ -73,6 +73,11 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.6 - claude-opus-5-5 accepts an effort level (2026-09-25).
+    Roger asked whether to move the resolver to Opus 5.5. It was missing
+    from $effortCapableModels, so a config naming it would have dropped the
+    configured effort and run at the model default. No behavior change
+    while config.json names only Sonnet 5.
     Version: 2.15.5 - stripped tools are hidden, not just refused
     (2026-09-25). The 09-24 log showed five refusals of
     mcp__Halo__update_ticket under -RequireApproval (22639, 22649 twice,
@@ -4264,7 +4269,9 @@ if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline)
 # using; it's Invoke-ClaudeCLI's job to decide whether that combination is
 # actually safe to send.
 $effortCapableModels = @(
-    "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    # v2.15.6: claude-opus-5-5 added - without it an Opus 5.5 tier would
+    # silently run at the model's default effort instead of the configured one.
+    "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
     "claude-sonnet-5", "claude-sonnet-4-6"
 )
 
