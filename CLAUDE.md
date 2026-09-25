@@ -3046,6 +3046,18 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.15.5 - stripped tools hidden (2026-09-25).** From the 09-24 log
+review: 5 refusals of mcp__Halo__update_ticket under -RequireApproval; on
+#22658 the resolver ended asking "do you want me to retry?" (no draft, no
+marker -> BLOCKED). --allowedTools is permission only; ToolSearch still
+surfaced the stripped tool. Invoke-ClaudeCLI -HideTools adds each run's
+stripped mutating tools to --disallowedTools. Verified locally against the
+Halo Worker (ToolSearch "update_ticket": both tools before, draft_only only
+after). Same review: budget held (max 33 turns after v2.15.0 vs 47/57
+before), duplicate guard held #22659 -> #22589 correctly (Roger merged it),
+Hudu fine after the API-key Worker, and 09-24 cache numbers are not
+representative - five prompt pushes that day each reset the cache.
+
 **v2.15.4 - Hudu gets step-by-step SOPs only (2026-09-24).** Roger: LEARN_FIX
 "is taking closed tickets and basically just making a synopsis of what was
 done, not really documenting a fix. I don't want this in hudu. If you're

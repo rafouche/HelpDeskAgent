@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.5 - stripped tools are hidden, not just refused
+    (2026-09-25). The 09-24 log showed five refusals of
+    mcp__Halo__update_ticket under -RequireApproval (22639, 22649 twice,
+    22653, 22658): --allowedTools only governs permission, so the stripped
+    send-capable tool was still discoverable through ToolSearch and the
+    resolver kept calling it. On #22658 it then ended its turn asking
+    "do you want me to retry?" - no draft, no marker, backed off as BLOCKED.
+    Every mutating tool a ticket's list stripped now goes into
+    --disallowedTools as well, which removes it from the model's tool set
+    (tested locally against the Halo Worker: ToolSearch for "update_ticket"
+    returned both tools before, only update_ticket_draft_only after). Cache
+    note: the hidden set differs between APPROVED (send tools present) and
+    other tiers, so APPROVED runs keep their own cache entry.
     Version: 2.15.4 - Hudu gets step-by-step SOPs only (2026-09-24). Roger:
     LEARN_FIX was "taking closed tickets and basically just making a
     synopsis of what was done, not really documenting a fix... Only actual
@@ -4864,6 +4877,16 @@ function Invoke-ClaudeCLI {
         # a whole, so a per-ticket tail at its end made every run rewrite
         # it. Only used when the installed CLI advertises the flag.
         [string]$SystemPromptFile,
+        # v2.15.5: tools this run must not even see. --allowedTools only
+        # governs permission; a tool left off it is still discoverable
+        # through ToolSearch and gets called, then refused. Real incident
+        # (2026-09-24): under -RequireApproval the resolver found and called
+        # the stripped mcp__Halo__update_ticket five times; on #22658 it then
+        # stopped to ask "do you want me to retry?" and wrote no draft at
+        # all. Names passed here join --disallowedTools, which removes them
+        # from the model's tool set (verified: ToolSearch no longer returns
+        # them).
+        [string[]]$HideTools,
         # v2.12.0: a call that needs no tools at all (the deterministic
         # classifier's one tiering call) must not pay to load every MCP
         # server's tool schema into its context - that schema block is most
@@ -4919,7 +4942,7 @@ function Invoke-ClaudeCLI {
         # even registers for the call, the same fix that took subagent_stats
         # to a confirmed 0 for Agent/Task in every ticket across both of
         # those same two days' logs.
-        "--disallowedTools", "Agent,Task,Bash,PowerShell",
+        "--disallowedTools", ((@("Agent", "Task", "Bash", "PowerShell") + @($HideTools | Where-Object { $_ })) -join ","),
         "--output-format", "json",
         "--permission-mode", "dontAsk"
     )
@@ -6287,8 +6310,11 @@ try {
         }
 
         try {
+            # v2.15.5: every mutating tool this ticket's list stripped is hidden
+            # outright, not just unpermitted (see Invoke-ClaudeCLI -HideTools).
+            $hiddenTools = @($mutatingTools | Where-Object { $ticketTools -notcontains $_ })
             $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
-                -Model $model -Effort $effort -SystemPromptFile $resolverSystemFile
+                -Model $model -Effort $effort -SystemPromptFile $resolverSystemFile -HideTools $hiddenTools
             Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model, $prefetchNote, cache ttl: $($script:promptCacheTtl), $layoutNote)" -Content $resolverResult.Raw
 
             $ticketCost = 0
