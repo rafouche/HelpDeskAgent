@@ -3046,6 +3046,18 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**Resolver effort: medium on every tier (2026-09-26).** Roger asked Opus
+5.5 low/medium vs Sonnet 5 all-medium. Re-priced 09-24's 21 runs: same
+tokens on Opus 5.5 = $24.92 vs $15.73 (+58%; cache reads are $0.20/MTok on
+both, writes and output double), break-even only at ~30% fewer turns,
+unmeasured. Recommended Sonnet 5 medium everywhere: one effort level = one
+shared prompt cache (each effort level was a separate cache, ~$0.20 per
+miss), thinking cost is small either way, and low effort had rushed
+diagnoses (#22658). Roger set live config to medium on all resolver tiers
+(classifier stays low); repo template updated to match. Optional next
+step offered: resolver_model_complex = claude-opus-5-5 as a bounded trial
+(v2.15.6 made that model receive its effort setting).
+
 **v2.15.5 - stripped tools hidden (2026-09-25).** From the 09-24 log
 review: 5 refusals of mcp__Halo__update_ticket under -RequireApproval; on
 #22658 the resolver ended asking "do you want me to retry?" (no draft, no
