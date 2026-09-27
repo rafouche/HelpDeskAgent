@@ -1,45 +1,66 @@
 ﻿# Altec Halo Response Agent — Setup
 
-## Two-stage pipeline
-Each cycle runs two kinds of `claude -p` call, not one:
+## How a cycle runs
+The scheduled task fires every 10 minutes in production (the registration
+script's default is 15; see step 7). Each firing runs three stages:
 
-1. **Classifier** (`classifier-prompt.md`) — one cheap, read-only call (Haiku)
-   that finds this cycle's candidate tickets and tags each with a complexity
-   tier: `TRIVIAL`, `TRIVIAL_UNCERTAIN`, `MEDIUM`, or `COMPLEX`.
-2. **Resolver** (`resolver-prompt.md`) — one call *per classified ticket*, with
-   the full MCP tool set, on a model chosen by that ticket's tier (cheap for
-   `TRIVIAL`/`TRIVIAL_UNCERTAIN`, capable for `MEDIUM`/`COMPLEX`). This is what
-   actually investigates, replies, remediates, or escalates.
+1. **ID resolver** (`id-resolver-prompt.md`) - turns the Halo team, status,
+   priority and agent *names* in `config.json` into IDs. Cached in
+   `agent-cache.json` for 24 hours, so most cycles skip it entirely.
+2. **Classifier** - finds this cycle's candidate tickets and tags each with a
+   tier: `TRIVIAL`, `TRIVIAL_UNCERTAIN`, `MEDIUM`, `COMPLEX` (plus `APPROVED`
+   under `-RequireApproval`). Production runs the **deterministic
+   classifier** (`pipeline.deterministic_classifier: true`): one HTTP call to
+   the Halo Worker's `/helpdesk-triage` route, the exclusion rules applied in
+   PowerShell, and one no-tool tiering call (Sonnet 5, effort low) only when
+   something needs a tier. The older LLM classifier (`classifier-prompt.md`
+   with Halo tools) is the fallback if that path fails, and the default in the
+   repo's template config. See "Deterministic classifier" below.
+3. **Resolver** (`resolver-prompt.md`) - one `claude -p` call *per candidate
+   ticket*, with the full read-only diagnostic tool set plus the writes that
+   ticket's mode allows. This is what actually investigates, drafts the reply,
+   remediates, or escalates. Every tier currently runs Sonnet 5 at effort
+   medium; the per-tier settings exist so one tier can be changed on its own.
 
-`TRIVIAL_UNCERTAIN` tickets still get a (cheap) resolver call, instructed to
-skip full investigation and just ask for the one missing piece of information
-— see `CLAUDE.md` for why this is a deliberate simplification of "skip the call
+Before any of that, a free pre-flight gate (`/helpdesk-gate` on the Halo
+Worker) checks whether anything could plausibly need work; most cycles stop
+there at no model cost.
+
+`TRIVIAL_UNCERTAIN` tickets still get a resolver call, instructed to skip full
+investigation and just ask for the one missing piece of information - see
+`CLAUDE.md` for why this is a deliberate simplification of "skip the call
 entirely."
 
 This replaces an earlier design where one `claude -p` call handled every
-ticket itself in a single agentic session — see `CLAUDE.md`'s changelog for
-why (a cheap model can triage; only tickets that need it should pay for a
-bigger one and a full tool loop).
+ticket itself in a single agentic session - see `CLAUDE.md`'s changelog for
+why.
 
 ## Files
 | File | Purpose |
 |---|---|
-| `config.json` | Business hours, Halo IDs, remediation whitelist, per-tier model/effort settings. **Edit this, not the prompts.** (Who is on call lives in Halo's Shifts calendar, not here.) |
-| `classifier-prompt.md` | Stage 1 instructions: find candidate tickets, tag each with a tier. |
+| `config.json` | Business hours, Halo names, remediation whitelist, per-tier model/effort settings, `pipeline` feature flags. **Edit this, not the prompts.** (Who is on call lives in Halo's Shifts calendar, not here.) Never auto-synced. |
+| `id-resolver-prompt.md` | Stage 0 instructions: resolve config.json's Halo names to IDs (cached). |
+| `classifier-prompt.md` | Stage 1 instructions: find candidate tickets, tag each with a tier. The deterministic classifier reads its "Classify each candidate" section live for the tiering call. |
 | `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
-| `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the classifier then a resolver call per ticket. |
+| `Invoke-HaloResponseAgent.ps1` | Loads config, computes business-hours context, runs the gate, the classifier, then a resolver call per ticket. |
 | `Register-HaloResponseAgentTask.ps1` | One-time setup: registers the Task Scheduler job (and, with `-EnableAutoUpdate`, the auto-update job too). |
 | `Install-Prerequisites.ps1` | One-time setup: installs `claude` machine-wide so `SYSTEM` (not just your own account) can find it. |
 | `Copy-McpServersToProject.ps1` | One-time setup shortcut: copies already-registered `-s user` MCP servers into this folder's `.mcp.json`. |
-| `Update-HaloResponseAgent.ps1` | Fetches a minimal set of files from GitHub over HTTPS (no git); logs only when something actually changed (or failed). |
+| `Update-HaloResponseAgent.ps1` | Fetches the program files from GitHub over HTTPS (no git), pinned to one commit; logs only when something actually changed (or failed). |
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
+| `Replay-Tickets.ps1` | Re-runs the resolver read-only against a fixed list of past tickets and scores the output. See "Replay evaluation". |
+| `eval/tickets.json` | The replay list and its rubrics. Seeded once by the updater, then this deployment's own to edit. |
+| `ninja-scripts/` | Source of NinjaOne library scripts the whitelist runs (kept here for reference; they live in NinjaOne). |
 
-This is the complete set of files this project needs to run - deliberately
-everything in this table, nothing more. `README.md` and `CLAUDE.md` (this
-file and the one written for Claude Code's own future reference) are
-documentation, not part of the deployed program - keep them wherever's
-convenient for reading, but there's no need to copy either onto the server
-at all, and `Update-HaloResponseAgent.ps1` never fetches them.
+Generated at run time, never synced: `agent-cache.json` (IDs, tracked
+tickets, gate fingerprints, duplicate holds), `resolver-system-prompt.generated.txt`
+(the static half of the resolver prompt, see "Prompt caching"), `logs\`,
+`backups\`, `eval\results\`, and `.mcp.json` (the MCP registrations, which
+hold real tokens and are never committed).
+
+`README.md` and `CLAUDE.md` are documentation, not part of the deployed
+program - there's no need to copy either onto the server, and
+`Update-HaloResponseAgent.ps1` never fetches them.
 
 ## Prerequisites
 1. **`Install-Prerequisites.ps1` run once, as Administrator** — installs `claude`
@@ -48,7 +69,7 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    whichever account you're logged in as. See "Install and authenticate
    Claude Code" below for the full step.
 2. **Claude Code authenticated** (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
-3. **MCP servers configured** on that machine for: Halo, Microsoft 365, CIPP, Ninja, UniFi, Meraki, Huntress, Hudu — the same connectors you already use, just reachable from wherever Claude Code runs on the server.
+3. **MCP servers registered** in this folder's `.mcp.json` under these exact names: `Halo`, `CIPP`, `Ninja`, `Meraki`, `Unifi`, `Peplink`, `Huntress`, `HUDU` (and optionally `JumpCloud`). All are Altec's own Cloudflare Workers in `rafouche/MCPs`, each called with a bearer token. A `Microsoft365` server is referenced in the allowlist but not registered today; CIPP covers M365 diagnostics.
 4. PowerShell 5.1+ (built into Windows Server).
 
 ## Step by step
@@ -76,7 +97,8 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    reasoning about real open tickets — but every tool that would change
    something (replies, ticket status/assignment, on-call notifications,
    reboots, script runs, password resets, Hudu writes) is removed from the
-   resolver's allowlist, and it's told to describe what it would have done
+   resolver's allowlist *and* hidden from it entirely (`--disallowedTools`,
+   v2.15.5), and it's told to describe what it would have done
    instead (look for "WOULD DO:" in the output). Read through the result
    before trusting any of this against real tickets — either open
    `logs\whatif-<date>.log` directly (one `=== HEADER ===` section per
@@ -106,7 +128,8 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    ```powershell
    .\Register-HaloResponseAgentTask.ps1
    ```
-   Default is every 15 minutes, 24/7. Adjust with `-IntervalMinutes`. If you're
+   Default is every 15 minutes, 24/7; production runs every 10
+   (`-IntervalMinutes 10`). If you're
    still in the `-RequireApproval` rollout stage, register it with that switch
    instead so every scheduled run starts in human-approval mode from the first
    firing:
@@ -126,8 +149,9 @@ at all, and `Update-HaloResponseAgent.ps1` never fetches them.
    ```powershell
    .\Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate
    ```
-   Default is every 60 minutes - there's no need for this to run as often as
-   the ticket-processing task itself; adjust with `-UpdateCheckIntervalMinutes`.
+   Default is every 60 minutes; production checks every 5
+   (`-UpdateCheckIntervalMinutes 5`) so a pushed fix is live by the next cycle.
+   Each check with nothing new is one small GitHub API call and writes no log.
    See "Keeping this up to date automatically" below before relying on it.
 
 ## Keeping this up to date automatically
@@ -142,11 +166,16 @@ needed.
 
 `Update-HaloResponseAgent.ps1` automates exactly that, on its own schedule
 (via `Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`, step 8 above):
-it downloads a specific, minimal list of files - the three prompts,
-`Invoke-HaloResponseAgent.ps1`, `Update-HaloResponseAgent.ps1` itself, and
-`Show-AgentLog.ps1` - directly from
-`https://raw.githubusercontent.com/rafouche/HelpDeskAgent/main/<file>` over
-plain HTTPS (no authentication needed, this is a public repo), compares
+it downloads a specific, minimal list of files - the three prompts
+(`id-resolver-prompt.md`, `classifier-prompt.md`, `resolver-prompt.md`),
+`Invoke-HaloResponseAgent.ps1`, `Update-HaloResponseAgent.ps1` itself,
+`Show-AgentLog.ps1` and `Replay-Tickets.ps1` - plus `eval/tickets.json` once,
+on first sight only (after that it's yours to edit and never overwritten).
+Every run first asks the GitHub API for `main`'s current commit SHA and then
+downloads `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/<sha>/<file>`,
+so all files come from one commit and a stale CDN copy of the branch can't
+serve an old file (if the SHA lookup fails it falls back to the branch URL).
+Plain HTTPS, no authentication (public repo). It compares
 each one's hash against the local copy, and replaces only the ones that
 changed, backing up whatever was there before to
 `backups\<file>.bak-<timestamp>` first - its own subfolder, not loose in
@@ -244,16 +273,17 @@ acknowledgment doesn't add safety, only delay. Everything else about that
 ticket (the actual diagnosis, the detailed follow-up reply) still goes through
 the approval flow above.
 
-**What this does and doesn't guarantee:** remediation actions (password reset,
-reboot, running a whitelisted script) are physically blocked on a not-yet-approved
-ticket — the tool itself is removed from that call's allowlist, not just
-discouraged in the prompt, so a mistake there fails loudly rather than quietly
-running. Whether a given `update_ticket` call is the safe private draft or a
-real client-facing reply isn't something a tool allowlist can tell apart (it's
-the same tool either way, just different arguments), so that part relies on the
-agent following the instructions correctly — the same trust level as the rest
-of this system's safety rules (ticket-ownership checks, remediation-whitelist
-compliance), which has held up across many real `-WhatIf` runs so far.
+**What this does and doesn't guarantee:** on a not-yet-approved ticket the
+resolver cannot send anything to the client or change a system. Remediation
+tools (password reset, reboot, running a whitelisted script), the real
+`update_ticket` and `send_approved_draft` are removed from that call's
+allowlist *and* hidden from the model (`--disallowedTools`, v2.15.5), so it
+never even sees them. The only ticket-writing tool it has is
+`update_ticket_draft_only`, which the Halo Worker forces to a private,
+unsent note whatever arguments it is given. The approved send is one atomic
+Worker call (`send_approved_draft`) that can only post text already sitting
+in a draft a human approved. The emergency acknowledgment below is the one
+deliberate exception.
 
 You can also combine both switches (`-WhatIf -RequireApproval`) to see the whole
 draft/approve choreography play out against live ticket data with nothing
@@ -266,6 +296,22 @@ the schedule was registered with the switch) and the agent goes back to running
 exactly as it did before this mode existed — no config changes needed, since a
 run without the switch never looks at either new status
 name at all.
+
+## Ready for AI: handing a ticket to the agent
+By default the agent leaves alone any ticket a person has touched (a reply,
+a note, a claim; an agent merely *opening* the ticket doesn't count, v2.14.3).
+To hand one over anyway, set its status to `halo.ready_for_ai_status_name`
+("Ready for AI"). The next cycle picks it up whoever it's assigned to
+(v2.15.2 fixed assigned tickets being skipped). It overrides every
+exclusion except a compliance-excluded client: the cooldowns below and the
+duplicate guard. The pre-flight gate
+fingerprints Ready for AI and AI Approved tickets, so a status change to
+either wakes the next cycle even when nothing else changed.
+
+Two cooldowns keep the agent from paying to rediscover the same dead end:
+a ticket reported `[CACHE: BLOCKED]` (a Halo write the agent can't make) is
+skipped for `claude.blocked_ticket_retry_hours` (2), and one reported
+`[CACHE: HUMAN_OWNED]` for `claude.human_owned_retry_hours` (24).
 
 ## Excluding clients for compliance reasons
 
@@ -487,8 +533,7 @@ name or the vendor's name for it.
 
 Get each connector's endpoint URL and credential from wherever you recorded the
 custom Cloudflare Worker URLs/tokens when you built Halo/Ninja/UniFi/Meraki/
-Huntress/Hudu/CIPP, or from CIPP-ng's own Settings for the new CIPP-ng MCP.
-Most of your own Workers use a plain static API key/Bearer token, which
+Peplink/Huntress/Hudu/CIPP. Every one is a plain Bearer-token Worker, which
 registers non-interactively. **Run these from inside this folder**
 (`C:\AltecAgents\HaloResponseAgent\`, or wherever you copied the files) —
 `-s project` writes the registration to a `.mcp.json` file in the *current*
@@ -509,28 +554,35 @@ claude mcp add --transport http <Name> <https-url> --header "Authorization: Bear
 claude mcp list   # verify — note the exact names and connection status
 ```
 
-**Turn on the Worker-side check for that token (v2.11.2).** The `--header`
-above makes Claude *send* a bearer token, but until 2026-09-19 no Worker
-*checked* it - every Worker answered on its public `workers.dev` URL, write
-tools included, with no credentials at all. Each Worker now enforces the
-token, but only once you set its `MCP_AUTH_TOKEN` secret - so nothing changes
-until you do, and you can do it one Worker at a time. For each Worker, from
-its folder in the MCPs checkout, using the same token you registered it with:
+**The Worker side of that token.** The `--header` above makes Claude *send*
+a bearer token; each Worker *checks* it once its `MCP_AUTH_TOKEN` is set. The
+rule for every Altec Worker, current and future:
 
-```powershell
-cd <MCPs checkout>\halopsa-mcp
-git pull
-npm run deploy                      # picks up the check (inert until the secret exists)
-npx wrangler secret put MCP_AUTH_TOKEN   # paste that Worker's token from .mcp.json when prompted
-```
+- `MCP_AUTH_TOKEN` is always a Cloudflare **Secret** (Worker > Settings >
+  Variables and Secrets > type *Secret*), never a plain-text variable, and
+  every `wrangler.jsonc` carries `"keep_vars": true` so a deploy never wipes
+  what was set in the dashboard.
+- Open without a token: `GET /health`, `/status`, `/licenses` (the wallboard
+  reads these), the read-only `/api/huntress/*` and `/api/pax8/*`
+  passthroughs (anything but GET/HEAD gets 405), and the Ninja Worker's
+  `/oauth/start`, `/oauth/callback`, `/oauth/status`.
+- Everything else - `/mcp`, and the Halo Worker's `/helpdesk-gate`,
+  `/helpdesk-triage`, `/helpdesk-*` routes this script calls directly -
+  needs `Authorization: Bearer <token>`. The Hudu Worker refuses every
+  request until the secret exists (fails closed); the others stay open until
+  it's set, so it can be turned on one Worker at a time.
 
-Then confirm both halves: `claude mcp list` still shows the server connected,
-and `curl https://<that-worker>/mcp` with no header now returns `401`. Any
-*other* place the same Worker is registered (a claude.ai connector, another
-machine, another session) needs the same header or it will start getting
-`401` too - that's the check working. `Invoke-HaloResponseAgent.ps1`'s own
-direct calls to the Halo Worker (`/helpdesk-gate`, `/helpdesk-candidates`)
-read the header from this folder's `.mcp.json` automatically.
+Enforced today on Halo, CIPP, Ninja and HUDU; still to set on Meraki, UniFi,
+Peplink, Huntress, JumpCloud, M365, Google Workspace and Pax8. To turn it
+on: set the secret in the Cloudflare dashboard to the same token that
+Worker's entry in `.mcp.json` sends. Then confirm both halves:
+`claude mcp list` still shows the server connected, and
+`curl https://<that-worker>/mcp` with no header returns `401`. Any *other*
+place the same Worker is registered (a claude.ai connector, another machine,
+another session) needs the same header or it will start getting `401` too -
+that's the check working. `Invoke-HaloResponseAgent.ps1`'s own direct calls
+to the Halo Worker read the header from this folder's `.mcp.json`
+automatically.
 
 **`-s project`, not `-s user` — this is not a style preference.** `claude mcp add`
 defaults to (and many examples elsewhere use) `-s user`, which registers the
@@ -570,22 +622,22 @@ auth (see "Needs authentication" below) - run it from this folder:
 .\Copy-McpServersToProject.ps1
 ```
 
-**If a connector shows "Needs authentication"** in `claude mcp list` (this is
-normal for OAuth-based servers like Hudu/Huntress — token auth connectors just
-show "Connected" once added), it needs a one-time interactive login that can't
-complete unattended on a headless server:
+**If a connector shows "Needs authentication"** in `claude mcp list`, it's
+an OAuth server, not one of these Workers - Hudu and Huntress used to be
+(their vendors' hosted MCPs) and are now Bearer-token Workers like the rest
+(`hudu-mcp` talks to Hudu's REST API with an API key held as a Worker
+secret). If one ever does need OAuth, the login is one-time and interactive:
 
 ```powershell
 claude mcp login <Name> --no-browser
 ```
 
-This prints an authorization URL — open it in a browser on any machine, sign in,
-and paste the resulting redirect URL back into the prompt. If the server itself
-has no browser, run this over `ssh -t user@server` so the terminal stays
-interactive for pasting the URL back. **These credentials are stored per-machine
-(Windows Credential Manager) and cannot be copied from one machine to
-another** — the login has to be run against the actual production server, not
-somewhere else and transplanted.
+It prints an authorization URL - open it in a browser on any machine, sign
+in, and paste the resulting redirect URL back. **These credentials are stored
+per-machine (Windows Credential Manager) and can't be copied between
+machines.** A Worker that answers `401` with "Dynamic Client Registration
+rejected" is not asking for OAuth: its token in `.mcp.json` doesn't match the
+Worker's `MCP_AUTH_TOKEN`.
 
 Then confirm the tool names match what's in `Invoke-HaloResponseAgent.ps1` —
 `.\Invoke-HaloResponseAgent.ps1 -DryRun` prints the allowlist without calling
@@ -597,7 +649,7 @@ just whether the script completed without a PowerShell error (a run can finish
 `CLAUDE.md`'s note on the tool-name syntax bug for exactly this happening here).
 
 ## Reducing per-run cost
-The classifier/resolver split (see "Two-stage pipeline" above) is itself the
+The classifier/resolver split (see "How a cycle runs" above) is itself the
 main cost lever: a single-call design that ran every ticket through one big
 agentic session cost **$4.13** for a 75-ticket / 7-candidate cycle at the
 account defaults (`claude-opus-5`, effort `high`, adaptive thinking, 62 turns)
@@ -606,50 +658,51 @@ to tickets that turned out to need nothing more than "ask for the missing
 info." The two-stage design instead pays for a full tool loop only on tickets
 the (cheap) classifier actually flagged as needing one.
 
-`config.json`'s `claude` block controls the remaining levers:
+`config.json`'s `claude` block controls the remaining levers. What runs in
+production today (the repo template matches):
 
 ```json
 "claude": {
+  "prompt_cache_ttl": "1h",
+  "static_prompt_in_system": true,
+  "resolver_tool_call_budget": 20,
   "effort": "low",
-  "classifier_model": "claude-haiku-4-5",
-  "resolver_model_trivial": "claude-haiku-4-5",
+  "classifier_effort": "low",
+  "resolver_effort_trivial": "medium",
+  "resolver_effort_medium": "medium",
+  "resolver_effort_complex": "medium",
+  "classifier_model": "claude-sonnet-5",
+  "resolver_model_trivial": "claude-sonnet-5",
   "resolver_model_medium": "claude-sonnet-5",
   "resolver_model_complex": "claude-sonnet-5"
 }
 ```
 
-- **`classifier_model`** — always cheap; the classifier never uses write tools
-  and doesn't need frontier-tier reasoning to sort tickets into four buckets.
-- **`resolver_model_trivial`/`_medium`/`_complex`** — the model the resolver
-  uses for a ticket, chosen by the tier the classifier assigned it (`TRIVIAL`
-  and `TRIVIAL_UNCERTAIN` both use `resolver_model_trivial`, since the latter
-  just asks for missing info and stops rather than investigating). Sonnet is
-  roughly 60% cheaper per token than Opus ($2/$10 per million tokens vs.
-  $5/$25); Opus remains an option here for `_complex` if you want extra
-  headroom on genuinely hard tickets specifically, without paying for it on
-  every ticket.
-- **`effort`** — one of `low`, `medium`, `high` (default), `xhigh`, `max`. The
-  fallback default for the classifier and every resolver call. Lower effort
-  means less thinking, fewer/more-consolidated tool calls, and less token
-  spend, at some cost to thoroughness.
-- **`classifier_effort`/`resolver_effort_trivial`/`_medium`/`_complex`**
-  (optional, all omitted by default) — per-call overrides if you want finer
-  control than one global `effort` value, e.g. `low` for the cheap
-  Haiku-backed tiers and `medium` for Sonnet-backed ones as they get more
-  capable. Each falls back to plain `effort` above when absent, so adding
-  none of these behaves exactly like today. There's no separate
-  `resolver_effort_approved` — the `APPROVED` tier (`-RequireApproval` only)
-  reuses `resolver_model_trivial`'s model, so it reuses
-  `resolver_effort_trivial` too.
-  **Not every model accepts `--effort` at all** — Claude Haiku 4.5
-  (`classifier_model`/`resolver_model_trivial`'s default) does NOT support it
-  and the CLI rejects it if sent, so this script only ever sends `--effort`
-  when the model actually being called that cycle is on its own
-  confirmed-supported list (current Sonnet/Opus tiers) — setting
-  `classifier_effort` or `resolver_effort_trivial` has no effect unless you
-  also change the matching model to one that supports it. `-DryRun` shows
-  exactly what would and wouldn't be sent, including a note when a configured
-  effort value is being silently skipped for this reason.
+- **`classifier_model`** / **`classifier_effort`** - the ID resolver, the LLM
+  classifier fallback, and the deterministic classifier's one tiering call.
+  Sorting tickets into buckets needs little depth, so effort stays `low`.
+- **`resolver_model_trivial`/`_medium`/`_complex`** - the model the resolver
+  uses for a ticket, by the tier it was assigned (`TRIVIAL_UNCERTAIN` and
+  `APPROVED` reuse `_trivial`). All Sonnet 5 today. Opus 5.5 is the option
+  for `_complex` if hard tickets ever need more; it costs twice Sonnet 5 per
+  token on input and output (the 09-24 runs re-priced on it came to +58%).
+- **`resolver_effort_*`** - `low`, `medium`, `high`, `xhigh` or `max`; each
+  falls back to plain `effort` when blank. All four resolver tiers run
+  `medium` (set 2026-09-25). Keeping one effort level across tiers also means
+  one shared prompt cache: Claude Code's cache is keyed by effort level, so
+  two levels means two cache entries to write.
+  **Not every model accepts `--effort`** - the script sends it only when the
+  model is on its own `$effortCapableModels` list (current Sonnet and Opus,
+  `claude-opus-5-5` included) and skips it otherwise; `-DryRun` shows what
+  would and wouldn't be sent.
+- **`resolver_tool_call_budget`** (20) - the investigation budget written into
+  the resolver prompt, with a hard stop at twice that. See v2.15.0 below.
+- **`prompt_cache_ttl`** / **`static_prompt_in_system`** - see "Prompt
+  caching" below.
+
+Prices per million tokens (Anthropic's pricing page): Sonnet 5 $2 input,
+$4 one-hour cache write, $0.20 cache read, $10 output; Opus 5.5 $4 / $8 /
+$0.20 / $20.
 
 **Compare a few `-WhatIf` runs' WOULD DO quality against a known-good baseline
 before trusting a cheaper setting live** — judgment calls on escalation,
@@ -705,7 +758,7 @@ Two more levers, both structural rather than config-driven:
   really got marked handled.
 - **Off-hours throttle (v2.10.18).** This lever alone wasn't enough: a real
   overnight run still cost real money even with the team filter above,
-  because every 15-minute cycle - the vast majority of which find nothing -
+  because every scheduled cycle - the vast majority of which find nothing -
   still ran the full pipeline. `business_hours.off_hours_check_interval_minutes`
   (default 60) makes a scheduled firing outside business hours a near-instant
   no-op (no ID resolution, no classifier, nothing) unless that many minutes
@@ -718,9 +771,11 @@ Two more levers, both structural rather than config-driven:
   calls `halopsa-mcp`'s new `GET /helpdesk-gate` route directly over plain
   HTTP (no Claude CLI, no LLM, essentially free) to ask whether there's
   plausibly anything to find: any new unassigned Help Desk ticket, any
-  stuck-claimed ticket, or any tracked ticket whose `last_update` has changed
-  since it was last seen. If none of those are true, the classifier call is
-  skipped entirely for that cycle. This fails open on any problem (the Worker
+  stuck-claimed ticket, any tracked ticket whose `lastactiondate` has changed
+  since it was last seen, or any Ready for AI / AI Approved ticket that is new
+  or changed (fingerprinted as `ready:<id>` / `approved:<id>` in
+  `agent-cache.json`). If none of those are true, the classifier is skipped
+  entirely for that cycle. This fails open on any problem (the Worker
   URL isn't configured, a network error, a malformed response) - it always
   falls back to running the classifier normally rather than risk silently
   skipping a cycle that needed it, and it never applies to a manual
@@ -942,7 +997,9 @@ config.json replaces it with:
    candidate" section. Nothing to tier means no LLM call at all.
 
 If anything on that path fails, the cycle falls back to the LLM classifier
-and the log says why. Roll it out in two steps:
+and the log says why. **Production runs it**
+(`deterministic_classifier: true`, `classifier_shadow: false`); the repo's
+template still ships both off, so a new deployment rolls it out in two steps:
 
 ```jsonc
 "pipeline": {
@@ -984,7 +1041,7 @@ Needed, Scheduled, Quote*, ...). The seeded list mirrors the examples in
 classifier-prompt.md; edit it to match your tenant. A trailing `*` is a
 prefix match, and the list is never applied to `ready_for_ai_status_name`.
 
-## Prefetched ticket context and prompt caching (cost program, increment 3)
+## Prompt caching and prefetched ticket context (cost program, increment 3)
 v2.14.0. With the classifier line solved, the resolver is the bill: about
 $0.51 and 12.6 turns per ticket, measured over 49 runs. Three changes:
 
@@ -998,7 +1055,7 @@ $0.51 and 12.6 turns per ticket, measured over 49 runs. Three changes:
   is billed. On before the flag, for everyone.
 - **config.json rides in the prompt.** The resolver used to spend its first
   turn Reading it from disk; now it is in the tail. No config change needed.
-- **`pipeline.prefetch_ticket`** (default off): one call to the Halo Worker
+- **`pipeline.prefetch_ticket`** (off in production and the template): one call to the Halo Worker
   fetches the ticket, its 25 newest action-log entries, the human-touch
   verdict and device hints, appended as a "## Prefetched ticket" block. The
   prompt treats it as the ticket already read, so the first four to six tool
@@ -1014,19 +1071,11 @@ $0.51. The TICKET line in each log names the prefetch state and cache TTL
 used for that run, and a run's `usage.cache_creation` shows whether the
 one-hour writes are happening (`ephemeral_1h_input_tokens`).
 
-**v2.15.0 - duplicate guard and investigation budget.** A new ticket from a
-contact who already has an older ticket waiting for approval is held, not
-investigated: Allie posts one private note naming the earlier ticket and a
-person merges it (or sets it to Ready for AI if it is a different issue).
-The hold lifts once the earlier ticket leaves AI Waiting Approval. Contact
-means the Halo user, the ticket's email, or the "Email:" line of a web-form
-ticket; your own staff domains (`pipeline.duplicate_guard_ignore_domains`)
-never count. On by default; `"duplicate_guard": false` in the pipeline
-block turns it off. The resolver prompt also carries an investigation
-budget (`claude.resolver_tool_call_budget`, default 20 tool calls, hard stop
-at twice that), because a 50-call run costs four times a 12-call one.
+**Status:** the first replay comparison (v2.14.1, below) cut turns but not
+cost, and the prompt-layout fix (v2.14.2) then took most of the saving
+prefetch was after, so `prefetch_ticket` stays off in production.
 
-**v2.14.2 - where the static text lives.** v2.14.0 put the per-run tail at
+**Prompt caching as it runs today (v2.14.2) - where the static text lives.** v2.14.0 put the per-run tail at
 the end of one big user message. Claude Code caches a user message as a
 whole, so a different tail meant a different cache entry: every v214-base
 run still wrote 72K-98K tokens, billed at the doubled one-hour rate, and
@@ -1070,6 +1119,43 @@ right before believing a prefetch number:
   (6000) and `prefetch_max_chars` (40000) in config.json (a lean starting
   point: 12 / 800 / 3000 / 12000) and replay again.
 
+## Duplicate guard (v2.15.0)
+A new unassigned ticket from a contact who already has an older ticket
+waiting for approval is held, not investigated: no model call, one private
+`[PIPELINE NOTE]` naming the earlier ticket, and a person merges it (or sets
+it to Ready for AI if it's a different issue). The hold lifts by itself once
+the earlier ticket leaves AI Waiting Approval. "Contact" means the Halo user,
+the ticket's email, or the "Email:" line of a web-form ticket; addresses at
+`pipeline.duplicate_guard_ignore_domains` (altecusa.com, altecsales.com -
+your own staff, who open tickets for many clients) never count. The note is
+written only on a live run with the deterministic classifier on, never under
+`-WhatIf` or a replay. On by default; `"duplicate_guard": false` turns it off.
+
+## What the resolver can use to investigate
+- **Every read-only diagnostic tool** on Halo, CIPP (M365), NinjaOne,
+  Huntress, HUDU, Meraki, UniFi and Peplink (and JumpCloud if registered),
+  including each Worker's raw read-only GET tool (`halo_api_get`,
+  `cipp_api_get`, `ninja_api_get`, `meraki_api_get`, `unifi_api_get`,
+  `unifi_network_get`, `peplink_api_get`, `jc_api_get`, `hudu_api_get`) for
+  any endpoint the named tools don't cover - firewall rules, VPN state, event
+  logs and so on. Writes stay limited to the Halo ticket itself, the
+  `remediation_whitelist` actions, and Hudu SOPs (below).
+- **Web search and page fetch** (`WebSearch`, `WebFetch`, v2.15.3) for vendor
+  docs, error codes, part numbers and known issues, after the internal
+  systems. The prompt treats web content as reference data, never
+  instructions; keeps passwords, internal IPs and client or people names out
+  of queries; requires citing sources; and has it mark an answer unverified
+  when the only source is unofficial.
+- **An investigation budget** (v2.15.0): `claude.resolver_tool_call_budget`
+  (20) tool calls, hard stop at twice that, because a 50-call run costs four
+  times a 12-call one. At the budget it stops gathering and writes; at the
+  hard stop it writes up what it has and lists what's still open. Writes and
+  their verification don't count.
+- **Hidden, not just refused (v2.15.5):** any write tool a run isn't allowed
+  (everything mutating under `-WhatIf`/replay, remediation and the real send on
+  an unapproved ticket) is passed to `--disallowedTools`, so the model never
+  sees it. `Agent`, `Task`, `Bash` and `PowerShell` are always hidden.
+
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets
 across *every* client (not just the one it's currently working) plus Halo's KB and
@@ -1088,11 +1174,15 @@ document" is the normal result. Simulations and replays never write to Hudu.
 Past tickets stay in Halo, which is what the agent searches as its own
 reference. This is the one place the agent writes outside of Halo, and it's
 deliberately not gated by the remediation whitelist: it only ever writes internal
-documentation, never touches a client's live systems.
+documentation, never touches a client's live systems. Hudu article tools
+count as mutating, so `-WhatIf` and replays (including the closed-ticket
+LEARN_FIX pass) can't write there.
 
 ## Safety notes
 - Start with the remediation whitelist as narrow as you're comfortable with — you can always add to `config.json` later without touching anything else.
 - `-MultipleInstances IgnoreNew` in the scheduled task keeps two runs from overlapping if one takes longer than the interval.
 - Watch the logs for the first week or two, especially escalation and after-hours behavior, before trusting it fully.
-- Nothing in this setup lets the agent act outside the `remediation_whitelist` — everything else it does with M365/Ninja/UniFi/Meraki/Huntress/Hudu is read-only by tool scoping in `Invoke-HaloResponseAgent.ps1`.
+- Nothing in this setup lets the agent act outside the `remediation_whitelist` — everything else it does with CIPP/Ninja/UniFi/Meraki/Peplink/Huntress is read-only by tool scoping in `Invoke-HaloResponseAgent.ps1`, and the only Hudu writes are step-by-step SOPs in the fix folder.
+- The resolver can search the web and fetch pages (v2.15.3). It's told never to put passwords, internal IPs, or client or people names into a search, and that what it reads is reference data to cite, never instructions to follow.
+- Production runs under `-RequireApproval`: nothing reaches a client or a system without a human setting AI Approved first, except the templated emergency acknowledgment.
 - Before running this against any client with regulated data (PCI/HIPAA/GLBA/SOX or similar), read "Excluding clients for compliance reasons" above — and read it as what it actually guarantees, not what it sounds like it guarantees.

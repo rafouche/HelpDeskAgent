@@ -5,9 +5,48 @@ but *why* it's built this way — most of these decisions came from a back-and-f
 with the person who owns this (Roger, Altec Solutions Group), so don't casually
 "improve" something below without understanding the reasoning first.
 
+## Standing rules for every change (Roger, 2026-09-27)
+- **Docs move with the code.** Every change that alters behavior, config,
+  tools, schedule or cost updates, in the same push: `README.md`, this file
+  (a history entry in "Design decisions and why" *and* the living sections -
+  "Current state", "Files", "MCP server setup status"), the template
+  `config.json` comments if a key's meaning or default changed, and the
+  Capabilities Brief artifact (https://claude.ai/artifact/HtBkSt2PEJuE3wyjRPrnck
+  - read the live version first, bump its "Verified against" footer to the
+  new script version). The Dashboard and MCPs repos' READMEs/CLAUDE.md follow
+  the same rule for their own changes.
+- **Worker auth (option 1, 2026-09-25)** - see the MCPs repo's CLAUDE.md:
+  `MCP_AUTH_TOKEN` always a Secret; only `/health`, `/status`, `/licenses`
+  and read-only passthroughs open; `keep_vars: true` in every wrangler config.
+- Every read-only diagnostic tool is allowed to the resolver; writes stay
+  scoped (ticket, whitelist, Hudu SOPs only).
+
+## Current state (living section - keep it matching production)
+As of v2.15.6, 2026-09-27:
+- Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
+  agent task every 10 minutes with `-RequireApproval`, updater every 5
+  minutes (commit-SHA pinned downloads).
+- Pipeline: ID resolver (cached 24h) -> pre-flight gate (`/helpdesk-gate`,
+  fingerprints unassigned, tracked, Ready for AI and AI Approved tickets) ->
+  **deterministic classifier** (`pipeline.deterministic_classifier: true`,
+  shadow off; `/helpdesk-triage` + one no-tool tiering call) -> duplicate
+  guard -> one resolver call per ticket.
+- Models/effort: Sonnet 5 everywhere; classifier (and ID resolver/tiering)
+  effort low; all four resolver tiers effort medium (2026-09-25).
+  `$effortCapableModels` includes `claude-opus-5-5`.
+- Caching: static prompt in the system prompt via
+  `--append-system-prompt-file` (`static_prompt_in_system: true`), 1h TTL.
+  `prefetch_ticket` off.
+- Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
+  `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
+- Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
+  UniFi, Peplink (JumpCloud allowlisted, not relied on) including raw GET
+  tools; `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
+  to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
+
 ## What this is
 A Claude Code headless agent, scheduled via Windows Task Scheduler on a Windows
-Server, running 24/7. Every cycle (~15 min) it pulls open Halo tickets, works
+Server, running 24/7. Every cycle (10 min in production) it pulls open Halo tickets, works
 multiple at once (sequentially within one run — not parallel processes; see
 Known limitations), tries to resolve easy ones directly, and escalates the rest.
 It's a **replacement for a Cloudflare Workers annotation-only bot** (`ai-triage-worker`
@@ -31,15 +70,22 @@ the full rationale.
   (never IDs — see "No IDs anywhere in config.json" below), remediation
   whitelist, Hudu fix folder, per-tier model/effort settings.
 - `id-resolver-prompt.md` — stage 0: resolve config.json's Halo names to IDs.
-  Run once per cycle, read-only, cheap model, before the classifier - skipped
-  entirely on a cache hit (see `resolved-ids-cache.json` below).
-- `resolved-ids-cache.json` — gitignored, generated at runtime. Caches stage 0's
-  last successful result plus the exact `halo.*` names that produced it, so a
-  cycle can skip stage 0 entirely when config.json hasn't changed and the cache
-  isn't older than `claude.id_cache_max_age_hours`. Safe to delete any time to
-  force a fresh resolution next run.
-- `classifier-prompt.md` — stage 1: find candidate tickets, tag each with a tier.
-  Run once per cycle, read-only, cheap model.
+  Run once per cycle, read-only, before the classifier - skipped entirely on
+  a cache hit (see `agent-cache.json` below).
+- `agent-cache.json` — gitignored, generated at runtime (v2.10.18 merged the
+  old `resolved-ids-cache.json` and `tracked-tickets.json` into it). Holds the
+  resolved IDs plus the `halo.*` names that produced them, tracked tickets,
+  blocked/human-owned cooldowns, `tracked_evaluated`, the gate's
+  `unassigned_last_seen` fingerprints (including `ready:<id>`/`approved:<id>`),
+  `duplicate_held`, and remembered notes. Deleting it is safe but forgets
+  tracked tickets and remembered notes.
+- `resolver-system-prompt.generated.txt` — gitignored, rewritten every run:
+  the static half of the resolver prompt (banners, resolver-prompt.md,
+  config.json text) passed via `--append-system-prompt-file` (v2.14.2).
+- `classifier-prompt.md` — stage 1 (LLM fallback): find candidate tickets, tag
+  each with a tier. With the deterministic classifier on (production), only
+  its "Classify each candidate" section is used, read live for the tiering
+  call.
 - `resolver-prompt.md` — stage 2: investigate/resolve *one* specific ticket. Run
   fresh once per classified ticket per cycle, full tool set, model chosen by tier.
 - `Invoke-HaloResponseAgent.ps1` — computes business-hours context, runs the ID
@@ -57,15 +103,22 @@ the full rationale.
   servers into this folder's `.mcp.json` (`-s project` scope), instead of
   re-typing every `claude mcp add` command by hand. Only for connectors that
   need no further interactive auth.
-- `Update-HaloResponseAgent.ps1` — fetches a specific, minimal list of files
-  (prompts + every `.ps1` - deliberately never `config.json`, and not
-  `README.md`/`CLAUDE.md`) directly from GitHub over plain HTTPS, backing up
-  and replacing only the ones that changed; logs only when something
-  actually changed (or failed), and runs `Invoke-HaloResponseAgent.ps1
-  -DryRun` once as a smoke test after a real update.
+- `Update-HaloResponseAgent.ps1` — fetches the three prompts,
+  `Invoke-HaloResponseAgent.ps1`, itself, `Show-AgentLog.ps1` and
+  `Replay-Tickets.ps1` (plus `eval/tickets.json` once, seed-only) from GitHub
+  over plain HTTPS, all pinned to `main`'s current commit SHA (GitHub API,
+  falling back to the branch URL), backing up and replacing only the ones
+  that changed; never `config.json`, never the one-time setup scripts or
+  docs. Logs only when something changed (or failed), and runs `-DryRun`
+  once as a smoke test after a real update.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
+- `Replay-Tickets.ps1` — read-only replay of the resolver against
+  `eval/tickets.json` (each entry: ticket, tier, `as_of`, regex rubrics),
+  results in `eval/results/<label>/`, `-CompareTo` for a diff table with
+  cache-read/write and `$/turn` columns.
+- `ninja-scripts/` — source of NinjaOne library scripts the whitelist runs.
 - `README.md` — setup + how-to-extend instructions for a human.
 
 ## Design decisions and why
@@ -3431,21 +3484,23 @@ config tweak. Not worth building preemptively.
   name" pattern as everything else, rather than a new config table.
 - **Ticket-assignment ownership workflow** (see above) — designed, not implemented.
 
-## MCP server setup status on the production machine (as of the last `claude mcp list`)
-- **Connected and working:** `Halo`, `Meraki`, `CIPP` (old worker — see above),
-  `Ninja`, `Unifi`.
-- **Registered but "Needs authentication":** `Huntress`, `HUDU` (note the ALL-CAPS
-  name — that's the exact registered name, and the `mcp__HUDU__...` prefix must
-  match it exactly, case-sensitive). These are OAuth-based remote MCP servers; the
-  one-time login can't complete unattended. Run, from a machine with a browser
-  (or via `ssh -t` into the server so the redirect URL can be pasted back):
-  `claude mcp login Huntress --no-browser` and `claude mcp login HUDU --no-browser`.
-  Credentials are stored per-machine (Windows Credential Manager) and can't be
-  copied from another machine — this has to run on the production server itself.
-- **Not registered at all:** `Microsoft365` (or however you name it — just avoid
-  spaces, since Claude Code's `mcp__<server>__<tool>` prefix needs an exact,
-  unambiguous match). Until it's added via `claude mcp add`, on-call email
-  notifications and the NDR bounce-diagnosis fallback are both silent no-ops.
+## MCP server setup status on the production machine (living section)
+As of 2026-09-25 (`claude mcp list`, all Connected). All are Altec's own
+Cloudflare Workers from `rafouche/MCPs`, registered `-s project` in
+`.mcp.json` with a Bearer token:
+- `Halo`, `CIPP`, `Ninja`, `HUDU` - Worker enforces `MCP_AUTH_TOKEN`
+  (Ninja's is still a plain-text variable; convert it to a Secret).
+- `Meraki`, `Unifi`, `Peplink`, `Huntress` - connected; Worker token not yet
+  set (open until it is).
+- `HUDU` (ALL-CAPS; the `mcp__HUDU__` prefix must match exactly) is now the
+  `hudu-mcp` Worker over Hudu's REST API (API key as a Worker secret), a
+  drop-in for Hudu's hosted OAuth MCP. Huntress is likewise the Worker, not
+  the vendor's OAuth MCP. Nothing needs `claude mcp login` any more.
+- `JumpCloud` - allowlisted, parked ("forget JumpCloud for now", Roger).
+- **Not registered:** `Microsoft365`. The on-call page no longer depends on it
+  (`escalate_emergency` on the Halo Worker sends through Halo's own mail);
+  the only thing lost is the NDR fallback via `outlook_email_search`. CIPP
+  covers M365 diagnostics.
 
 ## Known limitations
 - **Console/log encoding (fixed).** Windows PowerShell 5.1 captured `claude`'s
