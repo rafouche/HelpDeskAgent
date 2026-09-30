@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.8 - brief client replies, default off (2026-09-30).
+    Roger approved a mode where the investigation stays exactly as it is
+    but the client-facing reply is two to four plain, non-technical
+    sentences, with the technical detail in the internal note. Decisions:
+    missing details are still asked for (plainly); security sign-in alerts,
+    the forwarded-email reminder and the emergency path are unchanged; the
+    holding reply ("we've completed our initial diagnostics, and a
+    technician will follow up with you") promises no time; a fixed ticket
+    resolves after approval as today. resolver-prompt.md carries the
+    section between BRIEF_REPLIES_START/END markers; this script removes it
+    unless pipeline.client_reply_style is "brief" (anything else, or a
+    missing key, means "detailed" = today's behavior). The value is fixed
+    per deployment, so the static prompt stays identical run to run and
+    the cache is unaffected. Shown in -DryRun and on every TICKET log line.
     Version: 2.15.7 - JumpCloud removed; claude-sonnet-5-5 accepts an effort
     level (2026-09-30). Roger is retiring the JumpCloud MCP, so its
     read-only block leaves the resolver allowlist and resolver-prompt.md no
@@ -4233,6 +4247,12 @@ if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline)
 }
 if ($PrefetchTicket) { $pipelineFlags.prefetch_ticket = $true }
 
+# v2.15.8: client reply style (pipeline.client_reply_style). "brief" keeps
+# resolver-prompt.md's "Brief client replies" section; anything else, or a
+# missing key, is "detailed" (today's behavior) and the section is removed.
+$clientReplyStyle = "detailed"
+if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['client_reply_style'] -and ([string]$config.pipeline.client_reply_style).Trim() -ieq 'brief') { $clientReplyStyle = "brief" }
+
 # v2.14.1: how much ticket the prefetched block carries (pipeline.prefetch_*
 # in config.json; a missing key means the default). The block is re-read on
 # every resolver turn, so its size is the lever that decides whether
@@ -5098,6 +5118,14 @@ $classifierPrompt = $classifierPromptTemplate `
 #     substituted later - ticket ID/tier per ticket, resolved IDs once after ID
 #     resolution runs) ---
 $resolverPromptTemplate = Get-Content $resolverPromptPath -Raw -Encoding UTF8
+# v2.15.8: keep or remove the brief-replies section (see $clientReplyStyle).
+if ($clientReplyStyle -eq "brief") {
+    if ($resolverPromptTemplate -notmatch '<!-- BRIEF_REPLIES_START -->') { Write-Warning "pipeline.client_reply_style is 'brief' but resolver-prompt.md has no BRIEF_REPLIES section - replies stay detailed." }
+    $resolverPromptTemplate = $resolverPromptTemplate -replace '<!-- BRIEF_REPLIES_(START|END) -->\r?\n', ''
+}
+else {
+    $resolverPromptTemplate = $resolverPromptTemplate -replace '(?s)<!-- BRIEF_REPLIES_START -->.*?<!-- BRIEF_REPLIES_END -->\r?\n(\r?\n)?', ''
+}
 # v2.15.0: soft investigation budget (resolver-prompt.md "Investigation
 # budget"). A config value, not a per-run one, so the prompt text stays
 # identical across runs and cacheable. Hard limit is twice the budget.
@@ -5150,6 +5178,7 @@ if ($DryRun) {
     Write-Host "RequireApproval (human sign-off) mode: $RequireApproval"
     Write-Host "Replay (evaluation) mode: $(if ($isReplay) { "ON - tickets $($ReplayTicketIds -join ','), tier $ReplayTier, label '$ReplayLabel', as-of $replayAsOfText$(if ($ReplayKeepOwnActions) { ', own prior actions kept' })" } else { 'off' })"
     Write-Host "Pipeline flags (config.json 'pipeline' block; all default off except duplicate_guard): $(($pipelineFlags.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ', ')"
+    Write-Host "Client reply style (pipeline.client_reply_style): $clientReplyStyle$(if ($clientReplyStyle -eq 'brief') { ' - short, non-technical client replies; full detail in the internal note' } else { ' - today''s detailed replies' })"
     Write-Host "Ready-for-AI hand-back status: $(if ($config.halo.ready_for_ai_status_name) { "'$($config.halo.ready_for_ai_status_name)' (resolved to an ID at Stage 0, not shown here)" } else { 'NOT CONFIGURED - halo.ready_for_ai_status_name is blank, so this feature is off' })"
     if ($RequireApproval) {
         Write-Host "  NOTE: the approval banner (FLOW A/FLOW B, per-ticket tool selection)" -ForegroundColor Yellow
@@ -6317,7 +6346,7 @@ try {
             $hiddenTools = @($mutatingTools | Where-Object { $ticketTools -notcontains $_ })
             $resolverResult = Invoke-ClaudeCLI -Prompt $resolverPrompt -Tools $ticketTools `
                 -Model $model -Effort $effort -SystemPromptFile $resolverSystemFile -HideTools $hiddenTools
-            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model, $prefetchNote, cache ttl: $($script:promptCacheTtl), $layoutNote)" -Content $resolverResult.Raw
+            Write-LogSection -LogFile $logFile -Header "TICKET $ticketId (tier: $tier, model: $model, $prefetchNote, cache ttl: $($script:promptCacheTtl), $layoutNote, replies: $clientReplyStyle)" -Content $resolverResult.Raw
 
             $ticketCost = 0
             if ($resolverResult.Parsed -and $resolverResult.Parsed.total_cost_usd) {

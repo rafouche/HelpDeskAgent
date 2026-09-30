@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.7, 2026-09-30 (production branch may lag `main` until deployed):
+As of v2.15.8, 2026-09-30 (deployed to `production` the same day):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -48,6 +48,8 @@ As of v2.15.7, 2026-09-30 (production branch may lag `main` until deployed):
 - Caching: static prompt in the system prompt via
   `--append-system-prompt-file` (`static_prompt_in_system: true`), 1h TTL.
   `prefetch_ticket` off.
+- Client replies: `pipeline.client_reply_style` "detailed" (brief mode built
+  in v2.15.8, off until Roger sets "brief" in the live config).
 - Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
@@ -3114,6 +3116,22 @@ exists; m365-mcp's tool and vars stay but are unused. Environment note:
 the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
+
+**v2.15.8 - brief client replies, default off (2026-09-30).** Roger:
+"doing all and as much as the initial troubleshooting of a ticket, but keep
+the initial correspondence to the user as short, concise, and as
+non-technical as possible... maybe later go back to the way it is now."
+pipeline.client_reply_style "brief" keeps a "Brief client replies" section
+in resolver-prompt.md (between BRIEF_REPLIES_START/END markers; the script
+removes it otherwise, so "detailed" is byte-identical to the v2.15.7
+prompt). Roger's decisions on the draft spec, which override the first
+version of it he pasted back: (1) missing details are still asked for,
+plainly; (2) security sign-in alerts keep their current first message,
+including "was this you?"; (3) the holding reply promises no time ("a
+technician will follow up with you", not "shortly"); (4) a fixed ticket
+resolves after approval as today; the forwarded-email reminder and the
+personal-VPN explanation stay as they are. Investigation, whitelist,
+ownership checks, approval mode and the emergency path are untouched.
 
 **v2.15.7 - JumpCloud retired; Sonnet 5.5 effort-capable (2026-09-30).**
 Roger is removing the JumpCloud MCP for good: its read-only block leaves

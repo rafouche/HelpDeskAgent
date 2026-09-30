@@ -317,6 +317,29 @@ a ticket reported `[CACHE: BLOCKED]` (a Halo write the agent can't make) is
 skipped for `claude.blocked_ticket_retry_hours` (2), and one reported
 `[CACHE: HUMAN_OWNED]` for `claude.human_owned_retry_hours` (24).
 
+## Brief client replies (optional, v2.15.8)
+`pipeline.client_reply_style` in config.json: `"detailed"` (the default,
+today's replies) or `"brief"`. Brief changes only what the client reads:
+Allie investigates exactly as before and the internal note carries the full
+findings, but the reply is two to four plain sentences with no technical
+terms, product names or step lists.
+
+- Fixed with a whitelisted action, or answered with confidence: a short
+  plain answer; the ticket resolves after approval as it does today.
+- Missing a detail from the client: she still asks, in plain words, one or
+  two simple questions.
+- Anything else (not confident, needs a person, needs a change she can't
+  make): a holding reply - "We've completed our initial diagnostics, and a
+  technician will follow up with you." - no time promised, and the ticket
+  goes to Follow Up Needed with the whole handoff in the internal note.
+- Unchanged: security sign-in alerts (including "was this you?"), the
+  forwarded-email reminder, the emergency acknowledgment, the sign-off and
+  AI disclosure, and approval mode.
+
+Switching is the one config value; no code push. The TICKET line in the log
+shows `replies: brief|detailed`, and `-DryRun` prints the current style.
+With `"detailed"` the resolver prompt is exactly what it was before v2.15.8.
+
 ## Excluding clients for compliance reasons
 
 If any of your clients carry data this pipeline shouldn't be routing to a
