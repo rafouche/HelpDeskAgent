@@ -73,6 +73,13 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.7 - JumpCloud removed; claude-sonnet-5-5 accepts an effort
+    level (2026-09-30). Roger is retiring the JumpCloud MCP, so its
+    read-only block leaves the resolver allowlist and resolver-prompt.md no
+    longer points at it (the server entry in .mcp.json is removed on the
+    server by hand). claude-sonnet-5-5 (released 2026-09-28) joins
+    $effortCapableModels so a config naming it gets its configured effort;
+    no behavior change while config.json names only Sonnet 5.
     Version: 2.15.6 - claude-opus-5-5 accepts an effort level (2026-09-25).
     Roger asked whether to move the resolver to Opus 5.5. It was missing
     from $effortCapableModels, so a config naming it would have dropped the
@@ -3826,19 +3833,6 @@ $resolverTools = @(
     "mcp__Huntress__list_platform_actions", "mcp__Huntress__list_remediations", "mcp__Huntress__list_reports", "mcp__Huntress__list_signals",
     "mcp__Huntress__list_unwanted_access_rules",
 
-    # --- JumpCloud, read-only (v2.15.0): account lockouts, MFA, device
-    #     bindings, directory insights. jc_api_get is the GET-only escape
-    #     hatch; jc_raw_request (any method) and every create/update/delete/
-    #     bind/unlock/reset/suspend/run tool stay out. Registered as
-    #     "JumpCloud" - confirm with `claude mcp list` on the server. ---
-    "mcp__JumpCloud__healthcheck", "mcp__JumpCloud__list_users", "mcp__JumpCloud__get_user", "mcp__JumpCloud__list_user_system_bindings",
-    "mcp__JumpCloud__list_systems", "mcp__JumpCloud__get_system", "mcp__JumpCloud__get_system_user_associations",
-    "mcp__JumpCloud__list_user_groups", "mcp__JumpCloud__get_user_group", "mcp__JumpCloud__list_user_group_members",
-    "mcp__JumpCloud__list_system_groups", "mcp__JumpCloud__list_system_group_members",
-    "mcp__JumpCloud__list_applications", "mcp__JumpCloud__get_application", "mcp__JumpCloud__get_application_user_associations",
-    "mcp__JumpCloud__search_directory_insights", "mcp__JumpCloud__list_policies", "mcp__JumpCloud__get_policy",
-    "mcp__JumpCloud__list_commands", "mcp__JumpCloud__jc_api_get",
-
     # --- Documentation, read-only (also where per-client 3CX connection details
     #     would live once that system is added - see README) ---
     # NOTE: registered here as "HUDU" (all caps).
@@ -4272,7 +4266,8 @@ $effortCapableModels = @(
     # v2.15.6: claude-opus-5-5 added - without it an Opus 5.5 tier would
     # silently run at the model's default effort instead of the configured one.
     "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
-    "claude-sonnet-5", "claude-sonnet-4-6"
+    # v2.15.7: claude-sonnet-5-5 added, same reason.
+    "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6"
 )
 
 # --- Deterministic classifier (cost program, increment 2; v2.12.0) ---

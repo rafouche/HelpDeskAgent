@@ -36,6 +36,12 @@
     -EnableAutoUpdate is passed. Defaults to 60 - there's no need for this
     to run as often as the ticket-processing task, since a new commit
     typically only ships a handful of times a day at most.
+.PARAMETER UpdateBranch
+    The GitHub branch the auto-update task downloads from, passed to
+    Update-HaloResponseAgent.ps1 as -Branch. Defaults to "production":
+    pushing to main never deploys; a deploy is fast-forwarding production to
+    a tested main commit. Only used with -EnableAutoUpdate, and re-running
+    this script always writes it, so re-registering can't silently drop it.
 #>
 
 param(
@@ -45,7 +51,9 @@ param(
     [int]$IntervalMinutes = 15,
     [switch]$RequireApproval,
     [switch]$EnableAutoUpdate,
-    [int]$UpdateCheckIntervalMinutes = 60
+    [int]$UpdateCheckIntervalMinutes = 60,
+    [ValidatePattern('^[A-Za-z0-9._/-]+$')]
+    [string]$UpdateBranch = "production"
 )
 
 $taskName = "Altec Halo Response Agent"
@@ -115,7 +123,7 @@ else {
 if ($EnableAutoUpdate) {
     $updateTaskName = "Altec Halo Response Agent - Auto Update"
     $updateScriptPath = Join-Path $taskWorkingDirectory "Update-HaloResponseAgent.ps1"
-    $updateTaskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$updateScriptPath`""
+    $updateTaskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$updateScriptPath`" -Branch $UpdateBranch"
 
     $updateAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $updateTaskArguments -WorkingDirectory $taskWorkingDirectory
 
@@ -134,10 +142,10 @@ if ($EnableAutoUpdate) {
 
     Register-ScheduledTask -TaskName $updateTaskName -Action $updateAction -Trigger $updateTrigger `
         -Principal $principal -Settings $updateSettings `
-        -Description "Checks GitHub for changed files and downloads them every $UpdateCheckIntervalMinutes minutes." `
+        -Description "Checks GitHub branch '$UpdateBranch' for changed files and downloads them every $UpdateCheckIntervalMinutes minutes." `
         -Force
 
-    Write-Host "`nScheduled task '$updateTaskName' registered - checks every $UpdateCheckIntervalMinutes minutes." -ForegroundColor Green
+    Write-Host "`nScheduled task '$updateTaskName' registered - checks branch '$UpdateBranch' every $UpdateCheckIntervalMinutes minutes." -ForegroundColor Green
     Write-Host "Trigger it manually once (Task Scheduler -> right-click -> Run) and check" -ForegroundColor Yellow
     Write-Host "logs\update-<today>.log for an ERROR line before trusting it on its own" -ForegroundColor Yellow
     Write-Host "schedule - confirms SYSTEM has outbound internet access to GitHub. No log" -ForegroundColor Yellow

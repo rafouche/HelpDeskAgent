@@ -15,6 +15,12 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   - read the live version first, bump its "Verified against" footer to the
   new script version). The Dashboard and MCPs repos' READMEs/CLAUDE.md follow
   the same rule for their own changes.
+- **Deploy = fast-forward `production` (2026-09-28).** The server's updater
+  pulls the `production` branch, never `main` (switched on the server
+  2026-09-30). Commit and push work to `main` freely; move `production` to a
+  tested `main` commit only when Roger says go. Every new behavior ships
+  default-off behind a `pipeline` flag (config.json is never synced), so a
+  deploy changes nothing until Roger flips the flag in the live config.
 - **Worker auth (option 1, 2026-09-25)** - see the MCPs repo's CLAUDE.md:
   `MCP_AUTH_TOKEN` always a Secret; only `/health`, `/status`, `/licenses`
   and read-only passthroughs open; `keep_vars: true` in every wrangler config.
@@ -22,10 +28,13 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.6, 2026-09-27:
+As of v2.15.7, 2026-09-30 (production branch may lag `main` until deployed):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
-  minutes (commit-SHA pinned downloads).
+  minutes from the `production` branch (commit-SHA pinned downloads).
+  `business_hours.off_hours_check_interval_minutes` 5 (the stamp is taken
+  at the end of a real cycle, so 10 on a 10-minute task would skip every
+  other firing).
 - Pipeline: ID resolver (cached 24h) -> pre-flight gate (`/helpdesk-gate`,
   fingerprints unassigned, tracked, Ready for AI and AI Approved tickets) ->
   **deterministic classifier** (`pipeline.deterministic_classifier: true`,
@@ -33,14 +42,16 @@ As of v2.15.6, 2026-09-27:
   guard -> one resolver call per ticket.
 - Models/effort: Sonnet 5 everywhere; classifier (and ID resolver/tiering)
   effort low; all four resolver tiers effort medium (2026-09-25).
-  `$effortCapableModels` includes `claude-opus-5-5`.
+  `$effortCapableModels` includes `claude-opus-5-5` and `claude-sonnet-5-5`
+  (Sonnet 5.5 released 2026-09-28; same prices as Sonnet 5, effort levels
+  recalibrated - trial before switching).
 - Caching: static prompt in the system prompt via
   `--append-system-prompt-file` (`static_prompt_in_system: true`), 1h TTL.
   `prefetch_ticket` off.
 - Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
-  UniFi, Peplink (JumpCloud allowlisted, not relied on) including raw GET
+  UniFi, Peplink (JumpCloud removed v2.15.7) including raw GET
   tools; `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
 
@@ -3099,6 +3110,19 @@ the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
 
+**v2.15.7 - JumpCloud retired; Sonnet 5.5 effort-capable (2026-09-30).**
+Roger is removing the JumpCloud MCP for good: its read-only block leaves
+the resolver allowlist and resolver-prompt.md's escape-hatch paragraph and
+"can't sign in" JumpCloud hint are gone. claude-sonnet-5-5 (released
+09-28) added to $effortCapableModels ahead of a trial; Roger is waiting a
+week before changing any model. Anthropic's notes: same per-token prices
+and tokenizer as Sonnet 5, fewer tool calls and output tokens per task
+("up to 30% less per task"), effort levels recalibrated (medium on 5.5 is
+not medium on 5). Estimate given: ~20-30% lower resolver cost, to be
+measured on Allie's own logs. Also re-landed the Register script's
+-UpdateBranch (default production) and the production-branch docs, whose
+first commit (34c1883) was lost unpushed with the container.
+
 **Resolver effort: medium on every tier (2026-09-26).** Roger asked Opus
 5.5 low/medium vs Sonnet 5 all-medium. Re-priced 09-24's 21 runs: same
 tokens on Opus 5.5 = $24.92 vs $15.73 (+58%; cache reads are $0.20/MTok on
@@ -3488,15 +3512,19 @@ config tweak. Not worth building preemptively.
 As of 2026-09-25 (`claude mcp list`, all Connected). All are Altec's own
 Cloudflare Workers from `rafouche/MCPs`, registered `-s project` in
 `.mcp.json` with a Bearer token:
-- `Halo`, `CIPP`, `Ninja`, `HUDU` - Worker enforces `MCP_AUTH_TOKEN`
-  (Ninja's is still a plain-text variable; convert it to a Secret).
-- `Meraki`, `Unifi`, `Peplink`, `Huntress` - connected; Worker token not yet
-  set (open until it is).
+- `Halo`, `CIPP`, `Ninja`, `HUDU` - Worker enforces `MCP_AUTH_TOKEN` (all
+  four held as Secrets; Ninja's converted 2026-09-28; 401 without a token,
+  checked 2026-09-30).
+- `Meraki`, `Unifi`, `Peplink`, `Huntress` - connected; Worker token NOT
+  set: a bare POST to `/mcp` got 400 on 2026-09-30, i.e. open to anyone
+  with the URL, Meraki's write tools included.
 - `HUDU` (ALL-CAPS; the `mcp__HUDU__` prefix must match exactly) is now the
   `hudu-mcp` Worker over Hudu's REST API (API key as a Worker secret), a
   drop-in for Hudu's hosted OAuth MCP. Huntress is likewise the Worker, not
   the vendor's OAuth MCP. Nothing needs `claude mcp login` any more.
-- `JumpCloud` - allowlisted, parked ("forget JumpCloud for now", Roger).
+- `JumpCloud` - being retired (Roger, 2026-09-30): removed from the
+  allowlist and prompt in v2.15.7; its `.mcp.json` entry is removed on the
+  server by hand. The Worker is still deployed and open until deleted.
 - **Not registered:** `Microsoft365`. The on-call page no longer depends on it
   (`escalate_emergency` on the Halo Worker sends through Halo's own mail);
   the only thing lost is the NDR fallback via `outlook_email_search`. CIPP

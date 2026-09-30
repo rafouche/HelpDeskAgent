@@ -69,7 +69,7 @@ program - there's no need to copy either onto the server, and
    whichever account you're logged in as. See "Install and authenticate
    Claude Code" below for the full step.
 2. **Claude Code authenticated** (via `claude setup-token` for a subscription, or `ANTHROPIC_API_KEY` set as a system environment variable for API billing — API key is the more predictable option for an unattended service).
-3. **MCP servers registered** in this folder's `.mcp.json` under these exact names: `Halo`, `CIPP`, `Ninja`, `Meraki`, `Unifi`, `Peplink`, `Huntress`, `HUDU` (and optionally `JumpCloud`). All are Altec's own Cloudflare Workers in `rafouche/MCPs`, each called with a bearer token. A `Microsoft365` server is referenced in the allowlist but not registered today; CIPP covers M365 diagnostics.
+3. **MCP servers registered** in this folder's `.mcp.json` under these exact names: `Halo`, `CIPP`, `Ninja`, `Meraki`, `Unifi`, `Peplink`, `Huntress`, `HUDU`. All are Altec's own Cloudflare Workers in `rafouche/MCPs`, each called with a bearer token. A `Microsoft365` server is referenced in the allowlist but not registered today; CIPP covers M365 diagnostics.
 4. PowerShell 5.1+ (built into Windows Server).
 
 ## Step by step
@@ -150,8 +150,11 @@ program - there's no need to copy either onto the server, and
    .\Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate
    ```
    Default is every 60 minutes; production checks every 5
-   (`-UpdateCheckIntervalMinutes 5`) so a pushed fix is live by the next cycle.
-   Each check with nothing new is one small GitHub API call and writes no log.
+   (`-UpdateCheckIntervalMinutes 5`) so a deployed fix is live by the next
+   cycle. Each check with nothing new is one small GitHub API call and writes
+   no log. The task downloads from the `production` branch
+   (`-UpdateBranch`, default `production`), not `main` - see "Keeping this up
+   to date automatically".
    See "Keeping this up to date automatically" below before relying on it.
 
 ## Keeping this up to date automatically
@@ -217,12 +220,14 @@ access to GitHub. No log file at all is the expected quiet outcome when
 there's nothing new to fetch, since this script only logs when something
 actually happened.
 
-This fetches whatever is on `origin/main` unconditionally, with no staging
-step or approval gate - worth being explicit about as a real tradeoff, not
-just a detail. In this project's actual setup that risk is contained (the
-only thing that pushes to `main` is Roger's own reviewed changes), but if
-that ever stops being true, this auto-update task should stop running
-before anything else does.
+**Pushing to `main` does not deploy.** The update task fetches the
+`production` branch (`Update-HaloResponseAgent.ps1 -Branch production`, set
+by `Register-HaloResponseAgentTask.ps1 -EnableAutoUpdate`, whose
+`-UpdateBranch` defaults to `production`). Work lands on `main`; a deploy is
+fast-forwarding `production` to a tested `main` commit, done only on Roger's
+go. Rolling back is moving `production` back to the previous commit - the
+next update check (within 5 minutes) downloads the older files. There is no
+approval gate beyond that, so anyone who can push to `production` can deploy.
 
 ## Human approval mode
 
@@ -572,8 +577,10 @@ rule for every Altec Worker, current and future:
   request until the secret exists (fails closed); the others stay open until
   it's set, so it can be turned on one Worker at a time.
 
-Enforced today on Halo, CIPP, Ninja and HUDU; still to set on Meraki, UniFi,
-Peplink, Huntress, JumpCloud, M365, Google Workspace and Pax8. To turn it
+Enforced today on Halo, CIPP, Ninja and HUDU (checked 2026-09-30: `401`);
+still open on Meraki, UniFi, Peplink and Huntress (a bare POST gets `400`,
+meaning it reached the tools), and not set on M365, Google Workspace and
+Pax8. JumpCloud is being retired (v2.15.7). To turn it
 on: set the secret in the Cloudflare dashboard to the same token that
 Worker's entry in `.mcp.json` sends. Then confirm both halves:
 `claude mcp list` still shows the server connected, and
@@ -1133,10 +1140,10 @@ written only on a live run with the deterministic classifier on, never under
 
 ## What the resolver can use to investigate
 - **Every read-only diagnostic tool** on Halo, CIPP (M365), NinjaOne,
-  Huntress, HUDU, Meraki, UniFi and Peplink (and JumpCloud if registered),
+  Huntress, HUDU, Meraki, UniFi and Peplink,
   including each Worker's raw read-only GET tool (`halo_api_get`,
   `cipp_api_get`, `ninja_api_get`, `meraki_api_get`, `unifi_api_get`,
-  `unifi_network_get`, `peplink_api_get`, `jc_api_get`, `hudu_api_get`) for
+  `unifi_network_get`, `peplink_api_get`, `hudu_api_get`) for
   any endpoint the named tools don't cover - firewall rules, VPN state, event
   logs and so on. Writes stay limited to the Halo ticket itself, the
   `remediation_whitelist` actions, and Hudu SOPs (below).
