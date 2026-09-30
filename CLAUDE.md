@@ -79,7 +79,13 @@ the full rationale.
 - `config.json` — everything a tech should be able to change without touching a
   script: business hours, on-call contact, Halo team/status/priority **names**
   (never IDs — see "No IDs anywhere in config.json" below), remediation
-  whitelist, Hudu fix folder, per-tier model/effort settings.
+  whitelist, Hudu fix folder, per-tier model/effort settings. The repo copy
+  mirrors the live server's file (checked against Roger's upload
+  2026-09-30, which was missing twelve keys - all but one fell back to code
+  defaults equal to the template; `halo.contact_default_sites` had never
+  been set, so the BEC CFO -> Remote Workers rule was not active). Keep the
+  two in step. NinjaOne library script sources live in the Scripts repo
+  (rafouche/Scripts), not here.
 - `id-resolver-prompt.md` — stage 0: resolve config.json's Halo names to IDs.
   Run once per cycle, read-only, before the classifier - skipped entirely on
   a cache hit (see `agent-cache.json` below).
@@ -129,7 +135,6 @@ the full rationale.
   `eval/tickets.json` (each entry: ticket, tier, `as_of`, regex rubrics),
   results in `eval/results/<label>/`, `-CompareTo` for a diff table with
   cache-read/write and `$/turn` columns.
-- `ninja-scripts/` — source of NinjaOne library scripts the whitelist runs.
 - `README.md` — setup + how-to-extend instructions for a human.
 
 ## Design decisions and why

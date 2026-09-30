@@ -14,8 +14,8 @@ script's default is 15; see step 7). Each firing runs three stages:
    the Halo Worker's `/helpdesk-triage` route, the exclusion rules applied in
    PowerShell, and one no-tool tiering call (Sonnet 5, effort low) only when
    something needs a tier. The older LLM classifier (`classifier-prompt.md`
-   with Halo tools) is the fallback if that path fails, and the default in the
-   repo's template config. See "Deterministic classifier" below.
+   with Halo tools) is the fallback if that path fails. See "Deterministic
+   classifier" below.
 3. **Resolver** (`resolver-prompt.md`) - one `claude -p` call *per candidate
    ticket*, with the full read-only diagnostic tool set plus the writes that
    ticket's mode allows. This is what actually investigates, drafts the reply,
@@ -38,7 +38,7 @@ why.
 ## Files
 | File | Purpose |
 |---|---|
-| `config.json` | Business hours, Halo names, remediation whitelist, per-tier model/effort settings, `pipeline` feature flags. **Edit this, not the prompts.** (Who is on call lives in Halo's Shifts calendar, not here.) Never auto-synced. |
+| `config.json` | Business hours, Halo names, remediation whitelist, per-tier model/effort settings, `pipeline` feature flags. **Edit this, not the prompts.** (Who is on call lives in Halo's Shifts calendar, not here.) Never auto-synced. The repo copy mirrors the live server's file (every key, with its explanation); when you change the live file, make the same change here so the two don't drift. |
 | `id-resolver-prompt.md` | Stage 0 instructions: resolve config.json's Halo names to IDs (cached). |
 | `classifier-prompt.md` | Stage 1 instructions: find candidate tickets, tag each with a tier. The deterministic classifier reads its "Classify each candidate" section live for the tiering call. |
 | `resolver-prompt.md` | Stage 2 instructions: investigate/resolve one specific ticket, run fresh per ticket per cycle. |
@@ -50,7 +50,6 @@ why.
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
 | `Replay-Tickets.ps1` | Re-runs the resolver read-only against a fixed list of past tickets and scores the output. See "Replay evaluation". |
 | `eval/tickets.json` | The replay list and its rubrics. Seeded once by the updater, then this deployment's own to edit. |
-| `ninja-scripts/` | Source of NinjaOne library scripts the whitelist runs (kept here for reference; they live in NinjaOne). |
 
 Generated at run time, never synced: `agent-cache.json` (IDs, tracked
 tickets, gate fingerprints, duplicate holds), `resolver-system-prompt.generated.txt`
@@ -947,7 +946,8 @@ learned on ticket #22484 (2026-09-21/22):
 - `list_automation_scripts` never returns **Install Application**
   automations (Library > Automation > Add > Installation), so the agent
   cannot find one by name; anything it should install must exist as a plain
-  library **script**. `ninja-scripts/Latest Wrike Desktop Install.ps1` is that
+  library **script**. `Install-LatestWrikeDesktop.ps1` in the
+  [Scripts repo](https://github.com/rafouche/Scripts) is that
   wrapper for Wrike (records the version, closes Wrike, downloads the current
   MSI from Wrike's own link, installs silently, prints before/after). It is
   in NinjaOne as script 234, named exactly `Latest Wrike Desktop Install`.
@@ -1005,8 +1005,9 @@ config.json replaces it with:
 
 If anything on that path fails, the cycle falls back to the LLM classifier
 and the log says why. **Production runs it**
-(`deterministic_classifier: true`, `classifier_shadow: false`); the repo's
-template still ships both off, so a new deployment rolls it out in two steps:
+(`deterministic_classifier: true`, `classifier_shadow: false`), and the
+repo's `config.json` matches. A brand-new deployment can roll it out in two
+steps instead:
 
 ```jsonc
 "pipeline": {
