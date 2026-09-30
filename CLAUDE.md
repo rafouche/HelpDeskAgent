@@ -124,7 +124,8 @@ the full rationale.
   need no further interactive auth.
 - `Update-HaloResponseAgent.ps1` — fetches the three prompts,
   `Invoke-HaloResponseAgent.ps1`, itself, `Show-AgentLog.ps1` and
-  `Replay-Tickets.ps1` (plus `eval/tickets.json` once, seed-only) from GitHub
+  `Replay-Tickets.ps1` and `Compare-AgentLogs.ps1` (plus
+  `eval/tickets.json` once, seed-only) from GitHub
   over plain HTTPS, all pinned to `main`'s current commit SHA (GitHub API,
   falling back to the branch URL), backing up and replacing only the ones
   that changed; never `config.json`, never the one-time setup scripts or
@@ -133,6 +134,13 @@ the full rationale.
 - `Show-AgentLog.ps1` — pretty-prints a cycle's log entry (ID resolution
   section, classifier section, one section per resolved ticket, a cost
   summary) instead of raw JSON.
+- `Compare-AgentLogs.ps1` — (2026-09-30, plan step 1) free before/after
+  analysis of `logs\run-*.log`: per-run cost, turns, $/turn, cache
+  read/write and output tokens grouped by tier/model/replies/prefetch/day,
+  markers, permission denials, repeat tickets, top runs; `-SplitAt` for a
+  config change, `-CsvPath` for Excel. Synced by the updater. The CLI JSON
+  has no per-tool detail, so "largest tool results" is proxied by
+  cache-read per run.
 - `Replay-Tickets.ps1` — read-only replay of the resolver against
   `eval/tickets.json` (each entry: ticket, tier, `as_of`, regex rubrics),
   results in `eval/results/<label>/`, `-CompareTo` for a diff table with

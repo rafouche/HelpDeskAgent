@@ -48,6 +48,7 @@ why.
 | `Copy-McpServersToProject.ps1` | One-time setup shortcut: copies already-registered `-s user` MCP servers into this folder's `.mcp.json`. |
 | `Update-HaloResponseAgent.ps1` | Fetches the program files from GitHub over HTTPS (no git), pinned to one commit; logs only when something actually changed (or failed). |
 | `Show-AgentLog.ps1` | Pretty-prints a cycle's log entry (classifier + each ticket's resolver call + a cost summary) instead of raw JSON. |
+| `Compare-AgentLogs.ps1` | Summarizes the production logs over a window, or before vs after a change: cost, turns and cache use per resolver run by tier/model/reply style, outcomes, permission denials, repeat tickets, most expensive runs. Read-only, no model calls. See "Measuring a change". |
 | `Replay-Tickets.ps1` | Re-runs the resolver read-only against a fixed list of past tickets and scores the output. See "Replay evaluation". |
 | `eval/tickets.json` | The replay list and its rubrics. Seeded once by the updater, then this deployment's own to edit. |
 
@@ -171,7 +172,7 @@ needed.
 it downloads a specific, minimal list of files - the three prompts
 (`id-resolver-prompt.md`, `classifier-prompt.md`, `resolver-prompt.md`),
 `Invoke-HaloResponseAgent.ps1`, `Update-HaloResponseAgent.ps1` itself,
-`Show-AgentLog.ps1` and `Replay-Tickets.ps1` - plus `eval/tickets.json` once,
+`Show-AgentLog.ps1`, `Replay-Tickets.ps1` and `Compare-AgentLogs.ps1` - plus `eval/tickets.json` once,
 on first sight only (after that it's yours to edit and never overwritten).
 Every run first asks the GitHub API for `main`'s current commit SHA and then
 downloads `https://raw.githubusercontent.com/rafouche/HelpDeskAgent/<sha>/<file>`,
@@ -831,6 +832,30 @@ Other things worth knowing, not (yet) wired into the script:
 - Running less often (raise `-IntervalMinutes` when registering the scheduled
   task) cuts total daily cost proportionally, at the cost of slower response
   to new tickets — a scheduling tradeoff, not a per-call one.
+
+## Measuring a change - Compare-AgentLogs.ps1
+The free way to judge a config change (a model, an effort level, a
+`pipeline` flag such as `client_reply_style`) is on the cycles production
+already ran. `Compare-AgentLogs.ps1` reads `logs\run-*.log` only - no model,
+Halo or network calls:
+
+```powershell
+.\Compare-AgentLogs.ps1                                  # last 7 days, by tier
+.\Compare-AgentLogs.ps1 -SplitAt "2026-10-01 18:00"      # before vs after the change
+.\Compare-AgentLogs.ps1 -By Replies -Since 2026-10-01    # or Model, Prefetch, Day
+.\Compare-AgentLogs.ps1 -CsvPath .\runs.csv              # one row per run, for Excel
+```
+
+It prints cycle counts (and how many the gate and off-hours throttle
+skipped), spend split by stage, per-group resolver tables (runs, total,
+average and median cost, turns, cost per turn, average cache-read,
+cache-write and output tokens, runs over 20 turns), `[CACHE: ...]` outcome
+counts, permission denials by tool, tickets run more than once, and the most
+expensive runs; with `-SplitAt`, both sides and the percentage change.
+Fewer than 10 runs on a side is flagged as noise. `claude -p`'s JSON has no
+per-tool-call detail, so it can't name the largest tool result; cache-read
+per run is the proxy. For brief replies, the reply wording itself is judged
+in Halo - the logs don't carry the draft text.
 
 ## Replay evaluation - test a change on real tickets before it goes live
 `Replay-Tickets.ps1` re-runs the resolver against a fixed list of real past

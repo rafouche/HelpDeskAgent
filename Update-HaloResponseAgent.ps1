@@ -122,7 +122,8 @@ $filesToSync = @(
     "Invoke-HaloResponseAgent.ps1",
     "Update-HaloResponseAgent.ps1",
     "Show-AgentLog.ps1",
-    "Replay-Tickets.ps1"
+    "Replay-Tickets.ps1",
+    "Compare-AgentLogs.ps1"
 )
 
 # Seeded once, never overwritten: files that start from the repo's copy but
