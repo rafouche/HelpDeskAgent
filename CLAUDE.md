@@ -48,8 +48,9 @@ As of v2.15.9, 2026-10-01 (`main`; `production` moves on Roger's go):
 - Caching: static prompt in the system prompt via
   `--append-system-prompt-file` (`static_prompt_in_system: true`), 1h TTL.
   `prefetch_ticket` off.
-- Client replies: `pipeline.client_reply_style` "detailed" (brief mode built
-  in v2.15.8, off until Roger sets "brief" in the live config).
+- Client replies: `pipeline.client_reply_style` "brief" in the live config
+  (on by 2026-10-01 - #22920's draft used it; the repo template keeps
+  "detailed" as the default).
 - Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
