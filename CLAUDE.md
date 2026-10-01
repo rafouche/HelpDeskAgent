@@ -3154,7 +3154,13 @@ and true, the stock diagnostics line only as a last resort. Second finding:
 inside the draft, which send_approved_draft collapses to "[APPROVED DRAFT]"
 - lost on approval. The FLOW B banner (both modes) and the brief section now
 require findings as a separate private note, written first, never in the
-draft.
+draft. Same day, at Roger's request ("I don't want the findings deleted or
+the tech to have to copy or delete anything"), the Halo Worker's collapse
+was changed to keep a draft's internal text (above the marker, below the
+[INTENDED] lines) under [APPROVED DRAFT] - see the MCPs repo CLAUDE.md. The
+prompt's "anything written in it is lost" now overstates it; harmless, it
+still steers findings into their own note, and can be softened with the
+next prompt change.
 
 **v2.15.11 - request intake in both reply modes (2026-10-01).** The
 checklist moved out of the brief markers into a general section, "Requests

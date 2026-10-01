@@ -353,8 +353,11 @@ technical terms or step lists.
   AI disclosure, and approval mode.
 
 In both modes the technician's findings go in their own private note,
-never inside the draft: an approved draft is collapsed to `[APPROVED
-DRAFT]` when it's sent, so anything written in it would be lost (v2.15.12).
+never inside the draft (v2.15.12). As a safety net, the Halo Worker keeps
+any internal text a draft carries - findings written below its `[INTENDED
+...]` lines, or anything above the marker - under the `[APPROVED DRAFT]`
+trace when the draft is sent, so findings are never deleted and nobody has
+to copy them by hand (2026-10-01).
 
 Switching is the one config value; no code push. The TICKET line in the log
 shows `replies: brief|detailed`, and `-DryRun` prints the current style.
