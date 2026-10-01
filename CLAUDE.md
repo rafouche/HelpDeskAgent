@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.10, 2026-10-01 (`main`; `production` moves on Roger's go):
+As of v2.15.11, 2026-10-01 (deployed to `production` the same day):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3137,8 +3137,17 @@ reply for what a technician will need (1-3 plain questions, nothing the
 ticket already contains, never a password), then follows path 2 (waiting
 on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
-Detailed mode is unchanged; whether it should get the same intake list is
-an open question for Roger.
+Detailed mode was unchanged in v2.15.10; Roger then asked for the same
+checklist there.
+
+**v2.15.11 - request intake in both reply modes (2026-10-01).** The
+checklist moved out of the brief markers into a general section, "Requests
+a technician will carry out: ask for what they'll need first": 1-3 plain
+questions for what's missing, wait on the client (tracked), never what the
+ticket says or a password, nothing invented when nothing is missing. Lists
+for a new user (role, set-up-like employee, license / Office apps if
+mailbox-only, start date) and, added alongside, an offboarding (last day,
+who gets email and files, forwarding). The brief section now points to it.
 
 **v2.15.9 - brief-mode holding reply fits the ticket (2026-10-01).** Roger
 turned brief replies on; #22920 (a new-user request) got "We've completed

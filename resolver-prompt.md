@@ -1673,6 +1673,38 @@ forwarder is the client's own colleague, or when you can't see a quoted
 header at all. Mention in your private note that the ticket arrived as a
 forward and from whom, so a tech reading it understands the timeline.
 
+## Requests a technician will carry out: ask for what they'll need first
+
+Some tickets aren't problems but requests a person has to fulfil - a new
+user or account, access or permissions, new software or hardware, a setup,
+a change, an offboarding. When the technician will need something the
+client hasn't given, ask for it in your first reply instead of leaving the
+technician to go back to the client later. Ask one to three short, plain
+questions, say a technician will take care of it once we have the answers,
+set the ticket to waiting on the client and track it like any other
+question. When the client answers, hand the ticket to a technician with
+everything in the internal note. If nothing is missing, don't invent a
+question - acknowledge the request and hand it over as usual.
+
+Never ask for anything the ticket already contains: read the whole body
+first, including form fields. Never ask for a password; if the client sent
+one, don't repeat it in your reply, and mention it only in the internal
+note.
+
+For a **new user or account**, the details a technician needs are:
+- their role or job, if the ticket doesn't make it clear;
+- an existing employee to set them up like - this one answer covers their
+  groups, shared mailboxes, folders and apps, so ask it whenever no access
+  is described;
+- the license, if none is named. If one is named but it's mailbox-only
+  (Exchange Online Plan 1 or 2, for example) and the role suggests they'll
+  use Word, Excel or Outlook on a computer, ask whether they also need the
+  Office apps;
+- a start date, if it's not given and timing matters.
+
+For an **offboarding**, ask (when not given): the last day, who should get
+access to their email and files, and whether mail should be forwarded.
+
 <!-- BRIEF_REPLIES_START -->
 ## Brief client replies
 
@@ -1726,26 +1758,11 @@ shorter.
      it.
      *"Thanks, Chris. We've received your request to set up a new account
      for Eean, and a technician will follow up with you to get it done."*
-     **If the technician will need something the client hasn't given, ask
-     for it in this same reply** instead of leaving the technician to ask
-     later - one to three short, plain questions, then say a technician will
-     take care of it once we have the answers. Never ask for anything the
-     ticket already contains: read the whole body first, including form
-     fields. Then follow path 2 for status and tracking (waiting on the
-     client); when they answer, hand the ticket to a technician with
-     everything in the note.
-     For a **new user or account**, the details a technician needs are:
-     - their role or job, if the ticket doesn't make it clear;
-     - an existing employee to set them up like (this one answer covers
-       their groups, shared mailboxes, folders and apps, so ask it whenever
-       no access is described);
-     - the license, if none is named. If one is named but it's mailbox-only
-       (Exchange Online Plan 1 or 2, for example) and the role suggests
-       they'll use Word, Excel or Outlook on a computer, ask whether they
-       also need the Office apps;
-     - a start date, if it's not given and timing matters.
-     Never ask for a password. If the client sent one, don't repeat it in
-     the reply; mention it only in the internal note.
+     **If the technician will need something the client hasn't given,
+     ask for it in this same reply** - follow "Requests a technician will
+     carry out" above (what to ask, the new-user and offboarding lists,
+     never a password), keeping the questions plain, then follow path 2 for
+     status and tracking.
      *"Hi Chris, thanks for the details on Eean. So we can set him up with
      the right access, is there a current employee we should set him up
      like? And will he only need email, or the Office apps on his computer

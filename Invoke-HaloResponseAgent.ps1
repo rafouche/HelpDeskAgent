@@ -73,6 +73,15 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.11 - request intake in both reply modes (2026-10-01).
+    Roger: same checklist in detailed mode. resolver-prompt.md gains a
+    general section, "Requests a technician will carry out: ask for what
+    they'll need first" (outside the brief markers, so it applies in both
+    modes): ask 1-3 plain questions for what's missing, wait on the client,
+    never ask what the ticket already says or for a password; new-user
+    list (role, set-up-like employee, license / Office apps, start date)
+    and an offboarding list (last day, who gets email and files, mail
+    forwarding). The brief section points to it.
     Version: 2.15.10 - brief mode asks for what a request is missing
     (2026-10-01). Roger on #22920 (new user Eean Weddle): brief mode still
     has to ask for pertinent details - role, license, an existing user to

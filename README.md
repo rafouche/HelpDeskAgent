@@ -318,6 +318,19 @@ a ticket reported `[CACHE: BLOCKED]` (a Halo write the agent can't make) is
 skipped for `claude.blocked_ticket_retry_hours` (2), and one reported
 `[CACHE: HUMAN_OWNED]` for `claude.human_owned_retry_hours` (24).
 
+## Requests a technician will carry out (v2.15.10-11, both reply styles)
+For a request rather than a problem - a new user, access, software or
+hardware, a setup, an offboarding - Allie asks in her first reply for
+whatever the technician will need and the client didn't give: one to three
+plain questions, never anything already in the ticket, never a password.
+The ticket then waits on the client and is tracked; when they answer, it
+goes to a technician with everything in the internal note. New user: role,
+an existing employee to set them up like, the license (and whether a
+mailbox-only license such as Exchange Online Plan 1 also needs the Office
+apps), a start date. Offboarding: last day, who gets their email and
+files, mail forwarding. If nothing is missing, she just acknowledges and
+hands it over.
+
 ## Brief client replies (optional, v2.15.8)
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,
 today's replies) or `"brief"`. Brief changes only what the client reads:
@@ -336,12 +349,8 @@ terms, product names or step lists.
   what was asked for in plain words and that a technician will take care of
   it, never "diagnostics"; for a question, that we're checking. No time
   promised; the ticket goes to Follow Up Needed with the whole handoff in
-  the internal note. When a request is missing something the technician
-  will need (v2.15.10), the same reply asks for it - one to three plain
-  questions, never what the ticket already says and never a password - and
-  the ticket waits on the client instead. For a new user that means role,
-  an existing employee to set them up like, the license (and whether a
-  mailbox-only license also needs the Office apps), and a start date.
+  the internal note. A request missing what the technician needs gets
+  those questions instead (see "Requests a technician will carry out").
 - Unchanged: security sign-in alerts (including "was this you?"), the
   forwarded-email reminder, the emergency acknowledgment, the sign-off and
   AI disclosure, and approval mode.
