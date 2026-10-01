@@ -330,9 +330,13 @@ terms, product names or step lists.
 - Missing a detail from the client: she still asks, in plain words, one or
   two simple questions.
 - Anything else (not confident, needs a person, needs a change she can't
-  make): a holding reply - "We've completed our initial diagnostics, and a
-  technician will follow up with you." - no time promised, and the ticket
-  goes to Follow Up Needed with the whole handoff in the internal note.
+  make): a short holding reply that fits the ticket (v2.15.9) - for a
+  problem, "We've completed our initial diagnostics, and a technician will
+  follow up with you"; for a request (new user, access, software, a setup),
+  what was asked for in plain words and that a technician will take care of
+  it, never "diagnostics"; for a question, that we're checking. No time
+  promised; the ticket goes to Follow Up Needed with the whole handoff in
+  the internal note.
 - Unchanged: security sign-in alerts (including "was this you?"), the
   forwarded-email reminder, the emergency acknowledgment, the sign-off and
   AI disclosure, and approval mode.

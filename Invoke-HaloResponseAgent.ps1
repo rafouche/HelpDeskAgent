@@ -73,6 +73,15 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.9 - brief-mode holding reply fits the ticket (2026-10-01).
+    #22920 was a new-user request ("set up the following user in 365 and
+    AD"); in brief mode Allie sent the stock holding line "We've completed
+    our initial diagnostics", which reads wrong for a request - nothing was
+    diagnosed. resolver-prompt.md's brief section now gives three holding
+    replies by ticket kind: a problem (diagnostics wording), a request
+    (name what was asked for, a technician will take care of it, never
+    "diagnostics"), and an unanswered question. Prompt-only; detailed mode
+    is unaffected (the section is removed there).
     Version: 2.15.8 - brief client replies, default off (2026-09-30).
     Roger approved a mode where the investigation stays exactly as it is
     but the client-facing reply is two to four plain, non-technical

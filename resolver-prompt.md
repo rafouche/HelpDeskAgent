@@ -1712,11 +1712,23 @@ shorter.
    on - your desk computer or your laptop?"*
 
 3. **Anything else: you're not confident of the cause or the fix, it needs
-   a person, or it needs a change you're not allowed to make.** Send only
-   the holding reply, in about these words:
-   *"Thanks for letting us know. We've completed our initial diagnostics,
-   and a technician will follow up with you."*
-   Then hand the ticket over exactly as you do today (follow-up status,
+   a person, or it needs a change you're not allowed to make.** Send a short
+   holding reply that fits what the client actually sent - read it, don't
+   paste a stock line:
+   - **A problem** (something broken, slow, failing, an error): say we've
+     looked into it and a technician will follow up.
+     *"Thanks for letting us know. We've completed our initial diagnostics,
+     and a technician will follow up with you."*
+   - **A request** (a new user or account, access or permissions, new
+     software or hardware, a setup, a change, a removal or offboarding, a
+     quote): nothing was diagnosed, so never say "diagnostics". Name what
+     they asked for in plain words and say a technician will take care of
+     it.
+     *"Thanks, Chris. We've received your request to set up a new account
+     for Eean, and a technician will follow up with you to get it done."*
+   - **A question you can't answer with confidence**: say we're checking
+     and a technician will follow up with the answer.
+   Never promise a time either way. Then hand the ticket over exactly as you do today (follow-up status,
    unassigned). The internal note is the technician's whole handoff, so it
    must hold: what you checked and found, the likely cause and how sure you
    are, anything you would have asked the client, and the next step you

@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.8, 2026-09-30 (deployed to `production` the same day):
+As of v2.15.9, 2026-10-01 (`main`; `production` moves on Roger's go):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3124,6 +3124,15 @@ exists; m365-mcp's tool and vars stay but are unused. Environment note:
 the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
+
+**v2.15.9 - brief-mode holding reply fits the ticket (2026-10-01).** Roger
+turned brief replies on; #22920 (a new-user request) got "We've completed
+our initial diagnostics" - she had copied the one stock holding line, which
+only fits a problem report. The brief section now has three holding
+replies: a problem (diagnostics wording), a request (name what was asked
+for, a technician will take care of it, never "diagnostics"), a question
+(we're checking). The #22920 note itself was right: findings, no existing
+account, whitelist doesn't cover provisioning, plaintext password flagged.
 
 **v2.15.8 - brief client replies, default off (2026-09-30).** Roger:
 "doing all and as much as the initial troubleshooting of a ticket, but keep
