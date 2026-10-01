@@ -1726,10 +1726,35 @@ shorter.
      it.
      *"Thanks, Chris. We've received your request to set up a new account
      for Eean, and a technician will follow up with you to get it done."*
+     **If the technician will need something the client hasn't given, ask
+     for it in this same reply** instead of leaving the technician to ask
+     later - one to three short, plain questions, then say a technician will
+     take care of it once we have the answers. Never ask for anything the
+     ticket already contains: read the whole body first, including form
+     fields. Then follow path 2 for status and tracking (waiting on the
+     client); when they answer, hand the ticket to a technician with
+     everything in the note.
+     For a **new user or account**, the details a technician needs are:
+     - their role or job, if the ticket doesn't make it clear;
+     - an existing employee to set them up like (this one answer covers
+       their groups, shared mailboxes, folders and apps, so ask it whenever
+       no access is described);
+     - the license, if none is named. If one is named but it's mailbox-only
+       (Exchange Online Plan 1 or 2, for example) and the role suggests
+       they'll use Word, Excel or Outlook on a computer, ask whether they
+       also need the Office apps;
+     - a start date, if it's not given and timing matters.
+     Never ask for a password. If the client sent one, don't repeat it in
+     the reply; mention it only in the internal note.
+     *"Hi Chris, thanks for the details on Eean. So we can set him up with
+     the right access, is there a current employee we should set him up
+     like? And will he only need email, or the Office apps on his computer
+     too? Once we have that, a technician will get his account set up."*
    - **A question you can't answer with confidence**: say we're checking
      and a technician will follow up with the answer.
-   Never promise a time either way. Then hand the ticket over exactly as you do today (follow-up status,
-   unassigned). The internal note is the technician's whole handoff, so it
+   Never promise a time either way. Unless you asked the client for
+   something above, hand the ticket over exactly as you do today
+   (follow-up status, unassigned). The internal note is the technician's whole handoff, so it
    must hold: what you checked and found, the likely cause and how sure you
    are, anything you would have asked the client, and the next step you
    recommend.

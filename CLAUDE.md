@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.9, 2026-10-01 (`main`; `production` moves on Roger's go):
+As of v2.15.10, 2026-10-01 (`main`; `production` moves on Roger's go):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3125,6 +3125,20 @@ exists; m365-mcp's tool and vars stay but are unused. Environment note:
 the Cloudflare tool classifier refused `wrangler secret put` for the
 recipient addresses, so they are plain vars in wrangler.jsonc - the same
 values config.json already carries in the same private repo.
+
+**v2.15.10 - brief mode asks for what a request is missing (2026-10-01).**
+Roger on #22920: "in the brief mode, she's still supposed to ask for
+pertinent information... what kind of user (role)... what kind of license
+... maybe even ask for an existing user to setup like." The ticket did
+name "Online Plan 1" (Exchange Online Plan 1 - mailbox only), but no role
+or access. Nothing in resolver-prompt.md, in either mode, covered
+new-user intake. The brief section's request path now asks in the same
+reply for what a technician will need (1-3 plain questions, nothing the
+ticket already contains, never a password), then follows path 2 (waiting
+on client, tracked). New-user checklist: role, a "set up like" employee,
+license (Office apps if the named one is mailbox-only), start date.
+Detailed mode is unchanged; whether it should get the same intake list is
+an open question for Roger.
 
 **v2.15.9 - brief-mode holding reply fits the ticket (2026-10-01).** Roger
 turned brief replies on; #22920 (a new-user request) got "We've completed

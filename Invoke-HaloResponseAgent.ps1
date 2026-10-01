@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.10 - brief mode asks for what a request is missing
+    (2026-10-01). Roger on #22920 (new user Eean Weddle): brief mode still
+    has to ask for pertinent details - role, license, an existing user to
+    set them up like. The ticket named "Online Plan 1" (Exchange Online,
+    mailbox-only) but no access or role; the resolver went straight to the
+    holding reply. The brief section's request path now asks for what a
+    technician will need in the same reply (one to three plain questions,
+    never what the ticket already says, never a password), then waits on
+    the client; a new-user checklist covers role, a "set up like" user,
+    license (and Office apps when the named license is mailbox-only), and
+    start date. Detailed mode unaffected.
     Version: 2.15.9 - brief-mode holding reply fits the ticket (2026-10-01).
     #22920 was a new-user request ("set up the following user in 365 and
     AD"); in brief mode Allie sent the stock holding line "We've completed

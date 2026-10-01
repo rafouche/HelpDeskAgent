@@ -336,7 +336,12 @@ terms, product names or step lists.
   what was asked for in plain words and that a technician will take care of
   it, never "diagnostics"; for a question, that we're checking. No time
   promised; the ticket goes to Follow Up Needed with the whole handoff in
-  the internal note.
+  the internal note. When a request is missing something the technician
+  will need (v2.15.10), the same reply asks for it - one to three plain
+  questions, never what the ticket already says and never a password - and
+  the ticket waits on the client instead. For a new user that means role,
+  an existing employee to set them up like, the license (and whether a
+  mailbox-only license also needs the Office apps), and a start date.
 - Unchanged: security sign-in alerts (including "was this you?"), the
   forwarded-email reminder, the emergency acknowledgment, the sign-off and
   AI disclosure, and approval mode.
