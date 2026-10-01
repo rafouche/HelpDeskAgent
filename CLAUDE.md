@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.11, 2026-10-01 (deployed to `production` the same day):
+As of v2.15.12, 2026-10-01 (`main`; `production` moves on Roger's go):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3139,6 +3139,22 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.12 - brief replies aim for the middle; findings get their own note
+(2026-10-01).** Roger: #22927 (plotter) got "We've completed our initial
+review, and a technician will follow up" and nothing else - "way TOO brief.
+Need a happy medium between what's there in brief now and detailed."
+Compared side by side with #22906 (detailed: six paragraphs, device name,
+three bulleted questions). The brief section was rewritten around a
+middle target: three to six plain sentences - acknowledge, what was checked
+and what it showed (only what was really checked), what happens next, one
+thing to try or the questions; holding replies must say something specific
+and true, the stock diagnostics line only as a last resort. Second finding:
+#22927 and #22930 had no findings note at all, and #22920 put its findings
+inside the draft, which send_approved_draft collapses to "[APPROVED DRAFT]"
+- lost on approval. The FLOW B banner (both modes) and the brief section now
+require findings as a separate private note, written first, never in the
+draft.
 
 **v2.15.11 - request intake in both reply modes (2026-10-01).** The
 checklist moved out of the brief markers into a general section, "Requests

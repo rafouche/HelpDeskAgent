@@ -334,26 +334,27 @@ hands it over.
 ## Brief client replies (optional, v2.15.8)
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,
 today's replies) or `"brief"`. Brief changes only what the client reads:
-Allie investigates exactly as before and the internal note carries the full
-findings, but the reply is two to four plain sentences with no technical
-terms, product names or step lists.
+Allie investigates exactly as before. Since v2.15.12 a brief reply aims
+for the middle - three to six plain sentences that acknowledge the issue,
+say what she looked at and what it showed, say what happens next, and give
+one thing to try or ask what's needed. No device names, product names,
+technical terms or step lists.
 
 - Fixed with a whitelisted action, or answered with confidence: a short
   plain answer; the ticket resolves after approval as it does today.
-- Missing a detail from the client: she still asks, in plain words, one or
-  two simple questions.
-- Anything else (not confident, needs a person, needs a change she can't
-  make): a short holding reply that fits the ticket (v2.15.9) - for a
-  problem, "We've completed our initial diagnostics, and a technician will
-  follow up with you"; for a request (new user, access, software, a setup),
-  what was asked for in plain words and that a technician will take care of
-  it, never "diagnostics"; for a question, that we're checking. No time
-  promised; the ticket goes to Follow Up Needed with the whole handoff in
-  the internal note. A request missing what the technician needs gets
-  those questions instead (see "Requests a technician will carry out").
+- Missing a detail from the client: what she already checked, then plain
+  questions.
+- Needs a person: a holding reply that fits the ticket - for a problem,
+  what she found plus "a technician will follow up"; for a request, what
+  was asked for (and any missing details, see "Requests a technician will
+  carry out"); never a stock line on its own, no time promised.
 - Unchanged: security sign-in alerts (including "was this you?"), the
   forwarded-email reminder, the emergency acknowledgment, the sign-off and
   AI disclosure, and approval mode.
+
+In both modes the technician's findings go in their own private note,
+never inside the draft: an approved draft is collapsed to `[APPROVED
+DRAFT]` when it's sent, so anything written in it would be lost (v2.15.12).
 
 Switching is the one config value; no code push. The TICKET line in the log
 shows `replies: brief|detailed`, and `-DryRun` prints the current style.

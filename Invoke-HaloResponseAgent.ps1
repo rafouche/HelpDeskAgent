@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.12 - brief replies aim for the middle; findings always get
+    their own note (2026-10-01). Roger: #22927 (plotter) got only "we've
+    completed our initial review, and a technician will follow up" - "way
+    TOO brief. Need a happy medium." Compared with #22906 (detailed: six
+    paragraphs, device name, three bulleted questions). The brief section
+    now asks for three to six plain sentences: acknowledge, what was
+    checked and what it showed, what happens next, one thing to try or the
+    questions; the stock diagnostics line only when nothing more specific
+    is true. Also found: #22927 and #22930 had no findings note at all, and
+    #22920 had put its findings inside the draft, which send_approved_draft
+    collapses to "[APPROVED DRAFT]" - lost on approval. The FLOW B banner
+    (both modes) and the brief section now require a separate private
+    findings note, never inside the draft.
     Version: 2.15.11 - request intake in both reply modes (2026-10-01).
     Roger: same checklist in detailed mode. resolver-prompt.md gains a
     general section, "Requests a technician will carry out: ask for what
@@ -5827,6 +5840,11 @@ try {
             "   No assignment line is needed - FLOW A decides agent_id from the ticket's",
             "   own current state when it executes this later (see its own step 7), not",
             "   from anything recorded here.",
+            "   Your findings (what you checked and found, likely cause and confidence,",
+            "   what you'd ask the client, recommended next step) do NOT go in this",
+            "   draft note: when the draft is sent it is replaced with `"[APPROVED DRAFT]`"",
+            "   and everything in it is lost. Write them first as their own private",
+            "   note (a finding - no marker), so the technician always has them.",
             "2. status_id: $($ids.ai_waiting_approval_status_id) (ai_waiting_approval_status_name) -",
             "   ALWAYS this exact value on THIS call, never",
             "   resolved_status_name/waiting_on_client_status_name/follow_up_status_name,",
