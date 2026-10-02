@@ -28,8 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.14, 2026-10-02 (deployed to `production` and confirmed on the server;
-v2.15.15, a prompt-only brief-reply change, is on `main` awaiting deploy):
+As of v2.15.15, 2026-10-02 (deployed to `production` and confirmed on the server):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -53,7 +52,8 @@ v2.15.15, a prompt-only brief-reply change, is on `main` awaiting deploy):
   `prefetch_ticket` off.
 - Client replies: `pipeline.client_reply_style` "brief" in the live config
   (on by 2026-10-01 - #22920's draft used it; the repo template keeps
-  "detailed" as the default).
+  "detailed" as the default). Brief replies ask no technical questions
+  (v2.15.15).
 - Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
