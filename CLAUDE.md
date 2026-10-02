@@ -39,7 +39,9 @@ As of v2.15.13, 2026-10-02 (deployed to `production` and confirmed on the server
   fingerprints unassigned, tracked, Ready for AI and AI Approved tickets) ->
   **deterministic classifier** (`pipeline.deterministic_classifier: true`,
   shadow off; `/helpdesk-triage` + one no-tool tiering call) -> duplicate
-  guard -> one resolver call per ticket.
+  guard (v2.15.14: holds only when the tiering call judges the new ticket
+  the same issue as the contact's pending one) -> one resolver call per
+  ticket.
 - Models/effort: Sonnet 5 everywhere; classifier (and ID resolver/tiering)
   effort low; all four resolver tiers effort medium (2026-09-25).
   `$effortCapableModels` includes `claude-opus-5-5` and `claude-sonnet-5-5`
@@ -101,7 +103,9 @@ the full rationale.
   resolved IDs plus the `halo.*` names that produced them, tracked tickets,
   blocked/human-owned cooldowns, `tracked_evaluated`, the gate's
   `unassigned_last_seen` fingerprints (including `ready:<id>`/`approved:<id>`),
-  `duplicate_held`, and remembered notes. Deleting it is safe but forgets
+  `duplicate_held` (v2.15.14 values `held:<id>` / `same:<id>` /
+  `diff:<ids>`; a bare id from older versions loads as `legacy:<id>` and
+  is re-judged), and remembered notes. Deleting it is safe but forgets
   tracked tickets and remembered notes.
 - `resolver-system-prompt.generated.txt` — gitignored, rewritten every run:
   the static half of the resolver prompt (banners, resolver-prompt.md,
@@ -3143,6 +3147,27 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.14 - duplicate guard asks whether it is the same issue
+(2026-10-02).** Roger: "Ticket 22976 is being held because of 22972 has a
+pending draft, but the tickets are not even related to each other other
+than the user who entered the ticket." Root cause: since v2.15.0 a contact
+match alone held a ticket. Word matching was ruled out - #22659/#22589 (a
+real duplicate Roger merged) share no words. Now a contact match only marks
+the ticket; its brief in the existing no-tool tiering call gets
+`possible_follow_up_of` (each earlier pending ticket's id, summary, details
+and pending draft, 800 chars each) and the call returns `same_issue_as`
+(an earlier id, or null - "same person is NOT enough... When unsure, use
+null"). Same -> held as before (removed from $toTier and $candidates, note
+posted); null or an id not in the list -> worked normally. Verdict cached
+in duplicate_held: held:<id>, same:<id> (note failed, retried next cycle),
+diff:<ids> (re-judged only if a new earlier pending ticket appears); bare
+ints from older caches load as legacy:<id> and are re-judged once. WhatIf
+posts and caches nothing. No extra model call - the tiering call already
+runs. Harness: scratchpad/duptest/run.ps1 (old code reproduces the 22976
+hold; new code holds 22659 behind 22589, works 22976, skips re-judging
+cached verdicts, re-judges legacy, treats a wrong id as different, WhatIf
+clean). The real model's judgment is untested until it runs live.
 
 **v2.15.13 - attachments, and 13 more whitelisted remediations
 (2026-10-02).** (1) #22951: the text said "Can't save password"; the

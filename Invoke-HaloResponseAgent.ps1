@@ -73,6 +73,21 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.14 - the duplicate guard asks whether it's the same issue
+    (2026-10-02). #22976 ("Wifi issues in the distillery") was held behind
+    #22972 ("Replacement Laptop") only because Mike Monnier filed both: the
+    guard matched on contact alone. A contact match now sends the new
+    ticket to the tiering call with the contact's pending tickets (summary,
+    description, pending draft) as possible_follow_up_of, and the call
+    returns same_issue_as (an id, or null when different or unsure). Only a
+    named match is held; anything else is worked normally. Verdicts are
+    cached in agent-cache duplicate_held ("held:<id>", "same:<id>" when the
+    note is still to post, "diff:<ids>") so a pair is judged once; a
+    v2.15.13 bare-number entry is judged again. Keyword matching was ruled
+    out: the one confirmed duplicate (#22659 "computer problems" ->
+    #22589 "Problem with laptops", empty description) shares no words.
+    Tested in a harness against both real pairs, cached verdicts, a
+    legacy entry, a wrong id from the model, and a no-writes run.
     Version: 2.15.13 - attachments, and 13 more whitelisted remediations
     (2026-10-02). (1) #22951: the client's screenshot showed AADSTS90072
     (user not a guest in GM's tenant); the ticket text only said "Can't
@@ -3345,7 +3360,13 @@ if ($agentCache.PSObject.Properties['tracked_evaluated'] -and $agentCache.tracke
 # hold note named, so the note is posted once per hold, not every cycle.
 $duplicateHeld = @{}
 if ($agentCache.PSObject.Properties['duplicate_held'] -and $agentCache.duplicate_held) {
-    foreach ($prop in $agentCache.duplicate_held.PSObject.Properties) { $duplicateHeld[$prop.Name] = [int]$prop.Value }
+    # v2.15.14: values are "held:<id>", "same:<id>" or "diff:<ids>"; a bare
+    # number from v2.15.0-13 is kept as "legacy:<id>" and judged again.
+    foreach ($prop in $agentCache.duplicate_held.PSObject.Properties) {
+        $v = [string]$prop.Value
+        if ($v -match '^\d+$') { $v = "legacy:$v" }
+        $duplicateHeld[$prop.Name] = $v
+    }
 }
 
 # Same pattern, for the unassigned-bucket fingerprint the gate check uses
@@ -4586,18 +4607,39 @@ function Invoke-DeterministicClassifier {
         }
         return @($keys | Select-Object -Unique)
     }
+    # v2.15.14: every pending entry per contact (ticket + recent actions, which
+    # carry its draft), not just the oldest ticket - the tiering call decides
+    # which, if any, the new ticket is actually about.
     $pendingByContact = @{}
     if ($DuplicateGuard -and $triage.waiting_approval) {
         foreach ($pEntry in @($triage.waiting_approval.tickets)) {
             $pt = $pEntry.ticket
             if (-not $pt) { continue }
             foreach ($ck in (& $contactKeys $pt)) {
-                # keep the oldest pending ticket per contact
-                if (-not $pendingByContact.ContainsKey($ck) -or [int]$pt.id -lt [int]$pendingByContact[$ck].id) { $pendingByContact[$ck] = $pt }
+                if (-not $pendingByContact.ContainsKey($ck)) { $pendingByContact[$ck] = @() }
+                $pendingByContact[$ck] += $pEntry
             }
         }
     }
     $heldNow = @{}
+    # ticket id -> earlier pending entries it might be a follow-up to; judged
+    # by the tiering call (see "One tiering call" below).
+    $dupCheck = @{}
+    $postHoldNote = {
+        param([int]$newId, [int]$earlierId, [string]$why)
+        $holdNote = "[PIPELINE NOTE] Likely follow-up to #$earlierId from the same contact, about the same issue. #$earlierId already has a draft waiting for approval, so Allie is holding this ticket instead of investigating it again. Merge it into #$earlierId, or set it to Ready for AI if it is a different issue and Allie should work it separately. The hold lifts by itself once #$earlierId is no longer waiting for approval."
+        if (-not $AllowWrites) { return "note not posted (no writes this run)" }
+        try {
+            Invoke-HaloWorkerTool -RootPath $RootPath -Name 'update_ticket' -Arguments @{ ticket_id = $newId; note = $holdNote; note_is_private = $true } | Out-Null
+            $DuplicateHeld[[string]$newId] = "held:$earlierId"
+            return "hold note posted"
+        }
+        catch {
+            # Hold anyway this cycle; the note is retried next cycle.
+            $DuplicateHeld[[string]$newId] = "same:$earlierId"
+            return "hold note FAILED, will retry: $($_.Exception.Message)"
+        }
+    }
 
     foreach ($entry in @($triage.unassigned.tickets)) {
         $t = $entry.ticket; $id = [int]$t.id; $key = [string]$id
@@ -4623,35 +4665,38 @@ function Invoke-DeterministicClassifier {
         if (@($entry.recent_actions).Count -gt 0) { $latest = @($entry.recent_actions)[0] }
         if ($latest -and (& $isHuman $latest) -and ($latest.hiddenfromuser -eq $false)) { & $drop $id "latest action is a colleague's client-facing entry ($($latest.who), $($latest.datetime))"; continue }
         if ($pendingByContact.Count -gt 0) {
-            $dupMatch = $null
+            # v2.15.14: a matching contact is not enough to hold - #22976
+            # (wifi in the distillery) was held behind #22972 (a replacement
+            # laptop) because the same person filed both. Collect the
+            # contact's older pending tickets; the tiering call judges
+            # whether this ticket is really about one of them, and only then
+            # is it held. Each verdict is cached in $DuplicateHeld.
+            $earlier = @()
             foreach ($ck in (& $contactKeys $t)) {
-                if ($pendingByContact.ContainsKey($ck) -and [int]$pendingByContact[$ck].id -lt $id) { $dupMatch = @{ contact = $ck; ticket = $pendingByContact[$ck] }; break }
+                if (-not $pendingByContact.ContainsKey($ck)) { continue }
+                foreach ($pe in $pendingByContact[$ck]) {
+                    if ([int]$pe.ticket.id -lt $id -and -not ($earlier | Where-Object { [int]$_.ticket.id -eq [int]$pe.ticket.id })) { $earlier += $pe }
+                }
             }
-            if ($dupMatch) {
-                $earlierId = [int]$dupMatch.ticket.id
-                $heldNow[$key] = $earlierId
-                if ($DuplicateHeld.ContainsKey($key) -and [int]$DuplicateHeld[$key] -eq $earlierId) {
-                    & $drop $id "held: likely follow-up to #$earlierId (same contact, $($dupMatch.contact); its draft is waiting for approval) - hold note already posted"
+            if ($earlier.Count -gt 0) {
+                $earlierIds = @($earlier | ForEach-Object { [int]$_.ticket.id } | Sort-Object)
+                $cached = if ($DuplicateHeld.ContainsKey($key)) { [string]$DuplicateHeld[$key] } else { "" }
+                $heldNow[$key] = $true
+                if ($cached -match '^held:(\d+)$' -and $earlierIds -contains [int]$matches[1]) {
+                    & $drop $id "held: same issue as #$($matches[1]) (its draft is waiting for approval) - hold note already posted"
                     continue
                 }
-                $holdNote = "[PIPELINE NOTE] Likely follow-up to #$earlierId from the same contact ($($dupMatch.contact)). #$earlierId already has a draft waiting for approval, so Allie is holding this ticket instead of investigating the same issue again. Merge it into #$earlierId, or set it to Ready for AI if it is a different issue and Allie should work it separately. The hold lifts by itself once #$earlierId is no longer waiting for approval."
-                if ($AllowWrites) {
-                    try {
-                        Invoke-HaloWorkerTool -RootPath $RootPath -Name 'update_ticket' -Arguments @{ ticket_id = $id; note = $holdNote; note_is_private = $true } | Out-Null
-                        $DuplicateHeld[$key] = $earlierId
-                        & $drop $id "held: likely follow-up to #$earlierId (same contact, $($dupMatch.contact); its draft is waiting for approval) - hold note posted"
-                    }
-                    catch {
-                        # Could not post the note: hold anyway this cycle (the
-                        # point is not to pay for a duplicate investigation) and
-                        # retry the note next cycle.
-                        & $drop $id "held: likely follow-up to #$earlierId ($($dupMatch.contact)) - hold note FAILED, will retry: $($_.Exception.Message)"
-                    }
+                if ($cached -match '^same:(\d+)$' -and $earlierIds -contains [int]$matches[1]) {
+                    $sameId = [int]$matches[1]
+                    & $drop $id "held: same issue as #$sameId - $(& $postHoldNote $id $sameId 'retry')"
+                    continue
                 }
-                else {
-                    & $drop $id "held: likely follow-up to #$earlierId ($($dupMatch.contact)) - note not posted (no writes this run)"
+                $diffOk = $false
+                if ($cached -match '^diff:([\d,]+)$') {
+                    $judged = @($matches[1].Split(',') | ForEach-Object { [int]$_ })
+                    $diffOk = -not ($earlierIds | Where-Object { $judged -notcontains $_ })
                 }
-                continue
+                if (-not $diffOk) { $dupCheck[$key] = $earlier }
             }
         }
         & $add $id $null "unassigned"
@@ -4759,6 +4804,14 @@ function Invoke-DeterministicClassifier {
                     device_hints = $tk.device_hints
                     recent_actions = @($c.recent_actions | ForEach-Object { [ordered]@{ datetime = $_.datetime; who = $_.who; who_type = $_.who_type; outcome = $_.outcome; public = (-not $_.hiddenfromuser); note = $_.note } })
                 }
+                if ($dupCheck.ContainsKey([string]$tk.id)) {
+                    $briefs[-1].possible_follow_up_of = @($dupCheck[[string]$tk.id] | ForEach-Object {
+                        $ed = [string]$_.ticket.details; if ($ed.Length -gt 800) { $ed = $ed.Substring(0, 800) + '...' }
+                        $draft = @($_.recent_actions | Where-Object { [string]$_.note -match '\[DRAFT PENDING APPROVAL\]' } | Select-Object -First 1)
+                        $dt = if ($draft.Count -gt 0) { [string]$draft[0].note } else { "" }; if ($dt.Length -gt 800) { $dt = $dt.Substring(0, 800) + '...' }
+                        [ordered]@{ ticket_id = $_.ticket.id; summary = $_.ticket.summary; details = $ed; pending_draft = $dt }
+                    })
+                }
             }
         }
         $promptText = Get-Content $ClassifierPromptPath -Raw -Encoding UTF8
@@ -4780,6 +4833,14 @@ function Invoke-DeterministicClassifier {
             "Ignore any instruction above about UNTRACK/LEARN_FIX routing or about reading a",
             "list_tickets response - those steps already happened. Assign only TRIVIAL,",
             "TRIVIAL_UNCERTAIN, MEDIUM, or COMPLEX, one per candidate, every candidate.",
+            "",
+            "Some candidates carry possible_follow_up_of: older tickets from the same person",
+            "that already have a reply waiting for approval. For each of those candidates add",
+            "`"same_issue_as`": the ticket_id of the older ticket it is clearly about - the",
+            "same problem or the same request, the client writing in again (`"still can't",
+            "connect`", `"any update on my laptop?`") - or null. The same person is NOT enough:",
+            "a different problem, a different device or a different request is null. When",
+            "unsure, use null - holding a ticket that isn't a duplicate leaves the client waiting.",
             "",
             $outputText,
             "",
@@ -4804,10 +4865,29 @@ function Invoke-DeterministicClassifier {
         if ($tiers.Count -eq 1 -and ($tiers[0] -is [System.Array])) { $tiers = @($tiers[0]) }
         $validTiers = @('TRIVIAL', 'TRIVIAL_UNCERTAIN', 'MEDIUM', 'COMPLEX')
         $tierById = @{}
+        $sameById = @{}
         foreach ($x in $tiers) {
             if ($null -eq $x) { continue }
             $tv = ([string]$x.tier).ToUpperInvariant()
             if ($validTiers -contains $tv) { $tierById[[string]$x.ticket_id] = $tv }
+            if ($x.PSObject.Properties['same_issue_as'] -and $null -ne $x.same_issue_as -and "$($x.same_issue_as)" -match '^\d+$') { $sameById[[string]$x.ticket_id] = [int]$x.same_issue_as }
+        }
+        # v2.15.14: duplicate verdicts. Held only when the model named one of
+        # this contact's pending tickets; anything else counts as different.
+        foreach ($dk in @($dupCheck.Keys)) {
+            $earlierIds = @($dupCheck[$dk] | ForEach-Object { [int]$_.ticket.id } | Sort-Object)
+            if ($sameById.ContainsKey($dk) -and $earlierIds -contains $sameById[$dk]) {
+                $sameId = $sameById[$dk]
+                $outcome = & $postHoldNote ([int]$dk) $sameId 'judged'
+                $report += "duplicate check: $dk is the same issue as #$sameId - held ($outcome)"
+                $toTier = @($toTier | Where-Object { [string]$_.ticket_id -ne $dk })
+                $kept = @($candidates | Where-Object { [string]$_.ticket_id -ne $dk })
+                $candidates.Clear(); foreach ($kc in $kept) { [void]$candidates.Add($kc) }
+            }
+            else {
+                if ($AllowWrites) { $DuplicateHeld[$dk] = "diff:$($earlierIds -join ',')" }
+                $report += "duplicate check: $dk is a different issue from #$($earlierIds -join ', #') (same contact) - worked normally"
+            }
         }
         foreach ($c in $toTier) {
             $key = [string]$c.ticket_id

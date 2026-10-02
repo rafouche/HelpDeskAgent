@@ -1213,17 +1213,34 @@ right before believing a prefetch number:
   (6000) and `prefetch_max_chars` (40000) in config.json (a lean starting
   point: 12 / 800 / 3000 / 12000) and replay again.
 
-## Duplicate guard (v2.15.0)
+## Duplicate guard (v2.15.0, same-issue check v2.15.14)
 A new unassigned ticket from a contact who already has an older ticket
-waiting for approval is held, not investigated: no model call, one private
-`[PIPELINE NOTE]` naming the earlier ticket, and a person merges it (or sets
-it to Ready for AI if it's a different issue). The hold lifts by itself once
-the earlier ticket leaves AI Waiting Approval. "Contact" means the Halo user,
-the ticket's email, or the "Email:" line of a web-form ticket; addresses at
+waiting for approval is checked before it is worked. Since v2.15.14 the
+contact match alone no longer holds it: the tiering call (the one cheap
+no-tool call the classifier already makes) is also shown the earlier
+ticket's summary, details and pending draft, and answers `same_issue_as`
+with that ticket's id only when the new ticket is clearly a follow-up,
+reply or repeat of the same problem or request. Same person is not enough;
+when unsure it answers null and the ticket is worked normally.
+
+- **Same issue:** held, not investigated - one private `[PIPELINE NOTE]`
+  naming the earlier ticket, and a person merges it (or sets it to Ready
+  for AI if it really is different). The hold lifts by itself once the
+  earlier ticket leaves AI Waiting Approval.
+- **Different issue:** worked normally, like any other ticket.
+
+The verdict is cached in `agent-cache.json` (`duplicate_held`, one entry per
+ticket: `held:<id>`, `same:<id>` when the note could not be posted yet,
+`diff:<ids>`), so a ticket is judged once per set of earlier pending
+tickets, not every cycle; a new earlier pending ticket from the same contact
+re-judges it. Entries from before v2.15.14 (a bare ticket id) are re-judged
+once. "Contact" means the Halo user, the ticket's email, or the "Email:"
+line of a web-form ticket; addresses at
 `pipeline.duplicate_guard_ignore_domains` (altecusa.com, altecsales.com -
-your own staff, who open tickets for many clients) never count. The note is
-written only on a live run with the deterministic classifier on, never under
-`-WhatIf` or a replay. On by default; `"duplicate_guard": false` turns it off.
+your own staff, who open tickets for many clients) never count. The note
+and the cached verdicts are written only on a live run with the
+deterministic classifier on, never under `-WhatIf` or a replay. On by
+default; `"duplicate_guard": false` turns it off.
 
 ## What the resolver can use to investigate
 - **Every read-only diagnostic tool** on Halo, CIPP (M365), NinjaOne,
