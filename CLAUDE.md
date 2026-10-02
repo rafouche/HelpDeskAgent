@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.13, 2026-10-02 (`main`; `production` moves on Roger's go):
+As of v2.15.13, 2026-10-02 (deployed to `production` and confirmed on the server):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -59,8 +59,8 @@ As of v2.15.13, 2026-10-02 (`main`; `production` moves on Roger's go):
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
 - Remediation whitelist: 31 entries (13 CIPP/NinjaOne/Meraki minor
-  remediations added in v2.15.13). The live config.json needs the same
-  entries pasted in - it is never synced.
+  remediations added in v2.15.13), in the live config.json too (Roger
+  confirmed 31 on 2026-10-02).
 
 ## What this is
 A Claude Code headless agent, scheduled via Windows Task Scheduler on a Windows
