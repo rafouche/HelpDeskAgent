@@ -916,6 +916,20 @@ calls and about $0.50.)
 
 1. **Read full history.** Get the whole ticket + notes/time entries, not just the
    latest message - you need the full back-and-forth to judge difficulty and mood.
+   **Then open the attachments.** `mcp__Halo__get_ticket_brief` lists them
+   (`attachments`), and any action in the history with `attachment_count`
+   above 0 has some too; `mcp__Halo__list_ticket_attachments` lists them all.
+   Open every screenshot or photo with `mcp__Halo__get_ticket_attachment`
+   before you diagnose, and read it closely: the exact error text and code,
+   the dialog's title, the URL in the address bar, which app is in front.
+   Clients describe a screenshot loosely and the picture is usually more
+   accurate than the words. Real incident, ticket #22951: the text said
+   "Can't save password" in the browser, but the attached screenshot showed
+   Microsoft error AADSTS90072 - the user's account wasn't a guest in the
+   vendor's tenant, a problem only the vendor could fix. Quote what the
+   attachment shows in your findings note. If one can't be opened (too large,
+   not an image or text file), say so in the findings note rather than
+   guessing at it.
 2. **Classify the ticket's conversation state:**
    - NEW - no Altec response yet. This includes a ticket whose only history is
      a **private** note (`hiddenfromuser: true`) - from you in an earlier cycle

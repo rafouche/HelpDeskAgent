@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.12, 2026-10-01 (`main`; `production` moves on Roger's go):
+As of v2.15.13, 2026-10-02 (`main`; `production` moves on Roger's go):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -55,8 +55,12 @@ As of v2.15.12, 2026-10-01 (`main`; `production` moves on Roger's go):
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
   UniFi, Peplink (JumpCloud removed v2.15.7) including raw GET
-  tools; `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
+  tools and ticket attachments (images as images, v2.15.13);
+  `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
+- Remediation whitelist: 31 entries (13 CIPP/NinjaOne/Meraki minor
+  remediations added in v2.15.13). The live config.json needs the same
+  entries pasted in - it is never synced.
 
 ## What this is
 A Claude Code headless agent, scheduled via Windows Task Scheduler on a Windows
@@ -3139,6 +3143,25 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.13 - attachments, and 13 more whitelisted remediations
+(2026-10-02).** (1) #22951: the text said "Can't save password"; the
+attached screenshot showed AADSTS90072 (the user isn't a guest in GM's
+tenant - GM must add him). The resolver had no way to open attachments:
+the Halo Worker only exposed attachment_count. halopsa-mcp gained
+list_ticket_attachments and get_ticket_attachment (fetches Halo's signed
+s3url; images up to 3.5 MB returned as MCP image content, text files as
+text, others as metadata) and get_ticket_brief lists attachments.
+resolver-prompt.md step 1 now says to open every screenshot before
+diagnosing and quote it in findings. (2) Roger: "She's supposed to have
+write access to all tools needed for certain minor remediations... My
+understanding was the diagnostics phase was read only." Explained the
+model (writes only through remediation_whitelist entries, each tool hidden
+until the draft naming it is approved), offered a list; he approved all
+CIPP/NinjaOne/Meraki items. 13 config.json entries, 15 write tools added
+to $resolverTools, $remediationMutatingTools and $mutatingTools. CA/Intune
+policy changes stay out (tenant-wide; exact-change approval was offered as
+a separate build). UniFi/Peplink Workers have no write tools yet.
 
 **v2.15.12 - brief replies aim for the middle; findings get their own note
 (2026-10-01).** Roger: #22927 (plotter) got "We've completed our initial

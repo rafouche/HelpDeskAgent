@@ -73,6 +73,25 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.13 - attachments, and 13 more whitelisted remediations
+    (2026-10-02). (1) #22951: the client's screenshot showed AADSTS90072
+    (user not a guest in GM's tenant); the ticket text only said "Can't
+    save password", and the resolver had no tool to open attachments. The
+    Halo Worker gained list_ticket_attachments and get_ticket_attachment
+    (images returned as images, text files as text) and get_ticket_brief
+    now lists attachments; both tools are allowlisted and
+    resolver-prompt.md says to open every relevant attachment before
+    diagnosing. (2) Roger asked for the CIPP, NinjaOne and Meraki minor
+    remediations offered on 10-01: config.json remediation_whitelist gains
+    13 entries (revoke sessions, group add/remove, out-of-office, license
+    assign/remove, convert to shared; NinjaOne alert ack/resolve, OS patch
+    approve/reject, maintenance mode; Meraki AP/switch reboot, switch port
+    cycle, port VLAN change, SSID change), each naming its tool and
+    conditions. The 15 write tools are allowlisted and, like every
+    remediation tool, in $remediationMutatingTools (stripped and hidden
+    until the draft naming the action is approved) and $mutatingTools
+    (simulated under -WhatIf). Conditional Access/Intune policy changes
+    stay out.
     Version: 2.15.12 - brief replies aim for the middle; findings always get
     their own note (2026-10-01). Roger: #22927 (plotter) got only "we've
     completed our initial review, and a technician will follow up" - "way
@@ -3596,6 +3615,10 @@ $resolverTools = @(
     # alone was denied 19 times in five days of logs, a wasted turn each.
     # halo_api_get is the GET-only escape hatch for anything else.
     "mcp__Halo__get_ticket_brief", "mcp__Halo__get_ticket_history", "mcp__Halo__halo_api_get",
+    # v2.15.13: read a ticket's attachments - get_ticket_attachment returns
+    # an image as an image (ticket #22951: the error was only in a
+    # screenshot the resolver had no way to open).
+    "mcp__Halo__list_ticket_attachments", "mcp__Halo__get_ticket_attachment",
     "mcp__Halo__get_site", "mcp__Halo__get_appointment", "mcp__Halo__list_appointments", "mcp__Halo__get_on_call",
     "mcp__Halo__list_contracts", "mcp__Halo__get_contract", "mcp__Halo__list_software_licences",
     "mcp__Halo__list_outcomes", "mcp__Halo__list_slas", "mcp__Halo__list_priorities",
@@ -3669,6 +3692,11 @@ $resolverTools = @(
     # confirmed CIPP-ng's built-in MCP was tried and abandoned; there is no
     # cutover in progress or planned). See README's "CIPP MCP" section.
     "mcp__CIPP__get_user", "mcp__CIPP__healthcheck", "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
+    # v2.15.13: more whitelisted minor remediations (config.json
+    # remediation_whitelist names each one and its conditions). Like every
+    # write above, stripped and hidden until a draft naming the action is
+    # approved ($remediationMutatingTools) and simulated under -WhatIf.
+    "mcp__CIPP__revoke_user_sessions", "mcp__CIPP__add_group_member", "mcp__CIPP__remove_group_member", "mcp__CIPP__set_mailbox_ooo", "mcp__CIPP__set_user_license", "mcp__CIPP__convert_mailbox",
     # Real incident, found the same day as v2.10.52's UniFi/Meraki/Peplink
     # correction, this time from directly cross-checking every mcp__CIPP__*
     # name resolver-prompt.md actually instructs calling against this array,
@@ -3746,6 +3774,8 @@ $resolverTools = @(
     "mcp__Ninja__get_device_volumes", "mcp__Ninja__get_device_network_interfaces",
     "mcp__Ninja__get_device_windows_services",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device", "mcp__Ninja__list_automation_scripts",
+    # v2.15.13 whitelisted remediations (see the CIPP note above).
+    "mcp__Ninja__acknowledge_alert", "mcp__Ninja__resolve_alert", "mcp__Ninja__approve_os_patch", "mcp__Ninja__reject_os_patch", "mcp__Ninja__set_device_maintenance", "mcp__Ninja__end_device_maintenance",
     # run_script_and_wait (v2.10.62): same remediation-whitelist gating as
     # run_script_on_device - it queues and runs the exact same way, just
     # also polls for a result. Needed for the new "Speedtest (JSON)"
@@ -3848,6 +3878,8 @@ $resolverTools = @(
     # still-outstanding feature request on Peplink's own community forum) -
     # not wired up rather than guessed at.
     "mcp__Meraki__run_throughput_test",
+    # v2.15.13 whitelisted remediations (see the CIPP note above).
+    "mcp__Meraki__reboot_device", "mcp__Meraki__update_switch_port", "mcp__Meraki__update_ssid",
 
     # Real incident: Peplink (InControl2) was registered as an MCP server on this
     # machine the whole time but never added to any tool allowlist here, and
@@ -3960,6 +3992,10 @@ $mutatingTools = @(
     # pulls real bandwidth on a live WAN link for ~10s), so both get
     # simulated under -WhatIf like everything else in this list.
     "mcp__Ninja__run_script_and_wait", "mcp__Meraki__run_throughput_test",
+    # v2.15.13 whitelisted remediations.
+    "mcp__CIPP__revoke_user_sessions", "mcp__CIPP__add_group_member", "mcp__CIPP__remove_group_member", "mcp__CIPP__set_mailbox_ooo", "mcp__CIPP__set_user_license", "mcp__CIPP__convert_mailbox",
+    "mcp__Ninja__acknowledge_alert", "mcp__Ninja__resolve_alert", "mcp__Ninja__approve_os_patch", "mcp__Ninja__reject_os_patch", "mcp__Ninja__set_device_maintenance", "mcp__Ninja__end_device_maintenance",
+    "mcp__Meraki__reboot_device", "mcp__Meraki__update_switch_port", "mcp__Meraki__update_ssid",
     # v2.10.55: writes to a client's real Hudu asset records (Firewalls/Switches/
     # Wireless), not the isolated "AI-Documented Fixes" folder - see the note where
     # $resolverTools declares these two. (The article tools below were live
@@ -3999,7 +4035,11 @@ $remediationMutatingTools = @(
     # ticket's allowlist the same way run_script_on_device already is -
     # see the $resolverTools/$mutatingTools comments for why, even for a
     # transient/non-destructive action like this.
-    "mcp__Ninja__run_script_and_wait", "mcp__Meraki__run_throughput_test"
+    "mcp__Ninja__run_script_and_wait", "mcp__Meraki__run_throughput_test",
+    # v2.15.13 whitelisted remediations.
+    "mcp__CIPP__revoke_user_sessions", "mcp__CIPP__add_group_member", "mcp__CIPP__remove_group_member", "mcp__CIPP__set_mailbox_ooo", "mcp__CIPP__set_user_license", "mcp__CIPP__convert_mailbox",
+    "mcp__Ninja__acknowledge_alert", "mcp__Ninja__resolve_alert", "mcp__Ninja__approve_os_patch", "mcp__Ninja__reject_os_patch", "mcp__Ninja__set_device_maintenance", "mcp__Ninja__end_device_maintenance",
+    "mcp__Meraki__reboot_device", "mcp__Meraki__update_switch_port", "mcp__Meraki__update_ssid"
 )
 
 # Base allowlist plus one pre-filtered variant for -RequireApproval, computed

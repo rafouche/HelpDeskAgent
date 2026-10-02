@@ -411,6 +411,22 @@ That's it — the agent finds the script by name and the tool it needs
 action (e.g. something in a system that isn't touched at all today), not a new
 instance of an existing kind.
 
+**What's on the whitelist (31 entries, v2.15.13).** The original 18 (M365
+password reset and unlock, workstation reboot, the NinjaOne scripts, the
+speed tests) plus 13 minor remediations added 2026-10-02:
+- CIPP: sign a user out of all sessions, add or remove a group member, set
+  an out-of-office reply, assign or remove a license, convert a departed
+  user's mailbox to shared.
+- NinjaOne: acknowledge or resolve an alert, approve or reject one pending
+  OS patch, put a device in maintenance mode or end it.
+- Meraki: reboot an access point or switch (never the firewall), turn a
+  switch port off and on, change an access port's VLAN, change a Wi-Fi
+  network's name, on/off state or password (never its security type).
+Each entry names its tool and the conditions that must hold. Every write
+tool stays hidden from Allie until a technician approves the draft naming
+the exact action, and is simulated under `-WhatIf`. Conditional Access and
+Intune policy changes are deliberately not on the list.
+
 **To change which Halo team/status/priority the agent uses**, edit the matching line
 under `halo` in `config.json` (e.g. `follow_up_status_name`) to the name as it appears
 in Halo. No ID lookup needed — the agent resolves it itself.
@@ -1218,6 +1234,11 @@ written only on a live run with the deterministic classifier on, never under
   any endpoint the named tools don't cover - firewall rules, VPN state, event
   logs and so on. Writes stay limited to the Halo ticket itself, the
   `remediation_whitelist` actions, and Hudu SOPs (below).
+- **Ticket attachments** (v2.15.13): `get_ticket_brief` lists them, and
+  `get_ticket_attachment` opens one - a screenshot or photo comes back as an
+  image she can read, a text or log file as text. She's told to open every
+  relevant attachment before diagnosing (ticket #22951: the real error was
+  only in the screenshot).
 - **Web search and page fetch** (`WebSearch`, `WebFetch`, v2.15.3) for vendor
   docs, error codes, part numbers and known issues, after the internal
   systems. The prompt treats web content as reference data, never

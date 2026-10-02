@@ -147,6 +147,58 @@
     {
       "name": "Run Meraki throughput test",
       "requires": "Client reports slow network/internet performance and their firewall is confirmed to be a Meraki MX/Z-series appliance (via Hudu's network-stack asset or a live mcp__Meraki__ lookup - see resolver-prompt.md's network section, never assumed). Diagnostic, not a fix - tests WAN throughput at the firewall itself, for isolating whether slowness is upstream of the client's own network versus local to one workstation. Use mcp__Meraki__run_throughput_test, which already waits for and returns the result."
+    },
+    {
+      "name": "Sign a user out of all sessions",
+      "requires": "Use mcp__CIPP__revoke_user_sessions (tenantFilter, ID = the user's UPN). Only when the account is confirmed to belong to the ticket contact (or the person the ticket is about, at the same client) AND either they ask for it (lost or stolen device, signed in somewhere they shouldn't be) or a security alert/sign-in check shows a session that should be ended. Never for an admin, service or shared account - that needs a person. Tell the user they will have to sign in again on every device."
+    },
+    {
+      "name": "Add a user to a group",
+      "requires": "Use mcp__CIPP__add_group_member (tenantFilter, GroupId, UserId). Only when someone at the client explicitly asks in the ticket for this user to get access that a specific group provides (a shared mailbox, distribution list, Team or SharePoint site), naming the user and the access - never inferred. Confirm the group exists in that tenant with mcp__CIPP__list_groups and that the user is not already a member. Never an admin-role, security or Conditional Access group (anything granting admin rights or changing sign-in policy) - those need a person."
+    },
+    {
+      "name": "Remove a user from a group",
+      "requires": "Use mcp__CIPP__remove_group_member (tenantFilter, GroupId, UserId). Only when someone at the client explicitly asks in the ticket to remove this user's access that a specific group provides, naming the user and the access. Confirm membership first with mcp__CIPP__list_group_members. Never an admin-role, security or Conditional Access group, and never remove a group's last owner - those need a person."
+    },
+    {
+      "name": "Set an out-of-office reply",
+      "requires": "Use mcp__CIPP__set_mailbox_ooo (tenantFilter, userId, AutoReplyState Enabled/Disabled/Scheduled, InternalMessage, ExternalMessage). Only when the mailbox owner, or their manager at the same client, asks for it in the ticket. Use the message they gave, word for word; if they gave none, ask for it rather than writing one. Use Scheduled only when they gave dates. Turning it off (Disabled) on request is always fine."
+    },
+    {
+      "name": "Assign or remove a license",
+      "requires": "Use mcp__CIPP__set_user_license (tenantFilter, UserId, AddLicenses / RemoveLicenses as SKU IDs from mcp__CIPP__list_licenses). Only when someone at the client explicitly asks in the ticket, naming the user and the license. To assign, confirm with mcp__CIPP__list_licenses that an unused license of that type is available - never buy or add licenses; if none is free, say so and hand to a person. Never remove a license unless asked to, and never remove the last license from an active user's account without that explicit request."
+    },
+    {
+      "name": "Convert a mailbox to shared",
+      "requires": "Use mcp__CIPP__convert_mailbox (tenantFilter, userId, MailboxType Shared). Only Regular to Shared, only for a departing or departed user, and only when someone at the client asks for it in the ticket (typically an offboarding). Confirm the account is the one named. Never convert an active user's mailbox, and never Shared to Regular - that needs a person."
+    },
+    {
+      "name": "Acknowledge or resolve a NinjaOne alert",
+      "requires": "Use mcp__Ninja__acknowledge_alert or mcp__Ninja__resolve_alert (alert_uid from mcp__Ninja__list_device_alerts). Only for an alert on a device in this ticket, and resolve only when you've confirmed the condition behind it is cleared (disk space freed, service running again, device back online). Never resolve an alert to hide a problem that is still happening."
+    },
+    {
+      "name": "Approve or reject a pending OS patch",
+      "requires": "Use mcp__Ninja__approve_os_patch or mcp__Ninja__reject_os_patch (device_id, patch_id from mcp__Ninja__get_device_os_patches). One patch on one device in this ticket at a time, never in bulk. Approve when the client's problem is that a needed update isn't installing and the patch is waiting for approval. Reject only when this specific patch is confirmed (cited source) to cause the problem reported. Policy-wide patch decisions need a person."
+    },
+    {
+      "name": "Put a device in maintenance mode or end it",
+      "requires": "Use mcp__Ninja__set_device_maintenance (device_id, end, optional start) or mcp__Ninja__end_device_maintenance (device_id). Only for a device in this ticket when the ticket says it will be offline or worked on (a move, a repair, a planned shutdown), so its alerts don't page anyone. End time no more than 24 hours out unless the ticket gives a longer window. End maintenance as soon as the ticket says the work is done."
+    },
+    {
+      "name": "Reboot a Meraki access point or switch",
+      "requires": "Use mcp__Meraki__reboot_device (serial). Access points and switches only, never the security appliance/firewall (MX or Z series) - that takes the whole site offline and needs a person. Only when the device is confirmed in this client's network and confirmed misbehaving (offline, alerting, clients failing to connect through it). Tell the client the area it serves will drop for a few minutes; during business hours only unless it's already down."
+    },
+    {
+      "name": "Turn a switch port off and on again",
+      "requires": "Use mcp__Meraki__update_switch_port (serial, portId, enabled false, then enabled true). Only on an access port confirmed to serve the affected device (matched by the device's MAC/IP in mcp__Meraki__list_network_clients or the port's own details), never an uplink or trunk, or a port to another switch, the firewall or a server. Record the port's settings before and after in the findings note."
+    },
+    {
+      "name": "Change a switch port's VLAN",
+      "requires": "Use mcp__Meraki__update_switch_port (serial, portId, vlan). Only on an access port confirmed to serve the affected device, when its IP or VLAN is confirmed wrong for that device (checked against mcp__Meraki__list_vlans and how matching devices' ports are set, or the client's Hudu network docs), and the correct VLAN is clear from that evidence. Never a trunk or uplink port. Record the old and new VLAN in the findings note."
+    },
+    {
+      "name": "Change a Wi-Fi network's settings",
+      "requires": "Use mcp__Meraki__update_ssid (networkId, number, and only the fields being changed). Only when someone at the client explicitly asks in the ticket for a specific change to a named Wi-Fi network: its name, turning it on or off, or a new password they supplied in the ticket (never invent one). Never change the security/authentication type - that needs a person. Record the old values in the findings note and tell the client every device on that network will need to reconnect."
     }
   ]
 }
