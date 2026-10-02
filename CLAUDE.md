@@ -28,7 +28,8 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.13, 2026-10-02 (deployed to `production` and confirmed on the server):
+As of v2.15.14, 2026-10-02 (deployed to `production` and confirmed on the server;
+v2.15.15, a prompt-only brief-reply change, is on `main` awaiting deploy):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3147,6 +3148,25 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.15 - brief replies ask no technical questions (2026-10-02).**
+Roger, after v2.15.14 was confirmed on the server: "Ticket #22993... Asked
+two questions about model and USB or Network. In Brief mode, these types of
+questions are supposed to be suppressed." #22993 was a web-form request to
+install the Munbyn printer driver; the draft asked the printer model and
+USB vs network. The brief section allowed any question for a request (it
+pointed to the request-intake section) and its own path-2 example asked
+"Wi-Fi or plugged in with a cable?". Roger's original spec had "one simple,
+non-technical question". Added "Ask only what the client knows without
+looking anything up": who/what/when/which person/when it happens are fine;
+model, connection, version, setting, error wording, port, driver are
+never asked in brief mode - they go in the findings note "for the
+technician to confirm", and if only those are missing, no question: the
+holding reply and a normal hand-over (not waiting on client). The
+new-user/offboarding lists still qualify. Example fixed; the
+findings-note line no longer says draft text "is lost". Detailed mode
+unchanged (the section is stripped there). Prompt-only; script version
+note added.
 
 **v2.15.14 - duplicate guard asks whether it is the same issue
 (2026-10-02).** Roger: "Ticket 22976 is being held because of 22972 has a

@@ -343,7 +343,12 @@ technical terms or step lists.
 - Fixed with a whitelisted action, or answered with confidence: a short
   plain answer; the ticket resolves after approval as it does today.
 - Missing a detail from the client: what she already checked, then plain
-  questions.
+  questions - only ones a non-technical person can answer without looking
+  anything up (who, what, when, which person, when it happens). Equipment
+  details - model, how it's connected, version, setting, error wording,
+  driver - are never asked in brief mode; they go in the findings note
+  "for the technician to confirm", and if they're all that's missing the
+  ticket gets the holding reply instead (v2.15.15, #22993).
 - Needs a person: a holding reply that fits the ticket - for a problem,
   what she found plus "a technician will follow up"; for a request, what
   was asked for (and any missing details, see "Requests a technician will

@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.15 - brief replies ask no technical questions (2026-10-02).
+    Prompt-only (resolver-prompt.md, brief section). #22993 (Munbyn printer
+    driver install) asked the client for the printer model and whether it
+    is connected by USB or over the network; in brief mode Roger wants
+    those left to the technician. Brief-mode questions are now limited to
+    what a non-technical person knows without looking (who, what, when,
+    which person, when it happens); equipment details (model, connection,
+    version, setting, error wording, driver) go in the findings note as
+    "for the technician to confirm", and when only those are missing the
+    ticket gets the holding reply and is handed over, not set to waiting
+    on the client. The new-user and offboarding lists still apply. The
+    brief example that asked "Wi-Fi or plugged in with a cable?" was
+    changed, and the findings-note line no longer says draft text "is
+    lost" (the Worker keeps it since 2026-10-01). Detailed mode unchanged.
     Version: 2.15.14 - the duplicate guard asks whether it's the same issue
     (2026-10-02). #22976 ("Wifi issues in the distillery") was held behind
     #22972 ("Replacement Laptop") only because Mike Monnier filed both: the
