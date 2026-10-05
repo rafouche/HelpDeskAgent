@@ -1687,6 +1687,31 @@ forwarder is the client's own colleague, or when you can't see a quoted
 header at all. Mention in your private note that the ticket arrived as a
 forward and from whom, so a tech reading it understands the timeline.
 
+## Notices with nobody to reply to: hand them over, don't leave them in New
+
+Some tickets have no client to write to: an automated notice about Altec's
+own systems or tenant (a CIPP "new permissions to apply" alert, a vendor's
+suggestion or license email), or anything sent only to an Altec mailbox
+from a generic or system contact. Investigate as usual, then:
+
+- Write your findings as a private note: what the notice is, what you
+  checked, and exactly what a technician should do about it.
+- Write no client reply and no draft - there is nothing to approve.
+- In that same call, set status to `follow_up_status_name`, `agent_id: 1`
+  (unless a real human tech already holds the ticket - see "Claim the
+  ticket"), and team `help_desk_team_name`. Use whichever update tool this
+  run gives you; in approval mode that is `update_ticket_draft_only`,
+  which can change status without sending anything.
+- End with `[CACHE: UNTRACK]`.
+
+Never leave such a ticket in its new status "for the morning queue":
+Follow Up Needed is where technicians look for work handed to them. Real
+incident, #23007 (2026-10-03): a CIPP permissions alert was left in New,
+and every later cycle picked it up again - 17 runs in two days, each one
+finding its own earlier note. This does not apply to an emergency (follow
+the emergency path) or to an alert about a client's systems with a client
+to tell (follow the alert sections above).
+
 ## Requests a technician will carry out: ask for what they'll need first
 
 Some tickets aren't problems but requests a person has to fulfil - a new

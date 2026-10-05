@@ -73,6 +73,28 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.16 - tickets she already worked stay out of the unassigned
+    candidates; notices with nobody to reply to go to Follow Up Needed
+    (2026-10-05). Roger's 10-02..10-05 logs: #23007 (CIPP "new permissions to
+    apply" for Altec's own tenant, sender General User) got a correct
+    findings note and was left in New, unassigned - then re-run every time
+    anything else in the unassigned bucket changed: 17 runs, $3.24, each
+    finding its own earlier note. #23001 (JumpCloud notice to an Altec
+    mailbox) and #23043 (another CIPP alert) did the same; $3.42 of $15.72
+    resolver spend in total. (1) New agent-cache map unassigned_worked
+    (ticket id -> cycle start UTC), stamped on [CACHE: UNTRACK] and cleared
+    by any other marker. Invoke-DeterministicClassifier's unassigned loop
+    drops a ticket in it unless a non-ours, non-automation, non-integration
+    action is newer than the mark (any outcome, so a bare status change by
+    a person counts). Ready for AI is decided before this check, so it still
+    overrides; an unreadable mark or action date fails open; entries older
+    than 14 days are pruned on save. Only the deterministic classifier uses
+    it. Tested: never worked, only our note, automation rule, older human
+    note, new human note, human status change, client email, bad mark. (2)
+    resolver-prompt.md "Notices with nobody to reply to": findings note, no
+    draft, Follow Up Needed + agent 1 + Help Desk in the same call
+    (update_ticket_draft_only in approval mode), [CACHE: UNTRACK] - Roger
+    chose Follow Up Needed over leaving them in New.
     Version: 2.15.15 - brief replies ask no technical questions (2026-10-02).
     Prompt-only (resolver-prompt.md, brief section). #22993 (Munbyn printer
     driver install) asked the client for the printer model and whether it
@@ -3370,6 +3392,20 @@ if ($agentCache.PSObject.Properties['tracked_evaluated'] -and $agentCache.tracke
     foreach ($prop in $agentCache.tracked_evaluated.PSObject.Properties) { $trackedEvaluated[$prop.Name] = [string]$prop.Value }
 }
 
+# v2.15.16: unassigned tickets the resolver already worked - ticket id -> the
+# cycle start (UTC ISO text) of that run. Real incident: #23007, a CIPP alert
+# for Altec's own tenant with nobody to reply to, was left in New and
+# unassigned after a correct findings note, and was run 17 times in two days
+# (every time anything else in the unassigned bucket changed), each run
+# ending "an earlier pass already left a note". A ticket in this map stays
+# out of the unassigned candidates until someone other than this pipeline
+# (a person or the client, not Halo automation) adds an action after that
+# time. Ready for AI still overrides it. Entries expire after 14 days.
+$unassignedWorked = @{}
+if ($agentCache.PSObject.Properties['unassigned_worked'] -and $agentCache.unassigned_worked) {
+    foreach ($prop in $agentCache.unassigned_worked.PSObject.Properties) { $unassignedWorked[$prop.Name] = [string]$prop.Value }
+}
+
 # v2.15.0: duplicate guard holds - new ticket id -> the earlier ticket id its
 # hold note named, so the note is posted once per hold, not every cycle.
 $duplicateHeld = @{}
@@ -4477,6 +4513,8 @@ function Invoke-DeterministicClassifier {
         # #22389/#22390. Same list halopsa-mcp's human_touch now ignores.
         [string[]]$IntegrationAppIds = @("Huntress", "Acronis Client Portal"),
     [hashtable]$EvaluatedAt = @{},
+        # v2.15.16: unassigned tickets already worked (see $unassignedWorked)
+        [hashtable]$UnassignedWorked = @{},
         # v2.15.0 duplicate guard (see the block before the unassigned loop)
         [bool]$DuplicateGuard = $true,
         [hashtable]$DuplicateHeld = @{},
@@ -4678,6 +4716,22 @@ function Invoke-DeterministicClassifier {
         $latest = $null
         if (@($entry.recent_actions).Count -gt 0) { $latest = @($entry.recent_actions)[0] }
         if ($latest -and (& $isHuman $latest) -and ($latest.hiddenfromuser -eq $false)) { & $drop $id "latest action is a colleague's client-facing entry ($($latest.who), $($latest.datetime))"; continue }
+        if ($UnassignedWorked.ContainsKey($key)) {
+            # v2.15.16: already worked - only something new from a person or
+            # the client (any action, even a bare status change; never ours,
+            # never Halo automation) brings it back. See $unassignedWorked.
+            # An unreadable mark or action date fails open: worked as before.
+            $mark = & $asUtc $UnassignedWorked[$key]
+            $newer = $null
+            foreach ($a in @($entry.recent_actions)) {
+                if (& $isOurs $a) { continue }
+                if ($null -ne $a.who_type -and [int]$a.who_type -eq 0) { continue }
+                if ($IntegrationAppIds -contains [string]$a.actionby_application_id) { continue }
+                $when = & $asUtc $a.datetime
+                if ($null -eq $when -or $when -gt $mark) { $newer = $a; break }
+            }
+            if ($null -ne $mark -and -not $newer) { & $drop $id "already worked at $($UnassignedWorked[$key])Z, nothing new from a person or the client since"; continue }
+        }
         if ($pendingByContact.Count -gt 0) {
             # v2.15.14: a matching contact is not enough to hold - #22976
             # (wifi in the distillery) was held behind #22972 (a replacement
@@ -6189,7 +6243,7 @@ try {
             $deterministic = Invoke-DeterministicClassifier -RootPath $RootPath -Ids $ids -TrackedTicketIds $trackedTicketIds `
                 -BlockedTickets $blockedTickets -HumanOwnedTickets $humanOwnedTickets -ApprovalMode ([bool]$RequireApproval) `
                 -SkipStatusNames $skipStatusNames -ClassifierPromptPath $classifierPromptPath `
-                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone -EvaluatedAt $trackedEvaluated `
+                -Model $config.claude.classifier_model -Effort $classifierEffort -NowText $nowText -Timezone $config.business_hours.timezone -EvaluatedAt $trackedEvaluated -UnassignedWorked $unassignedWorked `
                 -DuplicateGuard $pipelineFlags.duplicate_guard -DuplicateHeld $duplicateHeld `
                 -GenericContactDomains $(if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline -and $config.pipeline.PSObject.Properties['duplicate_guard_ignore_domains'] -and $config.pipeline.duplicate_guard_ignore_domains) { @($config.pipeline.duplicate_guard_ignore_domains | ForEach-Object { ([string]$_).ToLowerInvariant() }) } else { @("altecusa.com", "altecsales.com") }) `
                 -AllowWrites ([bool]$pipelineFlags.deterministic_classifier -and -not $WhatIf -and -not $isReplay) `
@@ -6570,6 +6624,10 @@ try {
             # v2.13.2: TRACK also stamps the watermark - everything on this
             # ticket dated up to the start of this cycle has now been looked at.
             if ($cacheMarker -eq 'TRACK') { $trackedEvaluated[[string]$ticketId] = $cycleStartUtc } else { [void]$trackedEvaluated.Remove([string]$ticketId) }
+            # v2.15.16: UNTRACK stamps the "already worked" mark (see
+            # $unassignedWorked); it only matters if the ticket is still
+            # unassigned in a plain status next cycle.
+            if ($cacheMarker -eq 'UNTRACK') { $unassignedWorked[[string]$ticketId] = $cycleStartUtc } else { [void]$unassignedWorked.Remove([string]$ticketId) }
             switch ($cacheMarker) {
                 'TRACK'   { if ($trackedTicketIds -notcontains $ticketId) { $trackedTicketIds += $ticketId } }
                 'UNTRACK' { $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId }) }
@@ -6682,12 +6740,20 @@ finally {
                 if ($trackedLastSeen.ContainsKey($key)) { $prunedTrackedLastSeen[$key] = $trackedLastSeen[$key] }
                 if ($trackedEvaluated.ContainsKey($key)) { $prunedTrackedEvaluated[$key] = $trackedEvaluated[$key] }
             }
+            $prunedUnassignedWorked = @{}
+            $workedCutoff = (Get-Date).ToUniversalTime().AddDays(-14)
+            foreach ($key in @($unassignedWorked.Keys)) {
+                $stamp = $null
+                try { $stamp = [DateTime]::Parse([string]$unassignedWorked[$key], [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { $stamp = $null }
+                if ($stamp -and $stamp -gt $workedCutoff) { $prunedUnassignedWorked[$key] = $unassignedWorked[$key] }
+            }
             $updatedCache = [PSCustomObject]@{
                 resolved_ids         = $resolvedIdsForCache
                 tracked_tickets      = @($trackedTicketIds | Select-Object -Unique)
                 tracked_last_seen    = $prunedTrackedLastSeen
                 tracked_evaluated    = $prunedTrackedEvaluated
                 duplicate_held       = $duplicateHeld
+                unassigned_worked    = $prunedUnassignedWorked
                 unassigned_last_seen = $unassignedLastSeen
                 blocked_tickets      = $blockedTickets
                 human_owned_tickets  = $humanOwnedTickets

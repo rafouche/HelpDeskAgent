@@ -318,6 +318,17 @@ a ticket reported `[CACHE: BLOCKED]` (a Halo write the agent can't make) is
 skipped for `claude.blocked_ticket_retry_hours` (2), and one reported
 `[CACHE: HUMAN_OWNED]` for `claude.human_owned_retry_hours` (24).
 
+## Notices with nobody to reply to (v2.15.16)
+An automated notice about Altec's own systems or tenant (a CIPP permissions
+alert, a vendor email) or anything sent only to an Altec mailbox has no
+client to answer. Allie writes her findings as a private note with exactly
+what a technician should do, writes no reply or draft (nothing to approve),
+and in the same call sets **Follow Up Needed**, unassigned, Help Desk team -
+never leaving it in New. In approval mode she does this with
+`update_ticket_draft_only`, which can change status without sending
+anything. Emergencies and alerts about a client's systems follow their own
+sections.
+
 ## Requests a technician will carry out (v2.15.10-11, both reply styles)
 For a request rather than a problem - a new user, access, software or
 hardware, a setup, an offboarding - Allie asks in her first reply for
@@ -1133,6 +1144,17 @@ tracked ticket and keeps tracking it, the cycle's start time is stored in
 `agent-cache.json` as `tracked_evaluated`; nothing dated at or before that
 time is a change. Real incident: three claimed drafts were resolved five
 times each in one morning, every pass finding nothing to do.
+
+**An unassigned ticket she already worked (v2.15.16).** When a run ends
+`[CACHE: UNTRACK]`, the cycle's start time is stored in `agent-cache.json` as
+`unassigned_worked`. If that ticket is still unassigned in a plain status
+later, it is skipped ("already worked ... nothing new from a person or the
+client since") until a person or the client adds anything after that time -
+a note, an email, even a bare status change. Her own entries, Halo
+automation and integrations don't count; Ready for AI still overrides; an
+unreadable time fails open; entries expire after 14 days. Real incident:
+#23007, a CIPP alert with nobody to reply to, was left in New and run 17
+times in two days, every run finding its own earlier note.
 
 `pipeline.skip_status_names` is the list of status names the deterministic
 path treats as "an active workflow this pipeline can't act on" (Dispatch

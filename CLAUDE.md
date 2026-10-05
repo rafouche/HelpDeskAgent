@@ -28,7 +28,8 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.15, 2026-10-02 (deployed to `production` and confirmed on the server):
+As of v2.15.15, 2026-10-02 (deployed to `production` and confirmed on the server;
+v2.15.16 is on `main` awaiting deploy):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -42,7 +43,9 @@ As of v2.15.15, 2026-10-02 (deployed to `production` and confirmed on the server
   guard (v2.15.14: holds only when the tiering call judges the new ticket
   the same issue as the contact's pending one) -> one resolver call per
   ticket.
-- Models/effort: Sonnet 5 everywhere; classifier (and ID resolver/tiering)
+- Models/effort: resolver tiers on `claude-sonnet-5-5` since 2026-10-02
+  ~11:00 (Roger's test; first comparison in the v2.15.16 entry), the
+  rest as before (Sonnet 5); classifier (and ID resolver/tiering)
   effort low; all four resolver tiers effort medium (2026-09-25).
   `$effortCapableModels` includes `claude-opus-5-5` and `claude-sonnet-5-5`
   (Sonnet 5.5 released 2026-09-28; same prices as Sonnet 5, effort levels
@@ -104,7 +107,8 @@ the full rationale.
   resolved IDs plus the `halo.*` names that produced them, tracked tickets,
   blocked/human-owned cooldowns, `tracked_evaluated`, the gate's
   `unassigned_last_seen` fingerprints (including `ready:<id>`/`approved:<id>`),
-  `duplicate_held` (v2.15.14 values `held:<id>` / `same:<id>` /
+  `unassigned_worked` (v2.15.16: ticket id -> cycle start UTC of a run that
+  ended UNTRACK; 14-day expiry), `duplicate_held` (v2.15.14 values `held:<id>` / `same:<id>` /
   `diff:<ids>`; a bare id from older versions loads as `legacy:<id>` and
   is re-judged), and remembered notes. Deleting it is safe but forgets
   tracked tickets and remembered notes.
@@ -3148,6 +3152,30 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.16 - already-worked unassigned tickets skipped; no-reply notices to
+Follow Up Needed (2026-10-05).** Roger switched resolver models to Sonnet
+5.5 on 10-02 (~11:00) and sent the 10-02..10-05 logs. Compare-AgentLogs
+(his server, since 09-25, split 10-02 11:00): per resolver run avg $0.586
+-> $0.302 (-48%), median $0.530 -> $0.194, turns 14.8 -> 7.2, output 6.3K ->
+1.7K, cache write 67.5K -> 48.5K; $/day 10.34 -> 5.31. Caveats: 121 vs 45
+runs, a different ticket mix, brief replies on since 10-01, and 16 of the
+45 "after" runs are #23007's cheap repeats. Even without them (21 runs)
+avg $0.41 vs $0.59. Not yet judged on reply quality. (Note: the scratchpad
+cmplogs/run-2026-09-29/30.log files are synthetic Compare-AgentLogs test
+logs, not production - don't use them as a baseline.)
+The stand-out: #23007 (CIPP alert, Altec tenant, General User) was left in
+New after a correct note and re-run 17 times ($3.24); #23001 and #23043 the
+same ($3.42 total, 22% of resolver spend). Nothing skipped an unassigned
+ticket she had already worked when nothing new arrived. (1) agent-cache
+unassigned_worked, stamped on UNTRACK; the deterministic unassigned loop
+drops a ticket in it unless a person or the client added any action after
+the mark; Ready for AI overrides; fails open; 14-day expiry. Harness:
+scratchpad/workedtest/run.ps1 (8 cases), duptest still passes. (2) Roger
+chose option (b): resolver-prompt.md "Notices with nobody to reply to" -
+findings note, no draft, Follow Up Needed + agent 1 + Help Desk via
+update_ticket_draft_only in approval mode, UNTRACK. Also noted: #23043's
+LEARN_FIX run after a bare close ($0.16) is what plan step 3 targets.
 
 **v2.15.15 - brief replies ask no technical questions (2026-10-02).**
 Roger, after v2.15.14 was confirmed on the server: "Ticket #22993... Asked
