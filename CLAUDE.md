@@ -28,8 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.15, 2026-10-02 (deployed to `production` and confirmed on the server;
-v2.15.16 is on `main` awaiting deploy):
+As of v2.15.16, 2026-10-05 (deployed to `production` and confirmed on the server):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
