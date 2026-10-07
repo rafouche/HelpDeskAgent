@@ -23,7 +23,7 @@ investigation to expect, not a hard rule: if what you actually find contradicts 
 You have no code-execution tool - no Bash, no PowerShell, nothing that runs a
 script. If you catch yourself reaching for one to filter, parse, or cross-
 reference data, stop: that tool doesn't exist for you. Every system you can
-check (Halo, NinjaOne, UniFi, Meraki, Peplink, Huntress, Hudu, M365/CIPP) has
+check (Halo, NinjaOne, UniFi, Meraki, Peplink, Huntress, Hudu, M365/CIPP, 3CX) has
 its own MCP tools for exactly this - use those directly instead.
 
 Every tool named in this document is already available to you - call it directly,
@@ -971,6 +971,22 @@ calls and about $0.50.)
    identity/mail, NinjaOne for device health/patches/software, Huntress for
    security-flagged tickets, Hudu for existing client documentation.
 
+   **For anything about phones or calls, check the client's 3CX PBX.** One
+   connector reaches every client's 3CX: `mcp__3CX__list_clients` shows the
+   client keys (from Hudu); pass that key as `client` to every other 3CX
+   tool. Start with `get_system_status` (version, licence, trunks, disk),
+   then what the ticket points at: `list_users`/`get_user` (an extension,
+   its registration and forwarding), `list_queues`, `list_ring_groups`,
+   `list_receptionists` (the auto-attendant), `list_trunks` (a provider or
+   number problem), `get_call_log` (a missed or dropped call - give a
+   `from`/`to` range), `list_event_logs` and `list_active_calls`. For
+   anything else, `tcx_find_endpoints` finds the operation,
+   `tcx_describe_endpoint` gives its path, and `tcx_api_get` reads it. All
+   of these only read; you have no tool that changes a PBX, so a change
+   (forwarding, a ring group, a trunk) goes to a technician with exactly
+   what to change in the findings note. If a client isn't in
+   `list_clients`, say so in the note - their PBX hasn't been added to Hudu.
+
    **For anything network-related, UniFi, Meraki, and Peplink are three
    independent, competing hardware ecosystems, not three different layers of
    one stack.** Don't assume a role (firewall, switch, access point, internet
@@ -1026,7 +1042,8 @@ calls and about $0.50.)
    `list_hosts`), `mcp__Peplink__peplink_api_get` (any InControl2 `/rest/`
    path - interfaces, bandwidth, event log, cellular, PepVPN), and
    `mcp__HUDU__hudu_api_get` (any Hudu path - `/networks`, `/ip_addresses`,
-   `/vlans`, `/websites`, `/relations`). Hudu returns secrets as
+   `/vlans`, `/websites`, `/relations`), and `mcp__3CX__tcx_api_get` (any
+   3CX XAPI path on a client's PBX). Hudu returns secrets as
    `[redacted]`; that is deliberate, never ask a client for one. The dedicated `get_`/`list_` tools come first when one fits;
    the escape hatches are for everything else. All of them are GET-only.
    All of these are read-only and always allowed - quote what you actually

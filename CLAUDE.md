@@ -28,7 +28,8 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.16, 2026-10-05 (deployed to `production` and confirmed on the server):
+As of v2.15.16, 2026-10-05 (deployed to `production` and confirmed on the server;
+v2.15.17, 3CX read tools, is on `main` awaiting deploy):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -59,7 +60,7 @@ As of v2.15.16, 2026-10-05 (deployed to `production` and confirmed on the server
 - Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
-  UniFi, Peplink (JumpCloud removed v2.15.7) including raw GET
+  UniFi, Peplink, 3CX (v2.15.17, pending deploy) (JumpCloud removed v2.15.7) including raw GET
   tools and ticket attachments (images as images, v2.15.13);
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
@@ -247,8 +248,9 @@ fence (what each stage is technically capable of calling); `config.json`'s
 `remediation_whitelist` is what the resolver is actually *permitted* to use
 its tools for on a given ticket. Adding a new instance of an existing action
 type (another NinjaOne script, another M365 action) only needs a config.json
-entry. Adding a brand-new system (e.g. 3CX) needs a new labeled block in
-`$resolverTools` — there's already an empty placeholder block for 3CX. The
+entry. Adding a brand-new system needs a new labeled block in
+`$resolverTools` (3CX's "Phones" block, v2.15.17, is the latest example) -
+a connected server whose tools aren't listed is silently denied. The
 classifier's tool list almost never changes; it only ever needs enough Halo
 read access to find and skim candidate tickets.
 
@@ -3152,6 +3154,22 @@ license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
 
+**v2.15.17 - 3CX read tools for the resolver (2026-10-07).** Roger: "Ticket
+#23110 is saying it doesn't have access to the 3CX mcp I just added. Claude
+mcp list shows it's connected... It should be allowed for diagnostics just
+like the other tools." Cause: $resolverTools is the --allowedTools list under
+dontAsk; the 3CX placeholder had never been filled, so every 3CX call was
+denied. Added a "Phones: 3CX" block with the 16 read-only tools as
+mcp__3CX__* (this session's connector name; Roger to confirm the server's
+name in claude mcp list). tcx_call (any operation, writes included) and
+tcx_api_request (raw writes) left out and put in $mutatingTools so they're
+hidden from every run. Verified by evaluating the arrays: 16 allowed in the
+approval-mode list, both writes hidden, none allowed anywhere, no
+duplicates. Prompt: 3CX in the systems list, a phones paragraph in
+Investigate (list_clients key -> client param; tcx_describe_endpoint ->
+tcx_api_get for anything else; changes go to a tech), tcx_api_get in the
+escape hatches.
+
 **v2.15.16 - already-worked unassigned tickets skipped; no-reply notices to
 Follow Up Needed (2026-10-05).** Roger switched resolver models to Sonnet
 5.5 on 10-02 (~11:00) and sent the 10-02..10-05 logs. Compare-AgentLogs
@@ -3681,12 +3699,10 @@ config tweak. Not worth building preemptively.
   (an action count, a last-actioned-by field) that could gate the extra call to
   only plausibly-touched tickets rather than paying it for every candidate. Not
   implemented — flagged for Roger's call given the real cost/latency tradeoff.
-- **3CX troubleshooting**: planned, not built. Per-client 3CX server API access is
-  needed (multi-tenant, matching the 3CX Cloudflare Worker target already planned
-  in Roger's broader MCP-servers project). Natural design: store each client's 3CX
-  connection details in Hudu (Roger already documents client infra there), and have
-  the agent look it up by company name at runtime — same "no IDs, look it up by
-  name" pattern as everything else, rather than a new config table.
+- **3CX troubleshooting**: read-only tools wired in v2.15.17 (the threecx-mcp
+  Worker reads each client's PBX from Hudu). PBX changes (forwarding, ring
+  groups) would need whitelist entries plus a write tool - not built; tcx_call
+  and tcx_api_request stay hidden.
 - **Ticket-assignment ownership workflow** (see above) — designed, not implemented.
 
 ## MCP server setup status on the production machine (living section)

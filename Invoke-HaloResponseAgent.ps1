@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.17 - 3CX read tools for the resolver (2026-10-07). Roger
+    registered the new 3CX connector (Worker threecx-mcp, one connector for
+    every client's PBX, clients from Hudu) and #23110 reported it had no
+    access, though `claude mcp list` showed it connected. Cause: the resolver
+    runs with an explicit --allowedTools list ($resolverTools) under
+    --permission-mode dontAsk, so a connected server's tools are denied
+    until named here - the README's "Adding a new system" step 1, which the
+    3CX placeholder comment was waiting for. Added the 16 read-only tools as
+    a "Phones: 3CX" block (mcp__3CX__..., the server name used in this
+    session and assumed on the server - confirm with claude mcp list).
+    tcx_call and tcx_api_request can change a PBX, so they are left out and
+    added to $mutatingTools, which hides them from every run. Prompt: 3CX
+    added to the systems list, a phones paragraph in Investigate, and
+    tcx_api_get in the escape-hatch list.
     Version: 2.15.16 - tickets she already worked stay out of the unassigned
     candidates; notices with nobody to reply to go to Follow Up Needed
     (2026-10-05). Roger's 10-02..10-05 logs: #23007 (CIPP "new permissions to
@@ -3992,8 +4006,25 @@ $resolverTools = @(
     "mcp__Huntress__list_platform_actions", "mcp__Huntress__list_remediations", "mcp__Huntress__list_reports", "mcp__Huntress__list_signals",
     "mcp__Huntress__list_unwanted_access_rules",
 
-    # --- Documentation, read-only (also where per-client 3CX connection details
-    #     would live once that system is added - see README) ---
+    # --- Phones: 3CX, read-only (v2.15.17) ---
+    # One connector (Worker threecx-mcp, registered here as "3CX") for every
+    # client's 3CX v20 PBX; each PBX is a Hudu "Api secrets" asset named
+    # "<Client> 3CX API - <url>", so list_clients names the client keys.
+    # Real incident, #23110 (2026-10-07): the connector was registered and
+    # connected, but none of its tools were on this list, so every call was
+    # denied - an MCP server being connected does not make its tools allowed.
+    # Every tool here only reads. tcx_call (any XAPI operation, including
+    # POST/PATCH/PUT/DELETE) and tcx_api_request (raw writes) are left out
+    # and listed in $mutatingTools, so they are hidden from every run; the
+    # read-only path to any operation is tcx_describe_endpoint (its path)
+    # then tcx_api_get.
+    "mcp__3CX__list_clients", "mcp__3CX__get_system_status", "mcp__3CX__list_users", "mcp__3CX__get_user",
+    "mcp__3CX__list_queues", "mcp__3CX__list_ring_groups", "mcp__3CX__list_receptionists", "mcp__3CX__list_groups",
+    "mcp__3CX__list_trunks", "mcp__3CX__list_active_calls", "mcp__3CX__get_call_log", "mcp__3CX__list_event_logs",
+    "mcp__3CX__tcx_find_endpoints", "mcp__3CX__tcx_describe_endpoint", "mcp__3CX__tcx_describe_schema",
+    "mcp__3CX__tcx_api_get",
+
+    # --- Documentation, read-only ---
     # NOTE: registered here as "HUDU" (all caps).
     "mcp__HUDU__company_index_tool",
     "mcp__HUDU__asset_index_tool", "mcp__HUDU__asset_show_tool", "mcp__HUDU__article_index_tool", "mcp__HUDU__article_show_tool",
@@ -4038,13 +4069,9 @@ $resolverTools = @(
     "mcp__HUDU__article_create_tool", "mcp__HUDU__article_edit_tool",
     "mcp__HUDU__asset_create_tool", "mcp__HUDU__asset_edit_tool"
 )
-# --- 3CX (not yet built): add its tool names as their own block inside the array
-#     above once the multi-tenant 3CX MCP worker exists, e.g.
-#     "3CX:get_extension_status", "3CX:list_call_logs" - nothing else above needs
-#     to change. (Kept as a comment here, not inside the array literal, since
-#     Windows PowerShell 5.1's parser breaks on a comment-only tail immediately
-#     before an array's closing ')' - always follow any comment inside @( ... )
-#     with at least one more real element before the close.)
+# (Windows PowerShell 5.1's parser breaks on a comment-only tail immediately
+# before an array's closing ')' - always follow any comment inside @( ... )
+# with at least one more real element before the close.)
 
 # Keep this list in sync with $resolverTools above whenever a new mutating tool
 # is added (a new remediation action reuses an existing entry here, so it's rare).
@@ -4053,6 +4080,9 @@ $resolverTools = @(
 # they are on it - Hudu gets confirmed step-by-step SOPs only, and a
 # simulation confirms nothing.
 $mutatingTools = @(
+    # v2.15.17: 3CX's two write-capable tools - never on $resolverTools, so
+    # listing them here hides them from every run (see -HideTools).
+    "mcp__3CX__tcx_call", "mcp__3CX__tcx_api_request",
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
     "mcp__Halo__escalate_emergency", "mcp__Halo__send_approved_draft",
     "mcp__Microsoft365__outlook_send_mail",

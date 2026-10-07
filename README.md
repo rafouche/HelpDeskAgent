@@ -485,7 +485,14 @@ work. Anything written before that deploy will still show the old generic
 identity in Halo's history; that's cosmetic and not worth correcting
 retroactively.
 
-## Adding a new system (e.g. 3CX later)
+## Adding a new system (3CX was the first, v2.15.17)
+**A connected MCP server is not an allowed one.** `claude mcp list` showing a
+server as connected only means Claude Code can reach it; the resolver runs
+with an explicit `--allowedTools` list under `--permission-mode dontAsk`, so
+every tool not named in `$resolverTools` is denied. Real case, #23110
+(2026-10-07): the new 3CX connector was connected, and the ticket said it had
+no access to it. Step 1 below is what fixes that.
+
 The whole point of the split between `config.json` (day-to-day) and the static
 allowlist (rare) is that adding a new *system* — a new connector like a future 3CX
 MCP — never touches config.json's structure, and adding a new *action* within a
@@ -493,8 +500,9 @@ system already wired in never touches the script. Three steps, in order:
 
 1. **Tool names → `Invoke-HaloResponseAgent.ps1`.** Add the new system's tool names
    as their own labeled block in the `#region STATIC TOOL ALLOWLISTS` section's
-   `$resolverTools` array (there's already an empty placeholder block for 3CX;
-   the classifier's `$classifierTools` almost never needs new entries, since
+   `$resolverTools` array (see the "Phones: 3CX" block for the pattern; any
+   tool that can change something goes in `$mutatingTools` instead, which
+   hides it from every run unless a whitelist entry needs it; the classifier's `$classifierTools` almost never needs new entries, since
    triage only needs Halo). This is a one-time step per system, not per action.
 2. **Investigation guidance → `resolver-prompt.md`.** Add a short paragraph to
    the "Investigate" step telling the agent what this system is for and when
@@ -502,12 +510,16 @@ system already wired in never touches the script. Three steps, in order:
 3. **Remediation actions (if any) → `config.json`.** Same as any other remediation —
    a plain-English `name` + `requires` entry, no IDs.
 
-**For 3CX specifically**, since it's per-client (each client has its own 3CX server),
-the natural place for "which 3CX server/API belongs to which client" is Hudu — you
-likely already document client infrastructure there, and the agent already has
-read access to it (`mcp__HUDU__asset_index_tool`/`asset_show_tool`). That keeps the same
-"no IDs in config" pattern: the agent looks up the client's 3CX connection details
-from Hudu by company name, same as it looks up Halo team/status IDs by name today.
+**3CX (v2.15.17)** is one connector (Worker `threecx-mcp`, registered as
+`3CX`) for every client's PBX. The Worker reads each client's PBX from a Hudu
+"Api secrets" asset named `<Client> 3CX API - <url>`, so adding a client's PBX
+is a Hudu entry, not a script or config change. The resolver gets the 16
+read-only tools (`list_clients`, `get_system_status`, users, queues, ring
+groups, receptionists, trunks, call log, event log, active calls, the
+catalog search tools and `tcx_api_get`). `tcx_call` and `tcx_api_request`
+can change a PBX and are hidden from every run; a PBX change goes to a
+technician. If the server was registered under another name than `3CX`,
+the `mcp__3CX__` names in the script must change to match.
 
 ## CIPP MCP — the custom Worker is the permanent tool, not a migration in progress
 **Corrected (v2.10.55) — this section previously described a planned cutover
@@ -1271,10 +1283,10 @@ default; `"duplicate_guard": false` turns it off.
 
 ## What the resolver can use to investigate
 - **Every read-only diagnostic tool** on Halo, CIPP (M365), NinjaOne,
-  Huntress, HUDU, Meraki, UniFi and Peplink,
+  Huntress, HUDU, Meraki, UniFi, Peplink and 3CX (v2.15.17),
   including each Worker's raw read-only GET tool (`halo_api_get`,
   `cipp_api_get`, `ninja_api_get`, `meraki_api_get`, `unifi_api_get`,
-  `unifi_network_get`, `peplink_api_get`, `hudu_api_get`) for
+  `unifi_network_get`, `peplink_api_get`, `hudu_api_get`, `tcx_api_get`) for
   any endpoint the named tools don't cover - firewall rules, VPN state, event
   logs and so on. Writes stay limited to the Halo ticket itself, the
   `remediation_whitelist` actions, and Hudu SOPs (below).
