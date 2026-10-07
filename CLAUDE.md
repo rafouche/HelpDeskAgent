@@ -28,8 +28,9 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.16, 2026-10-05 (deployed to `production` and confirmed on the server;
-v2.15.17, 3CX read tools, is on `main` awaiting deploy):
+As of v2.15.16, 2026-10-05 (confirmed on the server; v2.15.17-18, 3CX read
+tools and eight whitelisted 3CX fixes, deployed to `production` 2026-10-07,
+awaiting Roger's confirmation):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -64,9 +65,9 @@ v2.15.17, 3CX read tools, is on `main` awaiting deploy):
   tools and ticket attachments (images as images, v2.15.13);
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
-- Remediation whitelist: 31 entries (13 CIPP/NinjaOne/Meraki minor
-  remediations added in v2.15.13), in the live config.json too (Roger
-  confirmed 31 on 2026-10-02).
+- Remediation whitelist: 39 entries in the repo (13 CIPP/NinjaOne/Meraki
+  added v2.15.13, 8 3CX added v2.15.18). Live config.json had 31 (Roger,
+  2026-10-02); the 8 3CX entries were handed to him to paste 2026-10-07.
 
 ## What this is
 A Claude Code headless agent, scheduled via Windows Task Scheduler on a Windows
@@ -3154,6 +3155,24 @@ license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
 
+**v2.15.18 - eight whitelisted 3CX fixes (2026-10-07).** Roger: "Why are
+the write tools hidden from every run? They should be allowed for quick
+easy fixes, as long as they don't affect overall operation of the system,
+just like resetting a password." Looked up the operations with the 3CX
+connector (catalog and schema reads only): SendWelcomeEmail, UpdateUser
+(CurrentProfileName, QueueStatus, ForwardingProfiles, FirstName/LastName/
+EmailAddress/Mobile), RebootPhone/ReprovisionPhone {mac}, UpdateQueue
+{Agents}, UpdateRingGroup {Members}. Agents/Members/ForwardingProfiles are
+whole lists, so each entry says read first and send the full list with one
+change. The first attempt to write the config entries was blocked by this
+environment's permission check as a permission grant; proposed the list,
+Roger replied "Approve all eight, and go deploy". tcx_call added to
+$resolverTools and $remediationMutatingTools (stays in $mutatingTools);
+tcx_api_request stays hidden. Verified by evaluating the arrays: 16 3CX
+tools before approval (tcx_call hidden), 17 after, tcx_call not in a
+-WhatIf list, tcx_api_request nowhere. Prompt's 3CX paragraph points to
+the whitelist. Deployed together with v2.15.17.
+
 **v2.15.17 - 3CX read tools for the resolver (2026-10-07).** Roger: "Ticket
 #23110 is saying it doesn't have access to the 3CX mcp I just added. Claude
 mcp list shows it's connected... It should be allowed for diagnostics just
@@ -3700,9 +3719,11 @@ config tweak. Not worth building preemptively.
   only plausibly-touched tickets rather than paying it for every candidate. Not
   implemented — flagged for Roger's call given the real cost/latency tradeoff.
 - **3CX troubleshooting**: read-only tools wired in v2.15.17 (the threecx-mcp
-  Worker reads each client's PBX from Hudu). PBX changes (forwarding, ring
-  groups) would need whitelist entries plus a write tool - not built; tcx_call
-  and tcx_api_request stay hidden.
+  Worker reads each client's PBX from Hudu); eight single-user/single-phone
+  fixes whitelisted in v2.15.18 through tcx_call. tcx_api_request stays
+  hidden. A structural guard (the Worker refusing operations outside an
+  allowed list) is not built - today the operation limit is the whitelist
+  text plus approval of the exact action, same as every other remediation.
 - **Ticket-assignment ownership workflow** (see above) — designed, not implemented.
 
 ## MCP server setup status on the production machine (living section)

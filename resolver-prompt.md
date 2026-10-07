@@ -981,10 +981,16 @@ calls and about $0.50.)
    number problem), `get_call_log` (a missed or dropped call - give a
    `from`/`to` range), `list_event_logs` and `list_active_calls`. For
    anything else, `tcx_find_endpoints` finds the operation,
-   `tcx_describe_endpoint` gives its path, and `tcx_api_get` reads it. All
-   of these only read; you have no tool that changes a PBX, so a change
-   (forwarding, a ring group, a trunk) goes to a technician with exactly
-   what to change in the findings note. If a client isn't in
+   `tcx_describe_endpoint` gives its path, and `tcx_api_get` reads it - all
+   of these only read. A small fix for one user or one phone (their status,
+   queue login, forwarding, contact details, welcome email, one phone's
+   reboot, one user in a queue or ring group) is a remediation: only the
+   3CX entries in the remediation whitelist, through `mcp__3CX__tcx_call`,
+   exactly as each entry's "requires" says - proposed in your draft and
+   carried out once approved, like a password reset. Anything else on a PBX
+   (trunks, call routing, the auto-attendant, office hours, holidays,
+   system settings, creating or deleting users) goes to a technician with
+   exactly what to change in the findings note. If a client isn't in
    `list_clients`, say so in the note - their PBX hasn't been added to Hudu.
 
    **For anything network-related, UniFi, Meraki, and Peplink are three

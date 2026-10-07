@@ -73,6 +73,23 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.18 - eight whitelisted 3CX fixes (2026-10-07). Roger, on
+    v2.15.17 hiding the 3CX write tools: "They should be allowed for quick
+    easy fixes, as long as they don't affect overall operation of the
+    system, just like resetting a password." He approved all eight proposed
+    config.json remediation_whitelist entries, each for one user or one
+    phone on the ticket's own client's PBX: re-send the welcome email,
+    change the user's status profile, log them in/out of queues, change
+    their forwarding (own mobile, a same-client extension or voicemail),
+    reboot then re-provision one desk phone, add/remove one user in a queue
+    or a ring group (whole Agents/Members list read first, never the last
+    one), update name/email/mobile. All go through tcx_call, now on
+    $resolverTools and $remediationMutatingTools (stripped until APPROVED,
+    like every remediation tool) and still in $mutatingTools (-WhatIf).
+    tcx_api_request stays hidden. Trunks, inbound/outbound rules,
+    receptionists, office hours, holidays, system settings, firmware,
+    licences, creating/deleting users, bulk actions, passwords and PINs stay
+    with a person. Prompt: the 3CX paragraph now points to the whitelist.
     Version: 2.15.17 - 3CX read tools for the resolver (2026-10-07). Roger
     registered the new 3CX connector (Worker threecx-mcp, one connector for
     every client's PBX, clients from Hudu) and #23110 reported it had no
@@ -4013,16 +4030,22 @@ $resolverTools = @(
     # Real incident, #23110 (2026-10-07): the connector was registered and
     # connected, but none of its tools were on this list, so every call was
     # denied - an MCP server being connected does not make its tools allowed.
-    # Every tool here only reads. tcx_call (any XAPI operation, including
-    # POST/PATCH/PUT/DELETE) and tcx_api_request (raw writes) are left out
-    # and listed in $mutatingTools, so they are hidden from every run; the
-    # read-only path to any operation is tcx_describe_endpoint (its path)
-    # then tcx_api_get.
+    # The tools on the first lines only read. v2.15.18: tcx_call (any XAPI
+    # operation, writes included) is here for the eight 3CX entries in
+    # config.json's remediation_whitelist (Roger approved all eight,
+    # 2026-10-07: one user's status, queue login, forwarding, contact
+    # details, welcome email, one phone's reboot/re-provision, one user in a
+    # queue or ring group). Like every remediation tool it is in
+    # $remediationMutatingTools, so it is stripped until a draft naming the
+    # action is APPROVED, and in $mutatingTools for -WhatIf. Reads use
+    # tcx_describe_endpoint (the path) then tcx_api_get. tcx_api_request
+    # (raw writes) stays off this list and hidden - nothing needs it.
     "mcp__3CX__list_clients", "mcp__3CX__get_system_status", "mcp__3CX__list_users", "mcp__3CX__get_user",
     "mcp__3CX__list_queues", "mcp__3CX__list_ring_groups", "mcp__3CX__list_receptionists", "mcp__3CX__list_groups",
     "mcp__3CX__list_trunks", "mcp__3CX__list_active_calls", "mcp__3CX__get_call_log", "mcp__3CX__list_event_logs",
     "mcp__3CX__tcx_find_endpoints", "mcp__3CX__tcx_describe_endpoint", "mcp__3CX__tcx_describe_schema",
     "mcp__3CX__tcx_api_get",
+    "mcp__3CX__tcx_call",
 
     # --- Documentation, read-only ---
     # NOTE: registered here as "HUDU" (all caps).
@@ -4080,8 +4103,9 @@ $resolverTools = @(
 # they are on it - Hudu gets confirmed step-by-step SOPs only, and a
 # simulation confirms nothing.
 $mutatingTools = @(
-    # v2.15.17: 3CX's two write-capable tools - never on $resolverTools, so
-    # listing them here hides them from every run (see -HideTools).
+    # v2.15.17/18: 3CX's write-capable tools. tcx_call is a whitelisted
+    # remediation (see $remediationMutatingTools); tcx_api_request is never
+    # on $resolverTools, so it is hidden from every run (see -HideTools).
     "mcp__3CX__tcx_call", "mcp__3CX__tcx_api_request",
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
     "mcp__Halo__escalate_emergency", "mcp__Halo__send_approved_draft",
@@ -4140,7 +4164,9 @@ $remediationMutatingTools = @(
     # v2.15.13 whitelisted remediations.
     "mcp__CIPP__revoke_user_sessions", "mcp__CIPP__add_group_member", "mcp__CIPP__remove_group_member", "mcp__CIPP__set_mailbox_ooo", "mcp__CIPP__set_user_license", "mcp__CIPP__convert_mailbox",
     "mcp__Ninja__acknowledge_alert", "mcp__Ninja__resolve_alert", "mcp__Ninja__approve_os_patch", "mcp__Ninja__reject_os_patch", "mcp__Ninja__set_device_maintenance", "mcp__Ninja__end_device_maintenance",
-    "mcp__Meraki__reboot_device", "mcp__Meraki__update_switch_port", "mcp__Meraki__update_ssid"
+    "mcp__Meraki__reboot_device", "mcp__Meraki__update_switch_port", "mcp__Meraki__update_ssid",
+    # v2.15.18: the eight 3CX whitelist entries all go through tcx_call.
+    "mcp__3CX__tcx_call"
 )
 
 # Base allowlist plus one pre-filtered variant for -RequireApproval, computed

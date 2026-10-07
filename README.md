@@ -427,9 +427,10 @@ That's it — the agent finds the script by name and the tool it needs
 action (e.g. something in a system that isn't touched at all today), not a new
 instance of an existing kind.
 
-**What's on the whitelist (31 entries, v2.15.13).** The original 18 (M365
+**What's on the whitelist (39 entries, v2.15.18).** The original 18 (M365
 password reset and unlock, workstation reboot, the NinjaOne scripts, the
-speed tests) plus 13 minor remediations added 2026-10-02:
+speed tests), 13 minor remediations added 2026-10-02, and 8 for 3CX added
+2026-10-07:
 - CIPP: sign a user out of all sessions, add or remove a group member, set
   an out-of-office reply, assign or remove a license, convert a departed
   user's mailbox to shared.
@@ -438,6 +439,15 @@ speed tests) plus 13 minor remediations added 2026-10-02:
 - Meraki: reboot an access point or switch (never the firewall), turn a
   switch port off and on, change an access port's VLAN, change a Wi-Fi
   network's name, on/off state or password (never its security type).
+- 3CX (v2.15.18, all through `tcx_call`, one user or one phone on the
+  ticket's own client's PBX): re-send the welcome email, change the user's
+  status, log them in or out of their queues, change their forwarding (own
+  mobile, an extension at the same client, or voicemail), reboot then
+  re-provision one desk phone, add or remove one user in a call queue or a
+  ring group (never the last one), update name, email or mobile. Trunks,
+  call routing, auto-attendants, office hours, holidays, system settings,
+  firmware, licences, creating or deleting users, bulk actions, passwords
+  and PINs stay with a person.
 Each entry names its tool and the conditions that must hold. Every write
 tool stays hidden from Allie until a technician approves the draft naming
 the exact action, and is simulated under `-WhatIf`. Conditional Access and
@@ -516,9 +526,11 @@ system already wired in never touches the script. Three steps, in order:
 is a Hudu entry, not a script or config change. The resolver gets the 16
 read-only tools (`list_clients`, `get_system_status`, users, queues, ring
 groups, receptionists, trunks, call log, event log, active calls, the
-catalog search tools and `tcx_api_get`). `tcx_call` and `tcx_api_request`
-can change a PBX and are hidden from every run; a PBX change goes to a
-technician. If the server was registered under another name than `3CX`,
+catalog search tools and `tcx_api_get`). `tcx_call` can change a PBX, so
+it's a remediation tool (v2.15.18): hidden until a draft naming one of the
+eight 3CX whitelist fixes is approved, like a password reset.
+`tcx_api_request` (raw writes) is hidden from every run. Any other PBX
+change goes to a technician. If the server was registered under another name than `3CX`,
 the `mcp__3CX__` names in the script must change to match.
 
 ## CIPP MCP — the custom Worker is the permanent tool, not a migration in progress

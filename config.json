@@ -199,6 +199,38 @@
     {
       "name": "Change a Wi-Fi network's settings",
       "requires": "Use mcp__Meraki__update_ssid (networkId, number, and only the fields being changed). Only when someone at the client explicitly asks in the ticket for a specific change to a named Wi-Fi network: its name, turning it on or off, or a new password they supplied in the ticket (never invent one). Never change the security/authentication type - that needs a person. Record the old values in the findings note and tell the client every device on that network will need to reconnect."
+    },
+    {
+      "name": "Re-send a user's 3CX welcome email",
+      "requires": "Use mcp__3CX__tcx_call (operation SendWelcomeEmail, params {Id}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only when the user named in the ticket can't set up or sign in to the 3CX app or web client, or asks for the setup email again. Find the Id with mcp__3CX__list_users / get_user and confirm the extension's EmailAddress is that person's own address before sending. Never for an extension with no email or a shared address."
+    },
+    {
+      "name": "Change a user's 3CX status",
+      "requires": "Use mcp__3CX__tcx_call (operation UpdateUser, params {Id}, body {\"CurrentProfileName\": ...}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only for the user's own extension, when they (or their manager at the same client) ask for it in the ticket - e.g. stuck on Away or Out of office, or calls going to voicemail because of the status. Use one of that user's existing profile names (Available, Away, Out of office, Custom 1, Custom 2 - read them with mcp__3CX__get_user); send only that one field. Record the old status in the findings note."
+    },
+    {
+      "name": "Log a user in or out of their call queues",
+      "requires": "Use mcp__3CX__tcx_call (operation UpdateUser, params {Id}, body {\"QueueStatus\": \"LoggedIn\" or \"LoggedOut\"}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only for the user's own extension, when they or their manager ask, or when the ticket shows queue calls aren't reaching an agent who should be taking them. Send only that one field and record the old value."
+    },
+    {
+      "name": "Change where a user's calls forward",
+      "requires": "Use mcp__3CX__tcx_call (operation UpdateUser, params {Id}, body {\"ForwardingProfiles\": [...]}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only for the user's own extension, when they or their manager ask in the ticket for a specific change (e.g. forward unanswered calls to their mobile, or stop forwarding), naming the destination. ForwardingProfiles is a whole list: read it first with mcp__3CX__get_user, change only the named profile's named setting, and send back every profile exactly as read apart from that change. Forward only to the user's own mobile, another extension at the same client, or voicemail, never to a number the ticket doesn't give. Record the old and new forwarding in the findings note."
+    },
+    {
+      "name": "Reboot or re-provision one desk phone",
+      "requires": "Use mcp__3CX__tcx_call (operation RebootPhone or ReprovisionPhone, body {\"mac\": ...}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only one phone, assigned to the user in the ticket (its MAC from that user's Phones in mcp__3CX__get_user), when it shows unregistered, frozen, or not picking up a change. Reboot first; re-provision only if a reboot didn't fix it. Never ReprovisionAllPhones, InstallFirmware or any bulk phone action - that needs a person. Tell the user the phone will restart and be unusable for a minute or two."
+    },
+    {
+      "name": "Add or remove a user in a call queue",
+      "requires": "Use mcp__3CX__tcx_call (operation UpdateQueue, params {Id}, body {\"Agents\": [...]}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only when someone at the client explicitly asks in the ticket, naming the user and the queue. Agents is a whole list: read the queue's current agents with mcp__3CX__list_queues, then send that same list with only the one user added or removed. Never remove the last agent, never change any other queue setting (ring strategy, timeouts, routes, prompts) - that needs a person. Record the before and after agent lists in the findings note."
+    },
+    {
+      "name": "Add or remove a user in a ring group",
+      "requires": "Use mcp__3CX__tcx_call (operation UpdateRingGroup, params {Id}, body {\"Members\": [...]}, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only when someone at the client explicitly asks in the ticket, naming the user and the ring group. Members is a whole list: read the current members with mcp__3CX__list_ring_groups, then send that same list with only the one user added or removed. Never remove the last member and never change any other ring group setting - that needs a person. Record the before and after member lists in the findings note."
+    },
+    {
+      "name": "Update a user's 3CX contact details",
+      "requires": "Use mcp__3CX__tcx_call (operation UpdateUser, params {Id}, body with only FirstName, LastName, EmailAddress and/or Mobile, client = this ticket's client's key from mcp__3CX__list_clients - never another client's PBX). Only when the user or their manager asks in the ticket for that exact change (a name change, a new mobile number, a corrected email). Send only the fields being changed and record the old values. Never the outbound caller ID, extension number, passwords, PINs or any other field - those need a person."
     }
   ]
 }
