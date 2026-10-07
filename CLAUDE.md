@@ -28,9 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.16, 2026-10-05 (confirmed on the server; v2.15.17-18, 3CX read
-tools and eight whitelisted 3CX fixes, deployed to `production` 2026-10-07,
-awaiting Roger's confirmation):
+As of v2.15.18, 2026-10-07 (deployed to `production` and confirmed on the server):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -44,9 +42,12 @@ awaiting Roger's confirmation):
   guard (v2.15.14: holds only when the tiering call judges the new ticket
   the same issue as the contact's pending one) -> one resolver call per
   ticket.
-- Models/effort: resolver tiers on `claude-sonnet-5-5` since 2026-10-02
-  ~11:00 (Roger's test; first comparison in the v2.15.16 entry), the
-  rest as before (Sonnet 5); classifier (and ID resolver/tiering)
+- Models/effort: all four model values in the live config - classifier_model
+  (so ID resolution and tiering too) and the three resolver_model_* - are
+  `claude-sonnet-5-5` (resolver since 2026-10-02 ~11:00, Roger's test; first
+  comparison in the v2.15.16 entry; the classifier seen on 5.5 in his
+  2026-10-07 config). The repo template still says Sonnet 5 until he makes
+  5.5 permanent; classifier (and ID resolver/tiering)
   effort low; all four resolver tiers effort medium (2026-09-25).
   `$effortCapableModels` includes `claude-opus-5-5` and `claude-sonnet-5-5`
   (Sonnet 5.5 released 2026-09-28; same prices as Sonnet 5, effort levels
@@ -65,9 +66,10 @@ awaiting Roger's confirmation):
   tools and ticket attachments (images as images, v2.15.13);
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
-- Remediation whitelist: 39 entries in the repo (13 CIPP/NinjaOne/Meraki
-  added v2.15.13, 8 3CX added v2.15.18). Live config.json had 31 (Roger,
-  2026-10-02); the 8 3CX entries were handed to him to paste 2026-10-07.
+- Remediation whitelist: 39 entries (13 CIPP/NinjaOne/Meraki added v2.15.13,
+  8 3CX added v2.15.18), in the live config.json too - Roger pasted the 3CX
+  entries by hand on 2026-10-07; checked against the repo: valid JSON, every
+  entry word for word, only their indentation fixed.
 
 ## What this is
 A Claude Code headless agent, scheduled via Windows Task Scheduler on a Windows
