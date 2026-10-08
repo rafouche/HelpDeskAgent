@@ -73,6 +73,14 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.19 - Haiku 5.5 accepts --effort (2026-10-08). Roger plans to
+    move classifier_model (ID resolution, tiering, the duplicate check) to
+    claude-haiku-5-5: $0.10/$0.50 per million under 100K prompt tokens,
+    about 1/20 of Sonnet 5.5, saving roughly $0.60 a day at current volume.
+    It is the first Haiku with effort levels, so it is added to
+    $effortCapableModels; without it the configured classifier_effort
+    ("low") would be dropped and the call would run at the model's default.
+    No other change; the model is chosen in config.json.
     Version: 2.15.18 - eight whitelisted 3CX fixes (2026-10-07). Roger, on
     v2.15.17 hiding the 3CX write tools: "They should be allowed for quick
     easy fixes, as long as they don't affect overall operation of the
@@ -4496,7 +4504,10 @@ $effortCapableModels = @(
     # silently run at the model's default effort instead of the configured one.
     "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
     # v2.15.7: claude-sonnet-5-5 added, same reason.
-    "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6"
+    "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6",
+    # v2.15.19: claude-haiku-5-5 (released 2026-10-07) is the first Haiku
+    # with effort levels. Haiku 4.5 still takes none, so it stays off.
+    "claude-haiku-5-5"
 )
 
 # --- Deterministic classifier (cost program, increment 2; v2.12.0) ---

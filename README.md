@@ -800,7 +800,7 @@ production today (the repo template matches):
   one shared prompt cache: Claude Code's cache is keyed by effort level, so
   two levels means two cache entries to write.
   **Not every model accepts `--effort`** - the script sends it only when the
-  model is on its own `$effortCapableModels` list (current Sonnet and Opus,
+  model is on its own `$effortCapableModels` list (current Sonnet and Opus, and Haiku 5.5 since v2.15.19,
   `claude-opus-5-5` included) and skips it otherwise; `-DryRun` shows what
   would and wouldn't be sent.
 - **`resolver_tool_call_budget`** (20) - the investigation budget written into

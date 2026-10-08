@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.18, 2026-10-07 (deployed to `production` and confirmed on the server):
+As of v2.15.18, 2026-10-07 (confirmed on the server; v2.15.19, Haiku 5.5 effort support, deployed 2026-10-08 awaiting confirmation):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3156,6 +3156,21 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.19 - Haiku 5.5 accepts --effort (2026-10-08).** Roger asked about
+moving the classifier back to Haiku now that Haiku 5.5 is out
+(claude-haiku-5-5, 2026-10-07: $0.10 in / $0.50 out / $0.01 cache read /
+$0.125 cache write per million under 100K prompt tokens, 5x those above;
+first Haiku with effort levels; the same announcement cut Sonnet 5.5 cache
+reads from $0.20 to $0.10). The classifier stage (ID resolution + tiering +
+duplicate check) ran about $0.65/day on Sonnet 5.5 - roughly $18/month
+saved. A Haiku sub-agent under the Sonnet resolver was ruled out: prompt
+caches are per model, the classifier is already a separate no-tool call
+with its own cache, and Agent/Task are blocked by design. Added
+claude-haiku-5-5 to $effortCapableModels; Roger switches classifier_model
+in the live config after claude update. Watch the duplicate-check verdicts
+(same_issue_as) for the first days - that is the judgment most sensitive to
+the smaller model.
 
 **v2.15.18 - eight whitelisted 3CX fixes (2026-10-07).** Roger: "Why are
 the write tools hidden from every run? They should be allowed for quick
