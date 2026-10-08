@@ -73,6 +73,14 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.20 - no "I can't" in client replies (2026-10-08). Prompt
+    only. Roger: "let's remove the words 'I can't' from Allie's vocabulary.
+    Example ticket 23182 says 'I can't see from here'. Worse case, leave out
+    what you can't do in the client facing correspondence." resolver-prompt.md
+    now says, right after the vendor-names rule at the top (both reply
+    styles): never tell a client what you can't do - say what was checked
+    and what happens next, or leave the limitation out; it goes in the
+    findings note instead.
     Version: 2.15.19 - Haiku 5.5 accepts --effort (2026-10-08). Roger plans to
     move classifier_model (ID resolution, tiering, the duplicate check) to
     claude-haiku-5-5: $0.10/$0.50 per million under 100K prompt tokens,

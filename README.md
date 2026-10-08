@@ -368,6 +368,11 @@ technical terms or step lists.
   forwarded-email reminder, the emergency acknowledgment, the sign-off and
   AI disclosure, and approval mode.
 
+In both modes she never tells a client what she can't do - no "I can't",
+"I'm unable to" or "I can't see that from here"; she says what was checked
+and what happens next, or leaves the limitation out, and puts it in the
+findings note instead (v2.15.20, #23182).
+
 In both modes the technician's findings go in their own private note,
 never inside the draft (v2.15.12). As a safety net, the Halo Worker keeps
 any internal text a draft carries - findings written below its `[INTENDED

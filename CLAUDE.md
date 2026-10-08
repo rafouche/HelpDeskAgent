@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.18, 2026-10-07 (confirmed on the server; v2.15.19, Haiku 5.5 effort support, deployed 2026-10-08 awaiting confirmation):
+As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 5.5 until Roger switches it; v2.15.20, prompt-only, deployed 2026-10-08 awaiting confirmation):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3156,6 +3156,15 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.20 - no "I can't" in client replies (2026-10-08).** Roger:
+"let's remove the words 'I can't' from Allie's vocabulary. Example ticket
+23182 says 'I can't see from here'. Worse case, leave out what you can't do
+in the client facing correspondence." Added a rule at the top of
+resolver-prompt.md, next to "never name vendor tools" (both reply styles):
+never tell a client what she can't do; say what was checked and what
+happens next, or leave the limitation out; it goes in the findings note.
+Prompt-only.
 
 **v2.15.19 - Haiku 5.5 accepts --effort (2026-10-08).** Roger asked about
 moving the classifier back to Haiku now that Haiku 5.5 is out
