@@ -68,7 +68,11 @@ As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 
   to `--disallowedTools`. Hudu writes: step-by-step SOPs only. On `main`,
   not deployed: v2.15.21 adds the two draft-note tools (`delete_ticket_note`,
   `mark_draft_approved`) to `$mutatingTools`, so `-WhatIf`/replays can't
-  touch draft notes (live and `-RequireApproval` unchanged).
+  touch draft notes (live and `-RequireApproval` unchanged). v2.15.22
+  (prompt-only, held for Roger's go) fixes the network-stack section's
+  `mcp__Hudu__` tool names to `mcp__HUDU__`; once deployed the resolver also
+  writes Firewalls/Switches/Wireless asset records (vendor cache) in live
+  and `-RequireApproval` runs.
 - Remediation whitelist: 39 entries (13 CIPP/NinjaOne/Meraki added v2.15.13,
   8 3CX added v2.15.18), in the live config.json too - Roger pasted the 3CX
   entries by hand on 2026-10-07; checked against the repo: valid JSON, every
@@ -3160,6 +3164,22 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.22 - Hudu network-stack tool names fixed (2026-10-11).**
+resolver-prompt.md's network-stack section (v2.10.55) named six tools with
+the prefix `mcp__Hudu__` (`company_index_tool`, `asset_index_tool`,
+`asset_layout_index_tool`, `asset_layout_show_tool`, `asset_create_tool`,
+`asset_edit_tool`). The server is registered as `HUDU` and the allowlist
+only has `mcp__HUDU__...`, so every one of those calls was denied: the
+Firewalls/Switches/Wireless vendor cache has never actually run, reads
+included. Renamed to `mcp__HUDU__`. Prompt-only, but it switches on a
+feature that has never run: `asset_create_tool`/`asset_edit_tool` are in
+`$mutatingTools` (hidden under `-WhatIf`/replay) and deliberately not in
+`$remediationMutatingTools`, so live and `-RequireApproval` runs will write
+real client asset records without waiting for approval. Roger asked to be
+asked before this one deploys; `production` should move to v2.15.21 alone
+until he says go. Worth one `-WhatIf` run on a network ticket first to see
+the WOULD DO asset writes.
 
 **v2.15.21 - simulations can't delete or rewrite draft notes
 (2026-10-11).** `mcp__Halo__delete_ticket_note` and

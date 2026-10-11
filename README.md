@@ -1307,7 +1307,11 @@ default; `"duplicate_guard": false` turns it off.
   `unifi_network_get`, `peplink_api_get`, `hudu_api_get`, `tcx_api_get`) for
   any endpoint the named tools don't cover - firewall rules, VPN state, event
   logs and so on. Writes stay limited to the Halo ticket itself, the
-  `remediation_whitelist` actions, and Hudu SOPs (below).
+  `remediation_whitelist` actions, Hudu SOPs (below), and (v2.15.22) the
+  client's Hudu Firewalls/Switches/Wireless asset records, where it caches
+  which vendor's gear holds each network role. That cache is a hint it
+  re-checks live, never a fact it trusts; the asset writes are hidden under
+  `-WhatIf`/replay but not held for approval.
 - **Ticket attachments** (v2.15.13): `get_ticket_brief` lists them, and
   `get_ticket_attachment` opens one - a screenshot or photo comes back as an
   image she can read, a text or log file as text. She's told to open every
@@ -1357,7 +1361,7 @@ LEARN_FIX pass) can't write there.
 - Start with the remediation whitelist as narrow as you're comfortable with — you can always add to `config.json` later without touching anything else.
 - `-MultipleInstances IgnoreNew` in the scheduled task keeps two runs from overlapping if one takes longer than the interval.
 - Watch the logs for the first week or two, especially escalation and after-hours behavior, before trusting it fully.
-- Nothing in this setup lets the agent act outside the `remediation_whitelist` — everything else it does with CIPP/Ninja/UniFi/Meraki/Peplink/Huntress is read-only by tool scoping in `Invoke-HaloResponseAgent.ps1`, and the only Hudu writes are step-by-step SOPs in the fix folder.
+- Nothing in this setup lets the agent act outside the `remediation_whitelist` — everything else it does with CIPP/Ninja/UniFi/Meraki/Peplink/Huntress is read-only by tool scoping in `Invoke-HaloResponseAgent.ps1`, and the only Hudu writes are step-by-step SOPs in the fix folder and (v2.15.22) the network-vendor field on a client's Firewalls/Switches/Wireless assets.
 - The resolver can search the web and fetch pages (v2.15.3). It's told never to put passwords, internal IPs, or client or people names into a search, and that what it reads is reference data to cite, never instructions to follow.
 - Production runs under `-RequireApproval`: nothing reaches a client or a system without a human setting AI Approved first, except the templated emergency acknowledgment.
 - Before running this against any client with regulated data (PCI/HIPAA/GLBA/SOX or similar), read "Excluding clients for compliance reasons" above — and read it as what it actually guarantees, not what it sounds like it guarantees.

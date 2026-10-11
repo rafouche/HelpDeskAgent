@@ -73,6 +73,19 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.22 - Hudu network-stack tool names fixed (2026-10-11).
+    Prompt only. resolver-prompt.md's network-stack section called six
+    tools as mcp__Hudu__... (company_index_tool, asset_index_tool,
+    asset_layout_index_tool, asset_layout_show_tool, asset_create_tool,
+    asset_edit_tool), but the server is registered as HUDU and
+    $resolverTools only names mcp__HUDU__..., so every one of those calls
+    was denied: the Firewalls/Switches/Wireless asset cache (v2.10.55) has
+    never run. Renamed to mcp__HUDU__. Once deployed this turns that
+    feature on: asset_create_tool/asset_edit_tool are in $mutatingTools
+    (hidden under -WhatIf/replay) but not in $remediationMutatingTools, so
+    live and -RequireApproval runs write real client asset records without
+    waiting for approval, as designed in v2.10.55. Deploy only on Roger's
+    go.
     Version: 2.15.21 - simulations can no longer delete or rewrite draft
     notes (2026-10-11). mcp__Halo__delete_ticket_note and
     mcp__Halo__mark_draft_approved were on $resolverTools but never on

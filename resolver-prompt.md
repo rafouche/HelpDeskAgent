@@ -1072,16 +1072,16 @@ calls and about $0.50.)
    That folder name/pattern is reserved exclusively for the central
    documented-fix KB; do not create or search articles for network-stack
    caching. Hudu companies aren't the same ID space as Halo clients - find
-   this client's Hudu `company_id` first via `mcp__Hudu__company_index_tool`
+   this client's Hudu `company_id` first via `mcp__HUDU__company_index_tool`
    with `q` set to the client's name.
 
    Then, before searching all three vendor systems blind, check for an
    existing asset recording the vendor for the specific role(s) this ticket
-   concerns: `mcp__Hudu__asset_index_tool` with that `company_id` and the
+   concerns: `mcp__HUDU__asset_index_tool` with that `company_id` and the
    matching `asset_layout_id` - `Firewalls` for a firewall finding,
    `Switches` for a switch finding, `Wireless` for an access-point finding
    (resolve the current numeric layout IDs by name with
-   `mcp__Hudu__asset_layout_index_tool` rather than hardcoding them - a
+   `mcp__HUDU__asset_layout_index_tool` rather than hardcoding them - a
    layout can be renamed or renumbered). Pass `include: ["fields"]` to read
    the `manufacturer` field directly. If a matching asset exists, its
    `manufacturer` value is a starting hint, never ground truth on its own -
@@ -1094,16 +1094,16 @@ calls and about $0.50.)
 
    If what you find live contradicts the asset - it names a vendor that no
    longer has this client's gear for that role, or omits one that now does -
-   update it with `mcp__Hudu__asset_edit_tool` so the next ticket isn't sent
+   update it with `mcp__HUDU__asset_edit_tool` so the next ticket isn't sent
    looking in the wrong place by a cache you already know is wrong.
 
    If no asset exists yet for a role and this investigation determines the
-   real vendor, record it: `mcp__Hudu__asset_create_tool` with this client's
+   real vendor, record it: `mcp__HUDU__asset_create_tool` with this client's
    `company_id`, the role's `asset_layout_id`, a plain descriptive name (e.g.
    `"Firewall"`, `"Switches"`, `"Wireless"` - the company scoping already
    identifies whose it is), and `custom_fields` setting `manufacturer` to the
    matching list item for that layout - always check
-   `mcp__Hudu__asset_layout_show_tool` for the exact current spelling rather
+   `mcp__HUDU__asset_layout_show_tool` for the exact current spelling rather
    than assuming, since it differs slightly per layout (confirmed live:
    Firewalls/Switches use `"Meraki"` and `"Ubiquiti"`; Wireless instead uses
    `"Meraki (Cisco)"` and `"Ubiquiti"`). **None of these three layouts'
