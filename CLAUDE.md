@@ -65,7 +65,10 @@ As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 
   UniFi, Peplink, 3CX (v2.15.17, pending deploy) (JumpCloud removed v2.15.7) including raw GET
   tools and ticket attachments (images as images, v2.15.13);
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
-  to `--disallowedTools`. Hudu writes: step-by-step SOPs only.
+  to `--disallowedTools`. Hudu writes: step-by-step SOPs only. On `main`,
+  not deployed: v2.15.21 adds the two draft-note tools (`delete_ticket_note`,
+  `mark_draft_approved`) to `$mutatingTools`, so `-WhatIf`/replays can't
+  touch draft notes (live and `-RequireApproval` unchanged).
 - Remediation whitelist: 39 entries (13 CIPP/NinjaOne/Meraki added v2.15.13,
   8 3CX added v2.15.18), in the live config.json too - Roger pasted the 3CX
   entries by hand on 2026-10-07; checked against the repo: valid JSON, every
@@ -2437,6 +2440,7 @@ marker), swapped into FLOW A step 6 in its place. Left it out of
 treatment there - kept the two "touches only this pipeline's own draft"
 tools symmetric rather than deciding a new `-WhatIf` policy for one and not
 the other without an actual incident to justify it either way.
+(Reversed in v2.15.21: both are in `$mutatingTools` now.)
 
 **A real cost leak, found by actually analyzing the numbers instead of
 guessing (v2.10.60).** Roger sent a full day's production log after noticing
@@ -3156,6 +3160,22 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.21 - simulations can't delete or rewrite draft notes
+(2026-10-11).** `mcp__Halo__delete_ticket_note` and
+`mcp__Halo__mark_draft_approved` were on `$resolverTools` but never on
+`$mutatingTools` (v2.10.59 kept them symmetric "without an actual incident"),
+so a `-WhatIf` run and every `Replay-Tickets.ps1` run could still delete a
+real `[DRAFT PENDING APPROVAL]` / `[PIPELINE NOTE]` note, or rewrite one to
+`[APPROVED DRAFT]`, on a live ticket - against the rule that a simulation
+writes nothing to Halo. Roger asked for both to be added. Now in
+`$mutatingTools` (stripped and hidden under `-WhatIf` and in replays); not in
+`$remediationMutatingTools`, so live and `-RequireApproval` runs keep both.
+Verified by evaluating the allowlist region: both present in the live and
+approval lists, absent from both `-WhatIf` lists, no duplicates in any list.
+No flag - it only narrows simulations. (`-DryRun` still prints the unfiltered
+`$resolverTools` even with `-WhatIf`; that is display-only and pre-existing,
+the per-ticket filter is what the run uses.)
 
 **v2.15.20 - no "I can't" in client replies (2026-10-08).** Roger:
 "let's remove the words 'I can't' from Allie's vocabulary. Example ticket

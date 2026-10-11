@@ -95,8 +95,9 @@ program - there's no need to copy either onto the server, and
    This runs the classifier for real (it's read-only regardless of `-WhatIf`),
    then a real resolver call per classified ticket — full investigation, real
    reasoning about real open tickets — but every tool that would change
-   something (replies, ticket status/assignment, on-call notifications,
-   reboots, script runs, password resets, Hudu writes) is removed from the
+   something (replies, ticket status/assignment, deleting or rewriting its
+   own draft notes, on-call notifications, reboots, script runs, password
+   resets, Hudu writes) is removed from the
    resolver's allowlist *and* hidden from it entirely (`--disallowedTools`,
    v2.15.5), and it's told to describe what it would have done
    instead (look for "WOULD DO:" in the output). Read through the result
@@ -1326,7 +1327,9 @@ default; `"duplicate_guard": false` turns it off.
 - **Hidden, not just refused (v2.15.5):** any write tool a run isn't allowed
   (everything mutating under `-WhatIf`/replay, remediation and the real send on
   an unapproved ticket) is passed to `--disallowedTools`, so the model never
-  sees it. `Agent`, `Task`, `Bash` and `PowerShell` are always hidden.
+  sees it. That includes the two draft-note tools (`delete_ticket_note`,
+  `mark_draft_approved`) under `-WhatIf`/replay since v2.15.21; live and
+  `-RequireApproval` runs keep them. `Agent`, `Task`, `Bash` and `PowerShell` are always hidden.
 
 ## Cross-client fix history
 Before diagnosing a non-obvious issue from scratch, the agent searches past tickets

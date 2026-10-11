@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.21 - simulations can no longer delete or rewrite draft
+    notes (2026-10-11). mcp__Halo__delete_ticket_note and
+    mcp__Halo__mark_draft_approved were on $resolverTools but never on
+    $mutatingTools (v2.10.59 kept the two symmetric "without a specific
+    incident driving it"), so a -WhatIf run and every Replay-Tickets.ps1
+    run could still delete a real [DRAFT PENDING APPROVAL] note or rewrite
+    it to [APPROVED DRAFT] on a live ticket - against the rule that a
+    simulation writes nothing to Halo. Both are now in $mutatingTools, so
+    -WhatIf strips and hides them; they are not in
+    $remediationMutatingTools, so live and -RequireApproval runs keep them
+    unchanged. No flag: this only narrows simulations.
     Version: 2.15.20 - no "I can't" in client replies (2026-10-08). Prompt
     only. Roger: "let's remove the words 'I can't' from Allie's vocabulary.
     Example ticket 23182 says 'I can't see from here'. Worse case, leave out
@@ -3756,6 +3767,8 @@ $resolverTools = @(
     # without the full reply text sitting twice in the ticket's history
     # (it's already in the real sent reply). Used by FLOW A step 6 below in
     # place of delete_ticket_note now.
+    # Both are in $mutatingTools since v2.15.21 (hidden under -WhatIf and in
+    # every replay), not in $remediationMutatingTools.
     "mcp__Halo__mark_draft_approved",
     # get_client/list_clients/get_contact/list_contacts: a real run showed the
     # resolver denied on get_client while investigating which company a ticket
@@ -4125,6 +4138,12 @@ $mutatingTools = @(
     "mcp__3CX__tcx_call", "mcp__3CX__tcx_api_request",
     "mcp__Halo__update_ticket", "mcp__Halo__update_ticket_draft_only", "mcp__Halo__create_contact",
     "mcp__Halo__escalate_emergency", "mcp__Halo__send_approved_draft",
+    # v2.15.21: the two "own draft only" note tools. Safe in a live run (they
+    # refuse anything but this pipeline's own private draft), but they still
+    # delete or rewrite a real note on a real ticket, so a -WhatIf or replay
+    # run must not have them. Not in $remediationMutatingTools: live and
+    # -RequireApproval runs keep both.
+    "mcp__Halo__delete_ticket_note", "mcp__Halo__mark_draft_approved",
     "mcp__Microsoft365__outlook_send_mail",
     "mcp__CIPP__reset_user_password", "mcp__CIPP__enable_user",
     "mcp__Ninja__reboot_device", "mcp__Ninja__run_script_on_device",
