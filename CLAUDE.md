@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 5.5 until Roger switches it; v2.15.20, prompt-only, deployed 2026-10-08 awaiting confirmation):
+As of v2.15.22, 2026-10-11 (`production` -> 6bad4b9; v2.15.19 confirmed on the server, v2.15.20-22 deployed, server confirmation pending):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -46,8 +46,9 @@ As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 
   (so ID resolution and tiering too) and the three resolver_model_* - are
   `claude-sonnet-5-5` (resolver since 2026-10-02 ~11:00, Roger's test; first
   comparison in the v2.15.16 entry; the classifier seen on 5.5 in his
-  2026-10-07 config). The repo template still says Sonnet 5 until he makes
-  5.5 permanent; classifier (and ID resolver/tiering)
+  2026-10-07 config). Haiku 5.5 for the classifier is supported since
+  v2.15.19 but NOT switched live (Roger, 2026-10-11). The repo template
+  still says Sonnet 5 until he makes 5.5 permanent; classifier (and ID resolver/tiering)
   effort low; all four resolver tiers effort medium (2026-09-25).
   `$effortCapableModels` includes `claude-opus-5-5` and `claude-sonnet-5-5`
   (Sonnet 5.5 released 2026-09-28; same prices as Sonnet 5, effort levels
@@ -62,18 +63,25 @@ As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 
 - Budgets/cooldowns: `resolver_tool_call_budget` 20 (hard stop 40),
   `blocked_ticket_retry_hours` 2, `human_owned_retry_hours` 24.
 - Tools: full read-only surface on Halo, CIPP, Ninja, Huntress, HUDU, Meraki,
-  UniFi, Peplink, 3CX (v2.15.17, pending deploy) (JumpCloud removed v2.15.7) including raw GET
+  UniFi, Peplink, 3CX (v2.15.17-18, live) (JumpCloud removed v2.15.7) including raw GET
   tools and ticket attachments (images as images, v2.15.13);
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
-  to `--disallowedTools`. Hudu writes: step-by-step SOPs only. Deployed
-  2026-10-11 (production -> 3e7eee0), awaiting confirmation on the server:
-  v2.15.21 adds the two draft-note tools (`delete_ticket_note`,
-  `mark_draft_approved`) to `$mutatingTools`, so `-WhatIf`/replays can't
-  touch draft notes (live and `-RequireApproval` unchanged). v2.15.22
-  (prompt-only, held for Roger's go) fixes the network-stack section's
-  `mcp__Hudu__` tool names to `mcp__HUDU__`; once deployed the resolver also
-  writes Firewalls/Switches/Wireless asset records (vendor cache) in live
-  and `-RequireApproval` runs.
+  to `--disallowedTools`. Hudu writes: step-by-step SOPs, and since v2.15.22
+  the Firewalls/Switches/Wireless vendor-cache asset records (written in
+  live and `-RequireApproval` runs without waiting for approval; blocked
+  under `-WhatIf`/replays). v2.15.21: the two draft-note tools
+  (`delete_ticket_note`, `mark_draft_approved`) are in `$mutatingTools`, so
+  `-WhatIf`/replays can't touch draft notes. v2.15.22 deployed 2026-10-11
+  (production -> 6bad4b9) on Roger's word that it should be live; before
+  that the other session had only moved production to 3e7eee0. Checked
+  2026-10-11: every mcp__HUDU__ name in the prompt is on $resolverTools
+  (create/edit kept in approval mode, absent under -WhatIf), and the live
+  Hudu layouts match the prompt - Firewalls (20) and Switches (27) with
+  manufacturer lists including "Meraki", "Ubiquiti", "Other" plus model and
+  notes; Wireless (6) with "Meraki (Cisco)", "Ubiquiti", "Other" and
+  description/notes. The only off-list tool names left in the prompt are
+  the three Halo list_* tools it tells her not to call and
+  update_ticket_draft_only, which approval mode adds at run time.
 - Remediation whitelist: 39 entries (13 CIPP/NinjaOne/Meraki added v2.15.13,
   8 3CX added v2.15.18), in the live config.json too - Roger pasted the 3CX
   entries by hand on 2026-10-07; checked against the repo: valid JSON, every
