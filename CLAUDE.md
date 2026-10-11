@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.22, 2026-10-11 (`production` -> 6bad4b9; v2.15.19 confirmed on the server, v2.15.20-22 deployed, server confirmation pending):
+As of v2.15.22, 2026-10-11 (`production` -> 325d83f; v2.15.19 confirmed on the server, v2.15.20-22 deployed, server confirmation pending):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -72,7 +72,7 @@ As of v2.15.22, 2026-10-11 (`production` -> 6bad4b9; v2.15.19 confirmed on the s
   under `-WhatIf`/replays). v2.15.21: the two draft-note tools
   (`delete_ticket_note`, `mark_draft_approved`) are in `$mutatingTools`, so
   `-WhatIf`/replays can't touch draft notes. v2.15.22 deployed 2026-10-11
-  (production -> 6bad4b9) on Roger's word that it should be live; before
+  (production -> 325d83f, which includes 6bad4b9) on Roger's word that it should be live; before
   that the other session had only moved production to 3e7eee0. Checked
   2026-10-11: every mcp__HUDU__ name in the prompt is on $resolverTools
   (create/edit kept in approval mode, absent under -WhatIf), and the live
