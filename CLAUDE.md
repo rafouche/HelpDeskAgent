@@ -65,8 +65,9 @@ As of v2.15.19, 2026-10-08 (confirmed on the server; classifier still on Sonnet 
   UniFi, Peplink, 3CX (v2.15.17, pending deploy) (JumpCloud removed v2.15.7) including raw GET
   tools and ticket attachments (images as images, v2.15.13);
   `WebSearch`/`WebFetch`; mutating tools a run may not use are passed
-  to `--disallowedTools`. Hudu writes: step-by-step SOPs only. On `main`,
-  not deployed: v2.15.21 adds the two draft-note tools (`delete_ticket_note`,
+  to `--disallowedTools`. Hudu writes: step-by-step SOPs only. Deployed
+  2026-10-11 (production -> 3e7eee0), awaiting confirmation on the server:
+  v2.15.21 adds the two draft-note tools (`delete_ticket_note`,
   `mark_draft_approved`) to `$mutatingTools`, so `-WhatIf`/replays can't
   touch draft notes (live and `-RequireApproval` unchanged). v2.15.22
   (prompt-only, held for Roger's go) fixes the network-stack section's
