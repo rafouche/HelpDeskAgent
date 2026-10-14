@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.22, 2026-10-11 (`production` -> 325d83f; v2.15.19 confirmed on the server, v2.15.20-22 deployed, server confirmation pending):
+As of v2.15.23, 2026-10-14 (v2.15.22 confirmed on the server; v2.15.23, prompt-only, deployed 2026-10-14 awaiting confirmation):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3189,9 +3189,16 @@ HUNTRESS_API_KEY has no identity (ITDR) access. The direct Huntress
 connector (api.huntress.io, used by the dev session) does return
 identities. G2 itself has 0 M365 users in Huntress, so the ticket would
 have had nothing to read anyway; its Entra sign-in logs were also out of
-reach (no P1). Roger updated the key 2026-10-14; identities were still
-forbidden through the Worker right after - the Worker secrets may still
-need the new key (re-test pending). Prompt: any tool error is written as
+reach (no P1). Fixed 2026-10-14: Roger rotated the Worker's
+HUNTRESS_API_KEY/SECRET to a user's API credentials in the Cloudflare
+dashboard, but the edit only saved new versions (b020048b, a65ae9c9) - the
+live deployment stayed on d6ab5c96 (2026-09-25) with the old key until he
+deployed a65ae9c9 (15:07 UTC). Lesson: a secret edited in the dashboard is
+not live until that version is deployed; check Deployments. Re-tested
+through the Worker after: identities returned for Gold Mechanical, empty
+for G2, organizations/agents/signals/REST passthrough fine. get_actor still
+shows only the account for an API key, so it is not a test of identity
+access - list_identities is. Prompt: any tool error is written as
 "CONNECTOR ISSUE - <system> <tool>: <exact error> - so <what was left
 unchecked>", never "requires authorization"; carry on; never to the
 client. Applies to every connector.
