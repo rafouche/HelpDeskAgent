@@ -59,6 +59,15 @@ function Write-ClaudeResultSection {
     Write-Host ""
     Write-Host "--- $Title ---" -ForegroundColor Yellow
 
+    # Some sections are the script's own plain-text report, not claude -p
+    # JSON (DETERMINISTIC CLASSIFIER, a cached ID RESOLUTION) - print those
+    # as-is. Only text that looks like JSON and still fails is worth a warning.
+    $trimmed = $JsonText.TrimStart()
+    if (-not ($trimmed.StartsWith('{') -or $trimmed.StartsWith('['))) {
+        Write-Host $JsonText
+        return
+    }
+
     $data = $null
     try {
         $data = $JsonText | ConvertFrom-Json

@@ -3174,6 +3174,15 @@ license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
 
+**Show-AgentLog.ps1: plain-text sections print without a warning
+(2026-10-14).** Roger saw "(could not parse this section's JSON - printing
+raw)" above the DETERMINISTIC CLASSIFIER section. That section has always
+been the script's own plain-text report, not claude -p JSON, so the viewer
+mislabelled it; nothing failed. The viewer now prints any section that
+doesn't start with { or [ as plain text and keeps the warning for text that
+looks like JSON but won't parse. Viewer only; Invoke-HaloResponseAgent.ps1
+unchanged.
+
 **v2.15.23 - tool errors reported as connector issues (2026-10-14).**
 #23377 (G2, a Microsoft "account blocked - at-risk user" screenshot): the
 findings note said "Huntress MCP requires authorization, so not checked".
