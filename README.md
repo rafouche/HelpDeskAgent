@@ -1312,6 +1312,12 @@ default; `"duplicate_guard": false` turns it off.
   which vendor's gear holds each network role. That cache is a hint it
   re-checks live, never a fact it trusts; the asset writes are hidden under
   `-WhatIf`/replay but not held for approval.
+- **Tool errors** (v2.15.23): any error from a connector ("Access denied",
+  403, "not licensed", a timeout) goes in the findings note as
+  `CONNECTOR ISSUE - <system> <tool>: <exact error> - so <what was left
+  unchecked>` - never "requires authorization" - and she carries on with
+  the other systems. #23377: the Huntress Worker's API key had no identity
+  access, and the note read as if Huntress were disconnected.
 - **Ticket attachments** (v2.15.13): `get_ticket_brief` lists them, and
   `get_ticket_attachment` opens one - a screenshot or photo comes back as an
   image she can read, a text or log file as text. She's told to open every

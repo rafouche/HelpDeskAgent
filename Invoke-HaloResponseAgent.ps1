@@ -73,6 +73,20 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.23 - tool errors are reported as connector issues
+    (2026-10-14). Prompt only. #23377's findings note said "Huntress MCP
+    requires authorization, so not checked"; the Huntress Worker was
+    connected and working, and only list_identities/get_identity returned
+    Huntress's "Access denied / forbidden" (the Worker's API key had no
+    identity access - checked live: organizations, agents, signals,
+    incident reports, escalations all worked; identities refused for every
+    org, including the 10 with M365 coverage, while the direct Huntress
+    connector returned them). Roger asked for the wording fix for every
+    connector: resolver-prompt.md's Investigate step now says any tool
+    error goes in the findings note as "CONNECTOR ISSUE - <system> <tool>:
+    <exact error> - so <what was left unchecked>", never "requires
+    authorization", the investigation continues, and the client never
+    hears of it.
     Version: 2.15.22 - Hudu network-stack tool names fixed (2026-10-11).
     Prompt only. resolver-prompt.md's network-stack section called six
     tools as mcp__Hudu__... (company_index_tool, asset_index_tool,

@@ -3174,6 +3174,28 @@ license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
 
+**v2.15.23 - tool errors reported as connector issues (2026-10-14).**
+#23377 (G2, a Microsoft "account blocked - at-risk user" screenshot): the
+findings note said "Huntress MCP requires authorization, so not checked".
+Roger checked: the Huntress server was Connected, no MCP_AUTH_TOKEN on the
+Worker. Live tests through the Worker (it never returns HTTP 401 on /mcp;
+an upstream error comes back as a tool result "Huntress MCP returned
+<status>" or Huntress's own JSON): organizations, agents, signals,
+incident reports, escalations all worked; list_identities and
+get_identity returned {"error":"Access denied","code":"forbidden"} for
+every org and unfiltered, and the REST passthrough /api/huntress/identities
+said "You are not authorized to access this page." - the Worker's
+HUNTRESS_API_KEY has no identity (ITDR) access. The direct Huntress
+connector (api.huntress.io, used by the dev session) does return
+identities. G2 itself has 0 M365 users in Huntress, so the ticket would
+have had nothing to read anyway; its Entra sign-in logs were also out of
+reach (no P1). Roger updated the key 2026-10-14; identities were still
+forbidden through the Worker right after - the Worker secrets may still
+need the new key (re-test pending). Prompt: any tool error is written as
+"CONNECTOR ISSUE - <system> <tool>: <exact error> - so <what was left
+unchecked>", never "requires authorization"; carry on; never to the
+client. Applies to every connector.
+
 **v2.15.22 - Hudu network-stack tool names fixed (2026-10-11).**
 resolver-prompt.md's network-stack section (v2.10.55) named six tools with
 the prefix `mcp__Hudu__` (`company_index_tool`, `asset_index_tool`,

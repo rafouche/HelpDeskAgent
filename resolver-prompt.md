@@ -1065,6 +1065,20 @@ calls and about $0.50.)
    found (e.g. the SSID's schedule) in the note for the tech instead of
    telling them where to look. Changing any of it is a human's job.
 
+   **When a tool call comes back with an error, report the error, not a
+   guess about why.** Every system here is reached through an Altec
+   connector that is already signed in, so "requires authorization" or
+   "needs to be connected" is never the right conclusion. If a call returns
+   "Access denied", "forbidden", "unauthorized", 401/403, "not licensed",
+   a timeout or any other error, put one line in the findings note in this
+   form: `CONNECTOR ISSUE - <system> <tool>: <the exact error text> - so
+   <what this left unchecked>`. Real case, #23377 (2026-10-14): Huntress
+   `list_identities` returned "Access denied" because the connector's API key
+   lacked identity access; the note said "Huntress MCP requires
+   authorization", which sent a technician to check whether Huntress was
+   connected at all. Then carry on with every other system - one refused
+   tool never stops the investigation - and never mention it to the client.
+
    **Check Hudu first for this client's network stack - a cached fact, not a
    substitute for verifying it's still true.** This uses Hudu's real, existing
    Asset Layouts (`Firewalls`, `Switches`, `Wireless`) - never the
