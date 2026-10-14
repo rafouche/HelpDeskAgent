@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.23, 2026-10-14 (v2.15.22 confirmed on the server; v2.15.23, prompt-only, deployed 2026-10-14 awaiting confirmation):
+As of v2.15.23, 2026-10-14 (confirmed on the server; production -> 97cd0bb, which adds the Show-AgentLog fix; classifier on Haiku 5.5 since that morning):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -46,8 +46,12 @@ As of v2.15.23, 2026-10-14 (v2.15.22 confirmed on the server; v2.15.23, prompt-o
   (so ID resolution and tiering too) and the three resolver_model_* - are
   `claude-sonnet-5-5` (resolver since 2026-10-02 ~11:00, Roger's test; first
   comparison in the v2.15.16 entry; the classifier seen on 5.5 in his
-  2026-10-07 config). Haiku 5.5 for the classifier is supported since
-  v2.15.19 but NOT switched live (Roger, 2026-10-11). The repo template
+  2026-10-07 config). classifier_model switched to `claude-haiku-5-5` on
+  the morning of 2026-10-14 (Roger; CLI updated first) - the ID resolver,
+  tiering call and duplicate check now run on Haiku 5.5. First evidence: a
+  1-ticket tiering call cost $0.0014, against a $0.0242 median (22 calls,
+  $0.022-$0.096) on Sonnet 5.5 in the 10-02..10-05 logs. Cost test running;
+  watch the duplicate-check verdicts. The repo template
   still says Sonnet 5 until he makes 5.5 permanent; classifier (and ID resolver/tiering)
   effort low; all four resolver tiers effort medium (2026-09-25).
   `$effortCapableModels` includes `claude-opus-5-5` and `claude-sonnet-5-5`
