@@ -663,15 +663,20 @@ If `verified.confirmed` comes back `false` even after the tool's own
 built-in retries, that's a much stronger signal than an untriaged-ticket
 guess used to be - the delay that fixes ordinary eventual-consistency lag has
 already been tried. Now, and only now:
-1. Try once: call the same tool again with only `status_id` set (whatever
-   status you were already about to set works, or the ticket's current one if
-   you weren't changing status) plus `verify: true` - a status-only change is
+1. Try once: call the same tool again with only `status_id` set to the
+   ticket's **current** status (re-set it as it is) plus `verify: true`.
+   Never use this retry to move the ticket to `ai_waiting_approval_status_name`,
+   `waiting_on_client_status_name` or any other status that says a draft or a
+   reply exists when the note carrying it never landed - real incident, #23475
+   (2026-10-15): the retry set AI Waiting Approval, no draft existed, and the
+   ticket sat there looking handled while nobody had seen anything - a status-only change is
    the one thing confirmed to take effect even pre-triage, and may trigger
    triage as a side effect, though that specific mechanism isn't
    independently confirmed - it's cheap to try once, not a guaranteed fix.
 2. Still not confirmed? Stop working this ticket for the rest of this cycle -
    there's nothing useful to add as a note if notes themselves are what's
-   failing. Print a one-line summary flagging that this ticket appears stuck
+   failing, and leave the status where you found it so the ticket comes back
+   to you once the block expires. Print a one-line summary flagging that this ticket appears stuck
    in Halo (untriaged, or some other structural block) and needs a human to
    open it in the Halo UI before this agent can act on it further. End your
    response with `[CACHE: BLOCKED]` (see "When you finish" below) - not

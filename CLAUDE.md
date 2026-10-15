@@ -3178,6 +3178,28 @@ license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
 
+**v2.15.24 - a blocked run no longer strands a ticket in AI Waiting
+Approval (2026-10-15).** Roger: "Allie hasn't touched a ticket yet...
+23475. Possible bug." She had: at 18:54 UTC she re-linked the contact
+(landed), investigated fully (Windows 10 22H2 past end of support on
+SJP-WKS-03, Win11-capable HP Pro Mini, last user SJP\Eric not Rob), but Halo
+refused every note with "You do not have access to this Action at the
+moment". Per the write-failure steps she retried with a status-only update to
+"the status you were about to set" = AI Waiting Approval (landed), then
+[CACHE: BLOCKED]. Result: AI Waiting Approval with no draft and no findings;
+call 5 dropped it every cycle as "untouched since our draft", for good.
+Cause of Halo's refusal is unknown (it came 90 s after creation, right after
+Halo's "Apply Triage Workflow" rule and HaloAI triage; other new tickets the
+same day took notes). Fixes: (1) call 5 treats a waiting-approval ticket
+with no [DRAFT PENDING APPROVAL] note of ours as a candidate (after the
+blocked list), only when action_count shows the window holds its whole
+history; (2) the prompt's status-only retry re-sets the CURRENT status and a
+blocked stop leaves the status as found - never AI Waiting Approval or
+Waiting on client without the note; (3) Ready for AI still overrides the
+blocked list unless the block is newer than the last human entry (else a
+refused Ready-for-AI ticket would re-run every cycle at ~$0.47). Harness
+scratchpad/nodrafttest/run.ps1: 8 cases; duptest and workedtest still pass.
+
 **Show-AgentLog.ps1: plain-text sections print without a warning
 (2026-10-14).** Roger saw "(could not parse this section's JSON - printing
 raw)" above the DETERMINISTIC CLASSIFIER section. That section has always

@@ -319,6 +319,15 @@ a ticket reported `[CACHE: BLOCKED]` (a Halo write the agent can't make) is
 skipped for `claude.blocked_ticket_retry_hours` (2), and one reported
 `[CACHE: HUMAN_OWNED]` for `claude.human_owned_retry_hours` (24).
 
+
+**When Halo refuses her notes (v2.15.24).** If Halo rejects every note on a
+ticket, she ends the run blocked and leaves the status as she found it, so the
+ticket comes back once the two-hour block expires. Before this, she moved it
+to AI Waiting Approval with no draft, where it was skipped for good (#23475).
+A waiting ticket that has no draft of hers is picked up again. Ready for AI
+still overrides a block, unless the block is newer than your last action on
+the ticket - set it to Ready for AI again to retry at once.
+
 ## Notices with nobody to reply to (v2.15.16)
 An automated notice about Altec's own systems or tenant (a CIPP permissions
 alert, a vendor email) or anything sent only to an Altec mailbox has no

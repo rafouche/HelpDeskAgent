@@ -73,6 +73,26 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.24 - a blocked run no longer strands a ticket in AI Waiting
+    Approval (2026-10-15). #23475 (SJP Law Firm, Windows 10 end of support):
+    the resolver re-linked the contact and investigated fully, but Halo
+    refused every note ("You do not have access to this Action at the
+    moment"). Following resolver-prompt.md's write-failure steps it retried
+    with a status-only update to "the status you were about to set" - AI
+    Waiting Approval - which landed, then ended [CACHE: BLOCKED]. The ticket
+    sat in AI Waiting Approval with no draft and no findings, and calls 5's
+    "untouched since our draft" rule dropped it every cycle, so it would never
+    have been looked at again. (1) Call 5: a waiting-approval ticket with no
+    [DRAFT PENDING APPROVAL] note of ours is a candidate again (once off the
+    blocked list), but only when the triage window holds its whole history
+    (action_count <= recent actions), so an older draft outside the window is
+    never mistaken for a missing one. (2) Prompt: the status-only retry keeps
+    the ticket's current status; a blocked run never moves a ticket to AI
+    Waiting Approval (or any status claiming work exists) without the draft.
+    (3) Call 4: because the status now stays put, a Ready for AI ticket Halo
+    keeps refusing would re-run every cycle; Ready for AI still overrides the
+    blocked list unless the block is newer than the last human entry, so
+    setting Ready for AI again retries at once.
     Version: 2.15.23 - tool errors are reported as connector issues
     (2026-10-14). Prompt only. #23377's findings note said "Huntress MCP
     requires authorization, so not checked"; the Huntress Worker was
@@ -4932,6 +4952,17 @@ function Invoke-DeterministicClassifier {
         foreach ($entry in @($triage.ready_for_ai.tickets)) {
             $t = $entry.ticket; $id = [int]$t.id
             if ($excludedClientIds -contains [string]$t.client_id) { & $drop $id "compliance exclusion (client_id $($t.client_id))"; continue }
+            # v2.15.24: a blocked run now leaves the status as it found it, so
+            # a Ready for AI ticket Halo keeps refusing would come back every
+            # cycle. Ready for AI still overrides the blocked list, except
+            # when the block is newer than the last thing a person did here:
+            # setting Ready for AI again (or any human entry) sends it back.
+            if ($BlockedTickets.ContainsKey([string]$id)) {
+                $blockedAt = & $asUtc $BlockedTickets[[string]$id]
+                $lastHuman = $null
+                foreach ($a in @($entry.recent_actions)) { if (& $isHuman $a) { $lastHuman = & $asUtc $a.datetime; break } }
+                if ($null -ne $blockedAt -and ($null -eq $lastHuman -or $lastHuman -le $blockedAt)) { & $drop $id "ready_for_ai, but blocked at $($BlockedTickets[[string]$id]) after the last human entry - set Ready for AI again to retry now"; continue }
+            }
             & $add $id $null "ready_for_ai"
         }
     }
@@ -4947,8 +4978,26 @@ function Invoke-DeterministicClassifier {
                 if ((& $isHuman $a) -and (& $isSubstantive $a)) { $humanSinceOurs = $a; break }
             }
             if ($humanSinceOurs -and (& $alreadyEvaluated ([string]$id) $humanSinceOurs)) { & $drop $id "waiting_approval, human entry already evaluated ($($humanSinceOurs.who) $($humanSinceOurs.datetime) <= $($EvaluatedAt[[string]$id])Z)"; continue }
-            if ($humanSinceOurs) { & $add $id $null "waiting_approval (human $($humanSinceOurs.who) $($humanSinceOurs.outcome) at $($humanSinceOurs.datetime))" }
-            else { & $drop $id "waiting_approval, untouched since our draft" }
+            if ($humanSinceOurs) { & $add $id $null "waiting_approval (human $($humanSinceOurs.who) $($humanSinceOurs.outcome) at $($humanSinceOurs.datetime))"; continue }
+            # v2.15.24: "untouched since our draft" needs a draft. Real
+            # incident, #23475 (2026-10-15): Halo refused every note on a new
+            # ticket ("You do not have access to this Action at the moment"),
+            # the blocked-run retry set AI Waiting Approval with no draft
+            # behind it, and every cycle then dropped it here as waiting on a
+            # draft that never existed. Only decided when the window shows
+            # the ticket's whole history (action_count <= what we hold);
+            # otherwise the draft may be older than the window and the old
+            # rule stands. A ticket still on the blocked list waits it out.
+            $recent = @($entry.recent_actions)
+            $hasDraft = $false
+            foreach ($a in $recent) { if ((& $isOurs $a) -and ([string]$a.note -match '(?m)^\s*\[DRAFT PENDING APPROVAL\]\s*$')) { $hasDraft = $true; break } }
+            $sawAll = ($null -ne $entry.action_count) -and ([int]$entry.action_count -le $recent.Count)
+            if (-not $hasDraft -and $sawAll) {
+                if ($BlockedTickets.ContainsKey([string]$id)) { & $drop $id "waiting_approval with no draft on the ticket - blocked list (a blocked run left it here)"; continue }
+                & $add $id $null "waiting_approval with no draft on the ticket (a blocked run left it in this status)"
+                continue
+            }
+            & $drop $id "waiting_approval, untouched since our draft"
         }
     }
     if ($triage.approved) {
