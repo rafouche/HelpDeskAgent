@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.23, 2026-10-14 (confirmed on the server; production -> 97cd0bb, which adds the Show-AgentLog fix; classifier on Haiku 5.5 since that morning):
+As of v2.15.25, 2026-10-16 (v2.15.24 confirmed on the server; v2.15.25 deployed 2026-10-16 awaiting confirmation; classifier on Haiku 5.5 since 2026-10-14; OPEN: Halo refuses Private Note on new tickets at the workflow Triage step since 10-15 - see the v2.15.25 entry):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,32 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.25 - an expiring cooldown triggers a cycle (2026-10-16).** Roger:
+"ticket 23479 hasn't been touched since 2:56 pm and it's now 7pm." Its run
+at 20:04 UTC ended BLOCKED (Halo refused the notes), v2.15.24 left it in
+New for a retry after 2 hours, but the gate compares Halo fingerprints only
+and an expiring block changes nothing there - every cycle after 22:04 was
+"SKIPPED (gate: nothing changed)". Blocked and human-owned entries that
+expire when the cache loads are now collected in $cooldownsExpired; any of
+them forces one classifier pass ("gate: nothing changed in Halo, running
+anyway - cooldown ended for blocked:<id>"), and that cycle's saved cache no
+longer has them, so it fires once. The off-hours throttle returns before the
+cache is saved, so an expiry seen during a throttled firing is kept for the
+next real cycle. Tested with the script's own loader code
+(scratchpad/cooldowntest/run.ps1: active block, expired block, expired
+human-owned hold, empty).
+Root cause of the refused notes, found the same day (Halo-side, not fixed in
+code): new tickets start in workflow 9 "Incident Management + Triage" at
+step 2 "Triage", whose only allowed action is Triage (40);
+always_allow_actions is empty. #23419 sat in the same step on 10-14 20:03
+UTC and its Private Note landed; #23475 (10-15 18:54) and #23479 (20:04)
+were refused - so Halo started enforcing it in between (a workflow/role
+edit or a Halo release; the audit API returns nothing for this account,
+Allie's agent record last changed 2026-09-09). Recommended to Roger: add
+Private Note (7) and Email User (16) - the only actions the Worker writes -
+to that workflow's always-allowed actions, which restores the old behavior
+without Allie triaging. Roger is checking Halo's audit/release notes.
 
 **v2.15.24 - a blocked run no longer strands a ticket in AI Waiting
 Approval (2026-10-15).** Roger: "Allie hasn't touched a ticket yet...

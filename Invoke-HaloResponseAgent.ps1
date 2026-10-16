@@ -73,6 +73,18 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.25 - an expiring cooldown triggers a cycle (2026-10-16).
+    #23479 (Aptitude PT, 3CX voicemail): Halo refused Allie's notes (the
+    "Incident Management + Triage" workflow's Triage step now allows only
+    the Triage action - a Halo-side change between 10-14 20:03 and 10-15
+    18:54 UTC), the run ended [CACHE: BLOCKED] at 20:04 UTC, and under
+    v2.15.24 the status was left at New so it would come back once the
+    2-hour block ran out. It never did: the pre-flight gate only compares
+    Halo fingerprints, and an expiring block changes nothing in Halo, so
+    every cycle after 22:04 was skipped ("nothing changed"). Blocked and
+    human-owned entries that expire on load are now collected, and any of
+    them forces one classifier pass (logged as "running anyway - cooldown
+    ended for ..."); that cycle's saved cache drops them, so it happens once.
     Version: 2.15.24 - a blocked run no longer strands a ticket in AI Waiting
     Approval (2026-10-15). #23475 (SJP Law Firm, Windows 10 end of support):
     the resolver re-linked the contact and investigated fully, but Halo
@@ -3559,6 +3571,13 @@ if ($agentCache.unassigned_last_seen) {
 $blockedTicketRetryHours = 2   # v2.14.3: was 4 (Roger, 2026-09-23)
 if ($config.claude.blocked_ticket_retry_hours) { $blockedTicketRetryHours = [double]$config.claude.blocked_ticket_retry_hours }
 $blockedTickets = @{}
+# v2.15.25: cooldowns that ran out since the last saved cycle. The pre-flight
+# gate only notices changes in Halo, so an expiring block or human-owned
+# hold changed nothing it can see - real incident, #23479 (2026-10-15): its
+# 2-hour block ran out at about 22:04 UTC and no cycle ran for it, because
+# the unassigned bucket itself never changed. Any entry here forces one
+# classifier pass; the cache saved by that cycle no longer has it.
+$cooldownsExpired = @()
 if ($agentCache.blocked_tickets) {
     foreach ($prop in $agentCache.blocked_tickets.PSObject.Properties) {
         [datetime]$blockedAt = 0
@@ -3566,6 +3585,7 @@ if ($agentCache.blocked_tickets) {
             if (((Get-Date) - $blockedAt).TotalHours -lt $blockedTicketRetryHours) {
                 $blockedTickets[$prop.Name] = $prop.Value
             }
+            else { $cooldownsExpired += "blocked:$($prop.Name)" }
         }
     }
 }
@@ -3613,6 +3633,7 @@ if ($agentCache.human_owned_tickets) {
             if (((Get-Date) - $humanOwnedAt).TotalHours -lt $humanOwnedRetryHours) {
                 $humanOwnedTickets[$prop.Name] = $prop.Value
             }
+            else { $cooldownsExpired += "human_owned:$($prop.Name)" }
         }
     }
 }
@@ -6369,7 +6390,10 @@ try {
                 foreach ($key in @($unassignedLastSeen.Keys)) {
                     if (-not $seenUnassignedIds.ContainsKey($key)) { $unassignedLastSeen.Remove($key) }
                 }
-                $shouldRunClassifier = $anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged -or $anyStatusBucketChanged
+                $shouldRunClassifier = $anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged -or $anyStatusBucketChanged -or ($cooldownsExpired.Count -gt 0)
+                if ($cooldownsExpired.Count -gt 0 -and -not ($anyUnassignedChanged -or ($gate.stuck_claimed_count -gt 0) -or $anyTrackedChanged -or $anyStatusBucketChanged)) {
+                    Add-Content -Path $logFile -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] gate: nothing changed in Halo, running anyway - cooldown ended for $($cooldownsExpired -join ', ')" -Encoding UTF8
+                }
                 if ($gate.unassigned_truncated) {
                     $gateTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                     Add-Content -Path $logFile -Value "[$gateTimestamp] NOTE: unassigned gate fingerprint truncated - the Help Desk unassigned bucket has more tickets than the Worker's page cap covered this cycle (unassigned_count=$($gate.unassigned_count)); a change on a ticket past the cap could be missed until it's covered by a future cycle." -Encoding UTF8
