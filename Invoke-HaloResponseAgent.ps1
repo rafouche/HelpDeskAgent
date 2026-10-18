@@ -73,6 +73,18 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.26 - requests: check what the tools can answer (2026-10-18).
+    Prompt only. In a replay of #23505 (new user for Thompson Sales) one run
+    checked the tenant's licenses and found no free seat; a second run of the
+    same ticket skipped every CIPP lookup because they "wouldn't change what
+    we need to ask". resolver-prompt.md's "Requests a technician will carry
+    out" section now lists the lookups to run before asking or handing over
+    (new user: tenant, existing account, free license seats; offboarding:
+    account, licenses, mailbox; access: the group/mailbox/site and who has
+    it; hardware/software: the device in NinjaOne), with results or the
+    CONNECTOR ISSUE line in the findings note. Applies to both reply styles.
+    Roger asked for the .NET runtime (rafouche/AllieService) to be at least
+    as thorough as this script; it reads this same prompt, so both get it.
     Version: 2.15.25 - an expiring cooldown triggers a cycle (2026-10-16).
     #23479 (Aptitude PT, 3CX voicemail): Halo refused Allie's notes (the
     "Incident Management + Triage" workflow's Triage step now allows only

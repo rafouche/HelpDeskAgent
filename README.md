@@ -340,7 +340,7 @@ never leaving it in New. In approval mode she does this with
 anything. Emergencies and alerts about a client's systems follow their own
 sections.
 
-## Requests a technician will carry out (v2.15.10-11, both reply styles)
+## Requests a technician will carry out (v2.15.10-11 and v2.15.26, both reply styles)
 For a request rather than a problem - a new user, access, software or
 hardware, a setup, an offboarding - Allie asks in her first reply for
 whatever the technician will need and the client didn't give: one to three
@@ -352,6 +352,14 @@ mailbox-only license such as Exchange Online Plan 1 also needs the Office
 apps), a start date. Offboarding: last day, who gets their email and
 files, mail forwarding. If nothing is missing, she just acknowledges and
 hands it over.
+
+Before asking or handing over she runs the lookups the technician will need,
+even when they wouldn't change the reply (v2.15.26): a new user's tenant,
+whether they already have an account, and whether any license has a free
+seat (none free is flagged as a blocker - she never buys one); for an
+offboarding the account, its licenses and mailbox; for access the group,
+mailbox or site and who has it; for hardware or software the device in
+NinjaOne. Results, or the CONNECTOR ISSUE line, go in the findings note.
 
 ## Brief client replies (optional, v2.15.8)
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,

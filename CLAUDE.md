@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.25, 2026-10-16 (v2.15.24 confirmed on the server; v2.15.25 deployed 2026-10-16 awaiting confirmation; classifier on Haiku 5.5 since 2026-10-14; OPEN: Halo refuses Private Note on new tickets at the workflow Triage step since 10-15 - see the v2.15.25 entry):
+As of v2.15.26, 2026-10-18 (v2.15.25 deployed 2026-10-16; v2.15.26 on main, NOT deployed - waiting for Roger's go; classifier on Haiku 5.5 since 2026-10-14; OPEN: Halo refuses Private Note on new tickets at the workflow Triage step since 10-15 - see the v2.15.25 entry):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,22 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.26 - requests: check what the tools can answer (2026-10-18).** Prompt
+only. Roger compared replays of #23505 (new user for Thompson Sales) in this
+script and in the .NET runtime (rafouche/AllieService, which reads this same
+resolver-prompt.md): one run checked CIPP licenses and found 34/34 and 5/5
+used, another skipped every lookup because they "wouldn't change what we
+need to ask". Roger wants the runtime at least as thorough as this script,
+with both kept in step. "Requests a technician will carry out" now lists
+the lookups to run before asking or handing over: new user (tenant, existing
+account, free license seats; no free seat is a blocker, never buy one; note
+on-prem AD sync), offboarding (account, licenses, mailbox), access (the
+group/mailbox/site and who has it), hardware/software (the device in
+NinjaOne); each result or its CONNECTOR ISSUE line goes in the findings note.
+Prompt changes reach AllieService through its import, so a prompt change
+here needs no port there; a PS1 code change does (AllieService's
+F-changes-since-baseline.md).
 
 **v2.15.25 - an expiring cooldown triggers a cycle (2026-10-16).** Roger:
 "ticket 23479 hasn't been touched since 2:56 pm and it's now 7pm." Its run

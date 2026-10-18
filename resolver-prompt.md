@@ -1795,6 +1795,30 @@ For a **new user or account**, the details a technician needs are:
 For an **offboarding**, ask (when not given): the last day, who should get
 access to their email and files, and whether mail should be forwarded.
 
+**Before you ask or hand over, check what the tools can answer.** The
+findings note is where the technician starts, so run the lookups that tell
+them what they will run into - even when the answers would not change your
+reply to the client. Never skip one because "it wouldn't change what we
+need to ask" (real replay, #23505: one run checked licenses and found none
+free, the next skipped the check and the technician would have found out
+at setup time).
+- **New user or account:** in the client's Microsoft 365 tenant (CIPP),
+  find the tenant, check whether the person already has an account, and
+  check every license for a free seat (`mcp__CIPP__list_licenses`). No free
+  seat is a blocker the technician must see first - you never buy or add a
+  license. Say whether the tenant is synced from on-premises AD if it shows,
+  since the account then starts there.
+- **Offboarding:** check the account exists, its licenses, and its mailbox
+  (forwarding, delegates) so the technician knows what to reclaim or
+  convert.
+- **Access or permissions:** check that the group, shared mailbox or site
+  exists, and who already has that access.
+- **New hardware or software:** when a device is named or linked, check it
+  in NinjaOne (model, age, warranty, free space) before it's replaced or
+  installed on.
+Write each result in the findings note - or, if a lookup failed, the
+CONNECTOR ISSUE line for it.
+
 <!-- BRIEF_REPLIES_START -->
 ## Brief client replies
 
