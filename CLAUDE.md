@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.26, 2026-10-18 (v2.15.26 deployed 2026-10-18 - production fast-forwarded to b569744, waiting for Roger to confirm the server pulled it; classifier on Haiku 5.5 since 2026-10-14; OPEN: Halo refuses Private Note on new tickets at the workflow Triage step since 10-15 - see the v2.15.25 entry):
+As of v2.15.26, 2026-10-18 (v2.15.26 deployed 2026-10-18 - production fast-forwarded to b569744, server confirmed; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix (actions 7 and 16 always allowed) made by Roger 2026-10-18, to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
