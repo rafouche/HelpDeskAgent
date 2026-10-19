@@ -3929,9 +3929,15 @@ Cloudflare Workers from `rafouche/MCPs`, registered `-s project` in
 - `Halo`, `CIPP`, `Ninja`, `HUDU` - Worker enforces `MCP_AUTH_TOKEN` (all
   four held as Secrets; Ninja's converted 2026-09-28; 401 without a token,
   checked 2026-09-30).
-- `Meraki`, `Unifi`, `Peplink`, `Huntress` - connected; Worker token NOT
-  set: a bare POST to `/mcp` got 400 on 2026-09-30, i.e. open to anyone
-  with the URL, Meraki's write tools included.
+- `Huntress` - Worker enforces `MCP_AUTH_TOKEN` since 2026-10-19 (Secret,
+  deployed; `.mcp.json` entry carries the Bearer header, set with
+  scratchpad set-mcp-token.ps1; AllieService via `connections set-token`).
+  Checked: no/wrong token -> 401 on /mcp, with token 29 tools from both the
+  PS1 side and AllieService; /health and the wallboard's GET
+  /api/huntress/* still 200.
+- `Meraki`, `Unifi`, `Peplink` - connected; Worker token NOT set yet: a
+  bare POST to `/mcp` got 400 on 2026-09-30, i.e. open to anyone with the
+  URL, Meraki's write tools included. Same steps as Huntress, one at a time.
 - `HUDU` (ALL-CAPS; the `mcp__HUDU__` prefix must match exactly) is now the
   `hudu-mcp` Worker over Hudu's REST API (API key as a Worker secret), a
   drop-in for Hudu's hosted OAuth MCP. **Correction 2026-10-19:** Huntress
