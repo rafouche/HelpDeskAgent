@@ -73,6 +73,16 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.27 - findings note layout (2026-10-19). Prompt only. Roger:
+    a findings note written as one long paragraph (a software check for
+    Battlefield Fire) is hard to scan. resolver-prompt.md has a new "Laying
+    out a findings note" section: short labelled sections (Request, Ticket
+    fixes, Checked, Not found / could not check, Likely cause / answer,
+    Confidence, Next steps for the technician), one fact per line naming its
+    system, a blank line between sections. Halo's ticket view shows the line
+    breaks from either update tool (note_html or plain newlines). Findings
+    note only; drafts and [PIPELINE NOTE]s are unchanged. AllieService reads
+    this same prompt.
     Version: 2.15.26 - requests: check what the tools can answer (2026-10-18).
     Prompt only. In a replay of #23505 (new user for Thompson Sales) one run
     checked the tenant's licenses and found no free seat; a second run of the

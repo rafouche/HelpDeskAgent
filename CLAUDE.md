@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.26, 2026-10-18 (v2.15.26 deployed 2026-10-18 - production fast-forwarded to b569744, server pull not yet explicitly confirmed; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.27, 2026-10-19 (v2.15.27 on main, NOT deployed - waiting for Roger's go; v2.15.26 deployed 2026-10-18 - production fast-forwarded to b569744, server pull not yet explicitly confirmed; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,21 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.27 - findings note layout (2026-10-19).** Prompt only. Roger sent a
+findings note (Battlefield Fire, "does my computer meet the course
+requirements") that ran together as one paragraph. New resolver-prompt.md
+section "Laying out a findings note", placed outside the BRIEF_REPLIES block
+so both reply styles get it: a "Findings (Allie)" heading, then labelled
+sections in a fixed order (Request; Ticket fixes; Checked; Not found / could
+not check; Likely cause / answer; Confidence; Next steps for the
+technician), only those with content, one fact per line naming the system,
+blank line between sections. CONNECTOR ISSUE lines go under "Not found /
+could not check"; "NEEDS URGENT PRIORITY - " stays the very first line.
+Halo's ticket view shows the breaks either way: update_ticket sets note_html
+(\n -> <br>), and update_ticket_draft_only's plain \n renders in the UI too
+(Roger's example kept its paragraph breaks). Drafts and [PIPELINE NOTE]s are not affected.
+No port to AllieService (it imports the prompt; F-12 there).
 
 **v2.15.26 - requests: check what the tools can answer (2026-10-18).** Prompt
 only. Roger compared replays of #23505 (new user for Thompson Sales) in this

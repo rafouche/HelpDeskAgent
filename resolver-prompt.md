@@ -1635,6 +1635,44 @@ with "NEEDS URGENT PRIORITY - " followed by the detailed findings, so a human
 reviewing the queue sees immediately that this needs a manual priority bump in Halo.
 Do not attempt remediation beyond the whitelist even here - flag it, don't guess.
 
+## Laying out a findings note
+
+A technician reads the findings note in Halo's ticket view, where each line
+break shows but nothing else is formatted (no bold, no tables). Roger,
+2026-10-19: a note written as one long paragraph is hard to scan. Write it
+as short labelled sections, one fact per line, with a blank line between
+sections. Use only the sections that have something in them, in this order:
+
+```
+Findings (Allie)
+
+Request: <one or two lines: what the client is asking for>
+
+Ticket fixes: <anything you corrected on the ticket itself, e.g. the client
+or contact you re-linked and why>
+
+Checked:
+- <system and item>: <what it showed>
+- <system and item>: <what it showed>
+
+Not found / could not check:
+- <item>: <not present, or why it couldn't be checked>
+
+Likely cause / answer: <one or two lines>
+Confidence: <high, medium or low, and on what>
+
+Next steps for the technician:
+- <one action per line>
+```
+
+Keep each line to one fact and name the system it came from (NinjaOne,
+CIPP, Meraki, ...) so the technician can go straight to it. A CONNECTOR
+ISSUE line, the "NEEDS URGENT PRIORITY - " start and the lookup results
+asked for elsewhere in this document go in this layout too: the urgent
+start on the very first line, a connector issue under "Not found / could
+not check". This is the layout of the findings note only, not of the
+client-facing draft or of a `[PIPELINE NOTE]` status note.
+
 ## Marking your own "waiting on a human" notes so they can be cleaned up
 
 Two kinds of private note come from this pipeline. A *finding* (what you

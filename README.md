@@ -1119,6 +1119,12 @@ in config.json decides:
 A client not listed gets the ticket's own site, and the agent's note says
 which rule picked it, so moving a contact later is a two-second fix.
 
+Findings notes have a fixed layout (v2.15.27) so a technician can scan them:
+a "Findings (Allie)" heading, then short labelled sections - Request, Ticket
+fixes, Checked, Not found / could not check, Likely cause / answer,
+Confidence, Next steps for the technician - one fact per line, each naming
+the system it came from, with a blank line between sections.
+
 The agent's private notes come in two kinds. Findings (what it checked,
 found and did) stay on the ticket. Status notes, which only say it is waiting
 on a human for something, start with the line `[PIPELINE NOTE]`, and the
