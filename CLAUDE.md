@@ -3934,8 +3934,13 @@ Cloudflare Workers from `rafouche/MCPs`, registered `-s project` in
   with the URL, Meraki's write tools included.
 - `HUDU` (ALL-CAPS; the `mcp__HUDU__` prefix must match exactly) is now the
   `hudu-mcp` Worker over Hudu's REST API (API key as a Worker secret), a
-  drop-in for Hudu's hosted OAuth MCP. Huntress is likewise the Worker, not
-  the vendor's OAuth MCP. Nothing needs `claude mcp login` any more.
+  drop-in for Hudu's hosted OAuth MCP. **Correction 2026-10-19:** Huntress
+  was NOT the Worker on the server: AllieService's import (10-17) found
+  `.mcp.json`'s Huntress entry on the vendor's OAuth MCP with no header, and
+  #23573 (10-19) logged "Huntress: MCP needs authorization in this session".
+  Roger was given a script that re-points it at
+  https://huntress-mcp.young-math-a33a.workers.dev/mcp (backup first, other
+  entries untouched); to confirm on the next cycle's log.
 - `JumpCloud` - being retired (Roger, 2026-09-30): removed from the
   allowlist and prompt in v2.15.7; its `.mcp.json` entry is removed on the
   server by hand. The Worker is still deployed and open until deleted.
