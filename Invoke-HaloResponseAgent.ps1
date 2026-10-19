@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.28 - replies start with findings; print-quality questions
+    (2026-10-19). Prompt only. Roger: drop the niceties ("I understand how
+    frustrating ...") and go straight to "I've checked ... and ...". The tone
+    section, the brief-reply checklist and its examples now lead with what was
+    checked, with no sympathy opener or closer, frustrated clients included.
+    New "Print quality problems" section (a ticket about black lines on the
+    page): check the tools for the printer's make and model first, then ask
+    inkjet or laser and the model, and for inkjet whether another cartridge
+    was tried, for laser whether the toner is OEM or remanufactured and
+    whether it was replaced; no print-queue fixes for marks on the page.
+    Allowed in brief replies as an exception to "never ask about equipment".
     Version: 2.15.27 - findings note layout (2026-10-19). Prompt only. Roger:
     a findings note written as one long paragraph (a software check for
     Battlefield Fire) is hard to scan. resolver-prompt.md has a new "Laying

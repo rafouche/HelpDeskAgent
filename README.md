@@ -361,6 +361,19 @@ offboarding the account, its licenses and mailbox; for access the group,
 mailbox or site and who has it; for hardware or software the device in
 NinjaOne. Results, or the CONNECTOR ISSUE line, go in the findings note.
 
+## How replies open, and print-quality tickets (v2.15.28, both reply styles)
+
+Every client reply starts with what Allie checked and found, straight after
+the greeting ("Hi Sam, I've checked your account and ..."), with no sympathy
+opener or closer, even when the client is frustrated.
+
+For marks on the printed page (lines, streaks, smudges, faded print) she
+looks up the printer's make and model first, then asks only what's missing:
+inkjet or laser and the model; for an inkjet, whether another ink cartridge
+was tried; for a laser, whether the toner is the maker's own or
+remanufactured, and whether the toner cartridge was replaced. Print-queue
+resets aren't used for these.
+
 ## Brief client replies (optional, v2.15.8)
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,
 today's replies) or `"brief"`. Brief changes only what the client reads:

@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.27, 2026-10-19 (v2.15.27 deployed 2026-10-19 - production fast-forwarded to 212ad28, server pull to be confirmed; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.28, 2026-10-19 (v2.15.28 on main, NOT deployed - waiting for Roger's go; v2.15.27 deployed 2026-10-19 - production fast-forwarded to 212ad28, server pull to be confirmed; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,24 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.28 - replies start with findings; print-quality questions
+(2026-10-19).** Prompt only. Roger: lose the niceties in the first reply
+("I understand how frustrating ...") and skip to "I've checked and ...".
+resolver-prompt.md: the Tone section's "When the client is frustrated"
+paragraph (which required acknowledging the problem first, with that very
+example) is now "Start with what you found" - greeting, then what was
+checked and what it showed, no sympathy opener or closer, frustrated
+clients included; "Warm ... empathetic" became "Calm, direct". The brief
+replies checklist loses "acknowledges the issue" and its two examples lose
+their apologies. New "Print quality problems" section (a recent ticket
+about black lines on printed pages): look up the make/model first (ticket,
+photo, Hudu assets, past tickets, NinjaOne printers), then ask only what's
+missing - inkjet or laser and the model; inkjet: another cartridge tried
+(and head cleaning); laser: OEM or remanufactured toner, cartridge
+replaced. Allowed in brief replies (an explicit exception to "never ask
+about the equipment"). Print-queue fixes are not run for marks on the page.
+The Capabilities Brief's Voice card and sample line were updated to match.
 
 **v2.15.27 - findings note layout (2026-10-19).** Prompt only. Roger sent a
 findings note (Battlefield Fire, "does my computer meet the course
