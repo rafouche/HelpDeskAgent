@@ -378,8 +378,8 @@ resets aren't used for these.
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,
 today's replies) or `"brief"`. Brief changes only what the client reads:
 Allie investigates exactly as before. Since v2.15.12 a brief reply aims
-for the middle - three to six plain sentences that acknowledge the issue,
-say what she looked at and what it showed, say what happens next, and give
+for the middle - three to six plain sentences that say what she looked at
+and what it showed (no sympathy opener, v2.15.28), say what happens next, and give
 one thing to try or ask what's needed. No device names, product names,
 technical terms or step lists.
 
