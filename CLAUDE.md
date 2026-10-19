@@ -3940,7 +3940,10 @@ Cloudflare Workers from `rafouche/MCPs`, registered `-s project` in
   #23573 (10-19) logged "Huntress: MCP needs authorization in this session".
   Roger was given a script that re-points it at
   https://huntress-mcp.young-math-a33a.workers.dev/mcp (backup first, other
-  entries untouched); to confirm on the next cycle's log.
+  entries untouched). Done 2026-10-19: the task runs as SYSTEM with
+  enableAllProjectMcpServers true (so `claude mcp list`'s "Pending approval"
+  under Roger's own login doesn't matter), and the Worker's tools/list
+  returned 29 tools.
 - `JumpCloud` - being retired (Roger, 2026-09-30): removed from the
   allowlist and prompt in v2.15.7; its `.mcp.json` entry is removed on the
   server by hand. The Worker is still deployed and open until deleted.
