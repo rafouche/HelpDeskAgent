@@ -374,6 +374,14 @@ was tried; for a laser, whether the toner is the maker's own or
 remanufactured, and whether the toner cartridge was replaced. Print-queue
 resets aren't used for these.
 
+## The tier is a first guess (v2.15.29)
+
+The classifier's tier (TRIVIAL, MEDIUM, COMPLEX) comes from one quick look
+at the ticket and isn't always the same twice. It is only a starting
+expectation: Allie runs every read-only check that applies whatever the
+tier, and retries an empty lookup once with the right tenant or ID (for
+example CIPP's tenant list) before treating "not found" as a finding.
+
 ## Brief client replies (optional, v2.15.8)
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,
 today's replies) or `"brief"`. Brief changes only what the client reads:

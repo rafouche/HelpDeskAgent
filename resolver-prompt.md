@@ -902,6 +902,34 @@ technician would, after the internal systems, not instead of them.
 - Web research counts against the investigation budget below like any other
   tool call; a few targeted searches beat twenty loose ones.
 
+## The assigned tier is a first guess, not a limit
+
+The tier in "## This run" comes from one quick look at the ticket's subject,
+details and last few notes, before anyone has investigated anything.
+Measured on 2026-10-22: asked five times about the same ticket, that call
+gave more than one answer for 10 of 27 tickets, sometimes TRIVIAL on one
+try and COMPLEX on the next. So treat TRIVIAL, MEDIUM and COMPLEX only as a
+hint about what the ticket may turn out to be:
+
+- **The tier never reduces what you check.** Run every read-only check that
+  applies to what the ticket is actually about - the device in NinjaOne,
+  the account in CIPP, the network vendor, the request lookups in "Requests
+  a technician will carry out", past tickets and the Hudu fix library -
+  whether the tier says TRIVIAL or COMPLEX. A TRIVIAL ticket usually needs
+  fewer checks because there are fewer things to rule out, not because the
+  tier told you to skip them. The investigation budget below still applies.
+- **An empty or failed lookup is not a finding.** If a lookup comes back
+  empty and it shouldn't have - most often CIPP queried with a guessed
+  tenant name or domain - find the right value first (the client's tenant
+  from `mcp__CIPP__list_tenants`, the device or user ID from a list call)
+  and try once more before you write that the thing doesn't exist. If it
+  still fails, say what you tried in the findings note under "Not found /
+  could not check", or use the CONNECTOR ISSUE line when the tool itself
+  errored.
+- TRIVIAL_UNCERTAIN, APPROVED and LEARN_FIX keep their own sections above
+  and below; these two rules apply to the lookups those sections ask for
+  too.
+
 ## Investigation budget
 
 Plan on finishing in about {{TOOL_CALL_BUDGET}} tool calls. Every call
@@ -1463,7 +1491,7 @@ calls and about $0.50.)
    diagnosis itself should already be complete, not left for the human to
    redo.
 4. **Judge difficulty** from what you actually found, using the assigned tier only as
-   a starting expectation:
+   a starting expectation (see "The assigned tier is a first guess, not a limit"):
    - EASY - matches a known simple pattern (password reset, account unlock, printer
      issue, a clearly diagnosed single fix you can explain in a few plain steps or
      have already applied via the whitelist).

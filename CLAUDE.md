@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.28, 2026-10-19 (v2.15.28 deployed 2026-10-19 - production fast-forwarded to ce76180; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.29, 2026-10-22 (v2.15.29 on main, NOT deployed - waiting for Roger's go; v2.15.28 deployed 2026-10-19 - production at ce76180; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,22 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.29 - the tier is a first guess, not a limit (2026-10-22).** Prompt
+only. Phase 3 review (AllieService shadow vs this script, 10-19 to 10-21):
+outcomes 33/33 the same, tiers only 21/33. AllieService's `tier-test` sent
+the same tiering call (Haiku 5.5, low) 5 times per ticket on one fixed
+brief: 17 of 27 tickets got the same tier every time, 90% of single calls
+matched the ticket's usual tier, and 6 of the 9 production/shadow tier
+differences were the call disagreeing with itself. The harm was depth: the
+shadow's TRIVIAL draws on #23584 (no NinjaOne check) and #23585 (empty CIPP
+lookup with a guessed tenant, not retried). New resolver-prompt.md section
+before "Investigation budget": the tier never reduces what is checked; an
+empty or failed lookup gets the right tenant (`mcp__CIPP__list_tenants`)
+or ID and one retry before it counts as a finding. Step 4 "Judge
+difficulty" points at it. Not done (Roger's call, 2026-10-22): a
+three-call majority vote for tiering, a code change kept in reserve if the
+next review still shows tier-driven differences.
 
 **v2.15.28 - replies start with findings; print-quality questions
 (2026-10-19).** Prompt only. Roger: lose the niceties in the first reply

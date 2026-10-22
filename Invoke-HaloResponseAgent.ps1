@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.29 - the tier is a first guess, not a limit (2026-10-22).
+    Prompt only. AllieService's tier-test sent the same tiering call 5 times
+    per ticket on identical input: 10 of 27 tickets got more than one tier,
+    sometimes TRIVIAL and COMPLEX for the same ticket. In the shadow review
+    the TRIVIAL draws did less checking (#23584 skipped NinjaOne, #23585
+    took an empty CIPP result with a guessed tenant at face value).
+    resolver-prompt.md's new section "The assigned tier is a first guess, not
+    a limit": the tier never reduces what is checked, and an empty or failed
+    lookup is retried once with the right tenant or ID before it counts as a
+    finding. Applies to the lookups in the TRIVIAL_UNCERTAIN, APPROVED and
+    LEARN_FIX sections too. AllieService reads this same prompt.
     Version: 2.15.28 - replies start with findings; print-quality questions
     (2026-10-19). Prompt only. Roger: drop the niceties ("I understand how
     frustrating ...") and go straight to "I've checked ... and ...". The tone
