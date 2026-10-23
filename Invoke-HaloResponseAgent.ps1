@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.30 - "can it do this?" questions use the manufacturer's
+    documentation (2026-10-23). Prompt only. #23728 asked whether one
+    anonymous caller could be blocked for one employee; Allie checked only
+    the 3CX API, said its only block list was for IP addresses and suggested
+    a per-extension anonymous rule the documentation doesn't show. 3CX's
+    documentation says the anonymous block is system-wide. resolver-prompt.md,
+    "Researching on the web": for a capability question, read the
+    manufacturer's documentation first, put the answer, its scope and the
+    source in the findings note, give the client the real answer, and never
+    propose a setting the documentation doesn't show. AllieService reads
+    this same prompt.
     Version: 2.15.29 - the tier is a first guess, not a limit (2026-10-22).
     Prompt only. AllieService's tier-test sent the same tiering call 5 times
     per ticket on identical input: 10 of 27 tickets got more than one tier,

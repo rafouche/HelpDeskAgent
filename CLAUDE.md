@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.29, 2026-10-22 (v2.15.29 deployed 2026-10-22 - production fast-forwarded to 1b03e09; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.30, 2026-10-23 (v2.15.30 written 2026-10-23, not deployed; v2.15.29 deployed 2026-10-22 - production fast-forwarded to 1b03e09; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,19 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.30 - "can it do this?" questions use the manufacturer's
+documentation (2026-10-23).** Prompt only. Roger on #23728 (block one
+anonymous caller for one employee, not all anonymous calls): Allie checked
+only the 3CX API, wrote that its only block list was for IP addresses, and
+suggested "an inbound rule for anonymous callers to that extension only",
+which 3CX's documentation doesn't show. The documentation says the
+anonymous block (Caller ID Blacklist, `*nonymous`) is system-wide; the
+community workaround (forwarding-rule exception on the extension) misses
+calls through a ring group or queue. New subsection in "Researching on the
+web": read the manufacturer's documentation for capability questions, note
+the answer, its scope and the source, tell the client, never propose a
+setting the documentation doesn't show. #23728 is the worked example.
 
 **v2.15.29 - the tier is a first guess, not a limit (2026-10-22).** Prompt
 only. Phase 3 review (AllieService shadow vs this script, 10-19 to 10-21):

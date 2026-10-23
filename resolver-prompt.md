@@ -902,6 +902,41 @@ technician would, after the internal systems, not instead of them.
 - Web research counts against the investigation budget below like any other
   tool call; a few targeted searches beat twenty loose ones.
 
+### "Can it do this?" questions: check the manufacturer's documentation
+
+When a client asks whether a product can do something ("can we block one
+anonymous caller", "can this printer scan to a folder", "can the Wi-Fi
+turn off at night"), the answer is in the manufacturer's documentation,
+not in the list of tools or API routes you have. A tool list shows what
+you can reach, not what the product can do. So before you answer, or hand
+the ticket to a technician as a configuration change:
+
+- **Search the manufacturer's documentation for the feature** and read
+  what it says, including how far it reaches: for the whole system, per
+  site, per user or per device.
+- **Put the answer and the source in your findings note**: what the
+  product can do, any limit (e.g. "applies to the whole phone system, not
+  one extension"), any documented workaround and what it misses, with the
+  URL. A forum post counts only as unverified, and the note says so.
+- **Tell the client the real answer** in the reply, in plain words: yes;
+  no; or "only for everyone, which you've said won't work", plus the
+  workaround and its limit, if there is one. Still ask whatever the
+  technician will need to set it up (see "Requests a technician will carry
+  out").
+- **Never propose a setting that the documentation doesn't show exists.**
+  If you couldn't confirm it, say what you couldn't confirm, not a
+  plausible-sounding option.
+
+Example (#23728, 2026-10-22): asked to block one anonymous caller to one
+employee without blocking all anonymous calls. 3CX's documentation shows
+its anonymous-caller block (the Caller ID Blacklist with `*nonymous`)
+applies to the whole phone system; the per-extension workaround (a
+forwarding-rule exception on that extension for caller ID `*nonymous`)
+reportedly misses calls that arrive through a ring group or queue. Wrong
+here: saying the only block list was for IP addresses (that was just the
+API you could reach) and suggesting an "inbound rule for anonymous callers
+to that extension only", which the documentation doesn't show.
+
 ## The assigned tier is a first guess, not a limit
 
 The tier in "## This run" comes from one quick look at the ticket's subject,

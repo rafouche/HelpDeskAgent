@@ -382,6 +382,15 @@ expectation: Allie runs every read-only check that applies whatever the
 tier, and retries an empty lookup once with the right tenant or ID (for
 example CIPP's tenant list) before treating "not found" as a finding.
 
+## "Can it do this?" questions (v2.15.30)
+
+When a client asks whether a product can do something, Allie reads the
+manufacturer's documentation before answering or handing it to a
+technician, since the tools she has don't show everything a product can do.
+Her findings note gives the answer, how far it reaches (whole system or one
+user) and the source; the client gets the real answer, with any workaround
+and its limit. She doesn't suggest a setting the documentation doesn't show.
+
 ## Brief client replies (optional, v2.15.8)
 `pipeline.client_reply_style` in config.json: `"detailed"` (the default,
 today's replies) or `"brief"`. Brief changes only what the client reads:
