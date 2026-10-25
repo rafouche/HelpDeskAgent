@@ -1240,6 +1240,19 @@ unreadable time fails open; entries expire after 14 days. Real incident:
 #23007, a CIPP alert with nobody to reply to, was left in New and run 17
 times in two days, every run finding its own earlier note.
 
+**A ticket blocked twice in a row (v2.15.31, `pipeline.blocked_wait_for_change`,
+default off).** A run that ends `[CACHE: BLOCKED]` backs off for
+`blocked_ticket_retry_hours` and is then tried again. With the flag on, a
+ticket that ends BLOCKED a second time in a row is also stamped in
+`unassigned_worked`, so it waits as above until a person or the client adds
+something (changing its ticket type or status counts). The first block
+still retries by itself, so a one-off outage recovers; Ready for AI retries
+it at once. The cache keeps `blocked_repeat` (ticket -> time of its last
+BLOCKED run); any other marker clears it, and entries expire after 14
+days. Real incident: #23240, a Project-type ticket Halo won't move to AI
+Waiting Approval, was retried 10-20 times a day for two weeks at about $7
+a day.
+
 `pipeline.skip_status_names` is the list of status names the deterministic
 path treats as "an active workflow this pipeline can't act on" (Dispatch
 Needed, Scheduled, Quote*, ...). The seeded list mirrors the examples in

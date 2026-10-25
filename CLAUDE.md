@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.30, 2026-10-23 (v2.15.30 deployed 2026-10-23 - production fast-forwarded to c08c428; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.31, 2026-10-25 (v2.15.31 written 2026-10-25, not deployed - new flag pipeline.blocked_wait_for_change, default off; v2.15.30 deployed 2026-10-23 - production fast-forwarded to c08c428; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,21 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.31 - a ticket blocked twice in a row waits for someone to act
+(2026-10-25).** Code, behind `pipeline.blocked_wait_for_change` (default
+false). #23240 (Project ticket type; Halo returns "Invalid Status" for AI
+Waiting Approval) sat in New since 10-09 and was rerun 10-20 times a day,
+about $7/day in production and $5.60 in the shadow, each run ending
+[CACHE: BLOCKED] after the 2-hour back-off. New agent-cache map
+`blocked_repeat` (ticket -> cycle start UTC of its last BLOCKED run); with
+the flag on, a second BLOCKED in a row also stamps `unassigned_worked`, so
+the v2.15.16 already-worked check holds it until a non-pipeline,
+non-automation action appears. Set after the line that clears
+unassigned_worked for non-UNTRACK markers. First block still retries (an
+outage recovers); any other marker clears the entry; pruned at 14 days with
+unassigned_worked. Only the unassigned bucket is affected; Ready for AI
+overrides. AllieService F-16 ports it.
 
 **v2.15.30 - "can it do this?" questions use the manufacturer's
 documentation (2026-10-23).** Prompt only. Roger on #23728 (block one

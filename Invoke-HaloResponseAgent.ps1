@@ -73,6 +73,18 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.31 - a ticket blocked twice in a row waits for someone to
+    act (2026-10-25). Behind pipeline.blocked_wait_for_change, default off.
+    #23240, a Project-type ticket Halo won't move to AI Waiting Approval,
+    was retried 10-20 times a day for two weeks (about $7 a day), each run
+    ending [CACHE: BLOCKED] the same way after its 2-hour back-off. New cache
+    map blocked_repeat (ticket -> cycle start of its last BLOCKED run). With
+    the flag on, a second BLOCKED in a row also stamps unassigned_worked, so
+    the v2.15.16 "already worked" check keeps the ticket out until a person
+    or the client adds an action (changing the ticket type counts). The
+    first block still retries after the back-off, so a one-off outage
+    recovers by itself; Ready for AI overrides it; any other marker clears
+    the entry; entries expire after 14 days.
     Version: 2.15.30 - "can it do this?" questions use the manufacturer's
     documentation (2026-10-23). Prompt only. #23728 asked whether one
     anonymous caller could be blocked for one employee; Allie checked only
@@ -3578,6 +3590,21 @@ if ($agentCache.PSObject.Properties['unassigned_worked'] -and $agentCache.unassi
     foreach ($prop in $agentCache.unassigned_worked.PSObject.Properties) { $unassignedWorked[$prop.Name] = [string]$prop.Value }
 }
 
+# v2.15.31: tickets whose last run ended [CACHE: BLOCKED] - ticket id -> that
+# cycle's start (UTC ISO text). Real incident: #23240, a Project-type ticket
+# where Halo refuses the AI Waiting Approval status, was retried 10-20 times
+# a day for two weeks (about $7 a day), every run ending BLOCKED the same
+# way. With pipeline.blocked_wait_for_change on, a ticket that ends BLOCKED a
+# second time in a row is also stamped in $unassignedWorked, so after its
+# blocked_ticket_retry_hours back-off it stays out until a person or the
+# client acts on it. The first block still retries after the back-off, so a
+# one-off outage recovers by itself. Ready for AI still overrides it. Any
+# other marker clears the entry; entries expire after 14 days.
+$blockedRepeat = @{}
+if ($agentCache.PSObject.Properties['blocked_repeat'] -and $agentCache.blocked_repeat) {
+    foreach ($prop in $agentCache.blocked_repeat.PSObject.Properties) { $blockedRepeat[$prop.Name] = [string]$prop.Value }
+}
+
 # v2.15.0: duplicate guard holds - new ticket id -> the earlier ticket id its
 # hold note named, so the note is posted once per hold, not every cycle.
 $duplicateHeld = @{}
@@ -4602,6 +4629,7 @@ $pipelineFlags = @{
     playbooks                = $false   # increment 4: lean core prompt + per-topic playbooks selected per ticket
     client_cards             = $false   # increment 5: per-client context cards (network stack, VLANs, servers) injected per ticket
     duplicate_guard          = $true    # v2.15.0: hold a new ticket whose contact already has a draft waiting for approval (the one flag that defaults ON)
+    blocked_wait_for_change  = $false   # v2.15.31: a ticket blocked twice in a row waits for a person or the client instead of retrying every back-off
 }
 if ($config.PSObject.Properties.Name -contains 'pipeline' -and $config.pipeline) {
     foreach ($flagName in @($pipelineFlags.Keys)) {
@@ -6877,6 +6905,16 @@ try {
             # $unassignedWorked); it only matters if the ticket is still
             # unassigned in a plain status next cycle.
             if ($cacheMarker -eq 'UNTRACK') { $unassignedWorked[[string]$ticketId] = $cycleStartUtc } else { [void]$unassignedWorked.Remove([string]$ticketId) }
+            # v2.15.31: blocked twice in a row - hold until someone acts (see
+            # $blockedRepeat). Set after the line above, which clears the mark.
+            if ($cacheMarker -eq 'BLOCKED') {
+                if ($pipelineFlags.blocked_wait_for_change -and $blockedRepeat.ContainsKey([string]$ticketId)) {
+                    $unassignedWorked[[string]$ticketId] = $cycleStartUtc
+                    Add-Content -Path $logFile -Value "TICKET ${ticketId}: blocked again (also at $($blockedRepeat[[string]$ticketId])Z) - held until a person or the client acts on it (pipeline.blocked_wait_for_change); Ready for AI retries it now." -Encoding UTF8
+                }
+                $blockedRepeat[[string]$ticketId] = $cycleStartUtc
+            }
+            elseif ($cacheMarker) { [void]$blockedRepeat.Remove([string]$ticketId) }
             switch ($cacheMarker) {
                 'TRACK'   { if ($trackedTicketIds -notcontains $ticketId) { $trackedTicketIds += $ticketId } }
                 'UNTRACK' { $trackedTicketIds = @($trackedTicketIds | Where-Object { $_ -ne $ticketId }) }
@@ -6996,6 +7034,12 @@ finally {
                 try { $stamp = [DateTime]::Parse([string]$unassignedWorked[$key], [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { $stamp = $null }
                 if ($stamp -and $stamp -gt $workedCutoff) { $prunedUnassignedWorked[$key] = $unassignedWorked[$key] }
             }
+            $prunedBlockedRepeat = @{}
+            foreach ($key in @($blockedRepeat.Keys)) {
+                $stamp = $null
+                try { $stamp = [DateTime]::Parse([string]$blockedRepeat[$key], [Globalization.CultureInfo]::InvariantCulture, ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)) } catch { $stamp = $null }
+                if ($stamp -and $stamp -gt $workedCutoff) { $prunedBlockedRepeat[$key] = $blockedRepeat[$key] }
+            }
             $updatedCache = [PSCustomObject]@{
                 resolved_ids         = $resolvedIdsForCache
                 tracked_tickets      = @($trackedTicketIds | Select-Object -Unique)
@@ -7003,6 +7047,7 @@ finally {
                 tracked_evaluated    = $prunedTrackedEvaluated
                 duplicate_held       = $duplicateHeld
                 unassigned_worked    = $prunedUnassignedWorked
+                blocked_repeat       = $prunedBlockedRepeat
                 unassigned_last_seen = $unassignedLastSeen
                 blocked_tickets      = $blockedTickets
                 human_owned_tickets  = $humanOwnedTickets
