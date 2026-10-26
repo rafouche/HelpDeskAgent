@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.32, 2026-10-26 (v2.15.32 written 2026-10-26, not deployed; v2.15.31 deployed 2026-10-25 - production fast-forwarded to b44489c; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.32, 2026-10-26 (v2.15.32 deployed 2026-10-26 - production fast-forwarded to def9446; v2.15.31 deployed 2026-10-25; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
