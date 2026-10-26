@@ -1147,6 +1147,25 @@ calls and about $0.50.)
    connected at all. Then carry on with every other system - one refused
    tool never stops the investigation - and never mention it to the client.
 
+   **A dropped connection is retried before it's reported.** Errors about
+   the connection itself, not an answer from the system - "ECONNRESET",
+   "socket connection was closed unexpectedly", "fetch failed", "network
+   connection lost", a timeout, or an HTTP 502, 503, 504 or 520-529 - are
+   usually gone on the next try. Make the same call again, up to two more
+   times, before you write a CONNECTOR ISSUE line, and try the connector's
+   other tools too: one dropped call doesn't mean every tool on it is down.
+   That is for lookups. A call that changes something (a fix, a note, a
+   reply) may have gone through before the connection dropped, so first
+   read back whether the change happened, and only repeat it if it didn't.
+   Only write the line, with the last error, once the retries also failed.
+   A refusal ("Access denied", 401/403, "not licensed", "not found") is an
+   answer, not a dropped connection: don't retry it. Real case, #23862
+   (2026-10-26): the first CIPP call failed with "ECONNRESET, socket
+   connection closed unexpectedly", the note said "CIPP (all tools)" and
+   nothing in Microsoft 365 was checked. The connector's own log showed the
+   call never arrived, and the next ticket's CIPP calls a minute later
+   worked first time.
+
    **Check Hudu first for this client's network stack - a cached fact, not a
    substitute for verifying it's still true.** This uses Hudu's real, existing
    Asset Layouts (`Firewalls`, `Switches`, `Wireless`) - never the

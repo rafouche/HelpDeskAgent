@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.31, 2026-10-25 (v2.15.31 deployed 2026-10-25 - production fast-forwarded to b44489c; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.32, 2026-10-26 (v2.15.32 written 2026-10-26, not deployed; v2.15.31 deployed 2026-10-25 - production fast-forwarded to b44489c; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,22 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.32 - a dropped connection is retried before it's reported
+(2026-10-26).** Prompt only. #23862: production's first CIPP call failed
+"ECONNRESET, socket connection closed unexpectedly"; the note said
+"CONNECTOR ISSUE - CIPP (all tools)". Cloudflare Workers observability for
+cipp-mcp (queried with the scratchpad token, read-only) showed production's
+session initialize at 21:23:48 UTC and then no request at all until the next
+run's fresh session at 21:24:40, whose calls worked; every request the
+Worker did get was answered 200 in ~2 ms. So the reset is between the
+server's Claude Code client and Cloudflare (likely a stale keep-alive
+socket), not CIPP or the Worker. New paragraph after the CONNECTOR ISSUE
+rule: connection-level errors get up to two more tries and the connector's
+other tools are still tried; refusals aren't retried. Same day: AllieService
+WorkerBridge retries transport errors in code, and the Workers answer GET
+/mcp with 405 (the .NET client had been retrying a 200 text/plain reply as
+an SSE stream 3-6 times a cycle).
 
 **v2.15.31 - a ticket blocked twice in a row waits for someone to act
 (2026-10-25).** Code, behind `pipeline.blocked_wait_for_change` (default

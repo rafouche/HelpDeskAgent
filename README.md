@@ -382,6 +382,15 @@ expectation: Allie runs every read-only check that applies whatever the
 tier, and retries an empty lookup once with the right tenant or ID (for
 example CIPP's tenant list) before treating "not found" as a finding.
 
+## Dropped connections are retried (v2.15.32)
+
+When a connector call fails because the connection dropped (connection
+reset, socket closed, timeout, a Cloudflare 502/503/504/52x), Allie makes
+the same call up to twice more and still tries that connector's other tools
+before writing a CONNECTOR ISSUE line. A refusal such as "Access denied" or
+401/403 isn't retried. Real case: #23862, where one reset CIPP call left
+Microsoft 365 unchecked although the connector was working.
+
 ## "Can it do this?" questions (v2.15.30)
 
 When a client asks whether a product can do something, Allie reads the

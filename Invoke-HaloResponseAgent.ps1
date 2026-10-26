@@ -73,6 +73,17 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.32 - a dropped connection is retried before it's reported
+    (2026-10-26). Prompt only. #23862: the first CIPP call failed with
+    "ECONNRESET, socket connection closed unexpectedly", the findings note
+    said "CONNECTOR ISSUE - CIPP (all tools)" and Microsoft 365 went
+    unchecked. The cipp-mcp Worker's Cloudflare log showed the call never
+    reached it (it answered everything it received in a few ms) and the
+    next ticket's CIPP calls worked. resolver-prompt.md, after the CONNECTOR
+    ISSUE rule: connection-level errors (reset, socket closed, fetch failed,
+    timeout, 502/503/504/52x) get the same call up to two more times and the
+    connector's other tools are still tried; refusals are not retried.
+    AllieService reads this same prompt.
     Version: 2.15.31 - a ticket blocked twice in a row waits for someone to
     act (2026-10-25). Behind pipeline.blocked_wait_for_change, default off.
     #23240, a Project-type ticket Halo won't move to AI Waiting Approval,
