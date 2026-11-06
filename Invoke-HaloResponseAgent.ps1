@@ -73,6 +73,16 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
+    Version: 2.15.33 - install prompts for an administrator password are
+    explained, not refused (2026-11-06). Prompt only. Roger: a client whose
+    install asks for admin credentials should hear that it isn't about their
+    rights - the installer wants to change the computer's own system, and for
+    stability and security we review it and a technician installs it. New
+    resolver-prompt.md section "When an install asks for an administrator
+    password": that explanation, ask only for the program and the computer,
+    never offer or hint at a password or a way around the prompt, and look the
+    device and the program up in NinjaOne for the findings note. Since
+    2026-11-05 AllieService runs live and reads this same prompt.
     Version: 2.15.32 - a dropped connection is retried before it's reported
     (2026-10-26). Prompt only. #23862: the first CIPP call failed with
     "ECONNRESET, socket connection closed unexpectedly", the findings note

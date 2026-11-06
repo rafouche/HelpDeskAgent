@@ -382,6 +382,17 @@ expectation: Allie runs every read-only check that applies whatever the
 tier, and retries an empty lookup once with the right tenant or ID (for
 example CIPP's tenant list) before treating "not found" as a finding.
 
+## Install prompts for an administrator password (v2.15.33)
+
+When a client's install asks for an administrator name and password, Allie
+explains that this isn't about their account or permissions: the installer
+wants to change the computer's own system, so for stability and security
+the program is reviewed first and a technician installs it. She asks only
+for the program (name or download link) and the computer if it isn't
+clear, never offers or hints at a password or a way around the prompt, and
+records the device and whether the program is already installed (NinjaOne)
+in the findings note.
+
 ## Dropped connections are retried (v2.15.32)
 
 When a connector call fails because the connection dropped (connection

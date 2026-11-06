@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.32, 2026-10-26 (v2.15.32 deployed 2026-10-26 - production fast-forwarded to def9446; v2.15.31 deployed 2026-10-25; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.33, 2026-11-06 (v2.15.33 written 2026-11-06, not deployed; AllieService 0.5.0 went live 2026-11-05 10:39 (live enable; the PS1 task disabled) and reads the prompts from this folder via auto-import, so a prompt deploy here reaches it; v2.15.32 deployed 2026-10-26 - production fast-forwarded to def9446; v2.15.31 deployed 2026-10-25; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 - Production: `C:\AltecAgents\HaloResponseAgent\`, Windows PowerShell 5.1,
   agent task every 10 minutes with `-RequireApproval`, updater every 5
   minutes from the `production` branch (commit-SHA pinned downloads).
@@ -3177,6 +3177,19 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.33 - install prompts for an administrator password are explained,
+not refused (2026-11-06).** Prompt only. Roger: when a client's install asks
+for admin credentials, the reply should say it isn't about their rights -
+the installer wants to change the computer's own system, so for stability
+and security it's reviewed and a technician installs it. New
+resolver-prompt.md section "When an install asks for an administrator
+password" (after "Recommending a browser"): the explanation in plain words
+(no product names, so it also fits brief replies), an example to paraphrase,
+ask only for the program and the computer, never offer or hint at a password
+or a workaround, and check the device and installed software in NinjaOne for
+the findings note. Installs stay a technician's job (only the Wrike update
+is whitelisted).
 
 **v2.15.32 - a dropped connection is retried before it's reported
 (2026-10-26).** Prompt only. #23862: production's first CIPP call failed
