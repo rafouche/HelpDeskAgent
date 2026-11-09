@@ -271,13 +271,13 @@ ticket to a person, leave it for the agent to reconsider on a later run, or
 anything else; the agent will just leave an untouched `ai_waiting_approval_status_name`
 ticket alone rather than re-drafting or re-costing on it every cycle.
 
-**One exception:** the brief emergency on-call acknowledgment
-("we've identified this as a priority issue and are notifying our on-call
-engineer") still sends immediately, same as fully-live mode — on-call is
-already being paged at that same moment, so holding back a one-line
-acknowledgment doesn't add safety, only delay. Everything else about that
-ticket (the actual diagnosis, the detailed follow-up reply) still goes through
-the approval flow above.
+**One exception:** the emergency path still sends immediately, same as
+fully-live mode. It pages on-call first and only then emails the client a
+brief acknowledgment worded by the result ("our on-call engineer has been
+notified and will follow up as soon as possible", or "our team has been
+alerted and will respond as soon as possible" when nobody could be paged).
+Everything else about that ticket (the actual diagnosis, the detailed
+follow-up reply) still goes through the approval flow above.
 
 **What this does and doesn't guarantee:** on a not-yet-approved ticket the
 resolver cannot send anything to the client or change a system. Remediation
@@ -381,6 +381,20 @@ at the ticket and isn't always the same twice. It is only a starting
 expectation: Allie runs every read-only check that applies whatever the
 tier, and retries an empty lookup once with the right tenant or ID (for
 example CIPP's tenant list) before treating "not found" as a finding.
+
+## 3CX voicemail PIN reset (v2.15.34)
+
+The remediation whitelist (now 40 entries) can reset a user's 3CX voicemail
+PIN when they ask: the PBX makes up a new PIN and emails it to the
+extension's own address in the 3CX welcome email (operation `Regenerate`
+with only `VoicemailPIN` and `SendWelcomeEmail`). Allie never sees, sets or
+writes a PIN, and refuses for an extension with no email or a shared one.
+
+## Client wording for urgent issues (v2.15.34)
+
+Say the team is on it; never "escalated" to a client; credit Altec, not the
+security or monitoring vendor ("our security monitoring flagged ...", never
+"Huntress detected ...").
 
 ## Install prompts for an administrator password (v2.15.33)
 
@@ -1098,13 +1112,21 @@ shift in Halo (Shifts module; the agent needs *Enable Shifts* on their
 Details tab, and the shift's type must be the stock *On-call* type under
 Configuration > Time Management > Shift Types) and make sure their agent
 record has a mobile number. A recurring shift works; ordinary *Fixed shift*
-entries are ignored. **If nobody has an On-call shift right then, nobody is
-paged.** There is no fallback address on purpose: the client still gets the
-acknowledgment, the private `[EMERGENCY ACK SENT]` note on the ticket records
-"on-call NOT paged - nobody has an On-call shift covering this moment", and
-the agent's own urgent note for a human says the same. Ask the Worker who it
+entries are ignored. **Page first, acknowledge second, with a fallback (v2.15.34, 2026-11-09).**
+If nobody has an On-call shift right then, or that page fails, the Worker
+pages the previous on-call instead (whoever had the most recent On-call
+shift). Only if there is no previous on-call either is nobody paged; then
+the client is told "our team has been alerted and will respond as soon as
+possible" (never that an engineer was notified), and the ticket is set to
+Critical and Follow Up Needed. The private `[EMERGENCY ACK SENT]` note
+records who was paged or why nobody was. With AllieService's
+`pipeline.emergency_follow_up` on, every cycle re-pages: a second alert to
+the previous on-call on the next run when nobody was paged, the current
+on-call again at 30 minutes with no human action on the ticket, the previous
+on-call at 60. Ask the Worker who it
 would page right now, or at a given time, with the read-only `get_on_call`
-tool - it also says whether that person would get a text or email only:
+tool - it also shows the fallback list and whether each person would get a
+text or email only:
 
 ```powershell
 curl -X POST https://<halo-worker>/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_on_call","arguments":{}}}'

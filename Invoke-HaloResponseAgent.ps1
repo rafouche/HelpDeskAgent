@@ -73,7 +73,14 @@
     Combine with -WhatIf to safely dry-run the whole approval choreography
     against live data with nothing actually written anywhere.
 .NOTES
-    Version: 2.15.33 - install prompts for an administrator password are
+    Version: 2.15.34 - emergencies page on-call first, then acknowledge
+    (2026-11-09). Prompt + config template; the logic is in halopsa-mcp
+    (escalate_emergency, emergency_follow_up). The previous on-call is the
+    fallback when nobody is on shift; the client's acknowledgment matches
+    whether a page went out; nobody paged = Critical + Follow Up Needed.
+    Never "escalated" to a client; credit Altec, not the vendor. New
+    whitelist entry: reset a user's 3CX voicemail PIN (40 entries).
+    Previous: 2.15.33 - install prompts for an administrator password are
     explained, not refused (2026-11-06). Prompt only. Roger: a client whose
     install asks for admin credentials should hear that it isn't about their
     rights - the installer wants to change the computer's own system, and for

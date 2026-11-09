@@ -28,7 +28,7 @@ with the person who owns this (Roger, Altec Solutions Group), so don't casually
   scoped (ticket, whitelist, Hudu SOPs only).
 
 ## Current state (living section - keep it matching production)
-As of v2.15.33, 2026-11-06 (v2.15.33 deployed 2026-11-06 - production fast-forwarded to 8c02cb0; AllieService 0.5.0 went live 2026-11-05 10:39 (live enable; the PS1 task disabled) and reads the prompts from this folder via auto-import, so a prompt deploy here reaches it; v2.15.32 deployed 2026-10-26 - production fast-forwarded to def9446; v2.15.31 deployed 2026-10-25; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
+As of v2.15.34, 2026-11-09 (v2.15.34 not yet deployed; v2.15.33 deployed 2026-11-06 - production fast-forwarded to 8c02cb0; AllieService 0.5.0 went live 2026-11-05 10:39 (live enable; the PS1 task disabled) and reads the prompts from this folder via auto-import, so a prompt deploy here reaches it; v2.15.32 deployed 2026-10-26 - production fast-forwarded to def9446; v2.15.31 deployed 2026-10-25; flag pipeline.blocked_wait_for_change default off, Roger to turn on in the server config; v2.15.30 deployed 2026-10-23; v2.15.29 deployed 2026-10-22; v2.15.28 deployed 2026-10-19; v2.15.27 deployed 2026-10-19; v2.15.26 deployed 2026-10-18; classifier on Haiku 5.5 since 2026-10-14; Halo Triage-step fix made by Roger 2026-10-18: workflow 9 step 2 now has Private Note (7) and Email User (16) as stay-in-step actions (checked via GET /Workflow/9), to confirm on the next new ticket - see the v2.15.25 entry; jumpcloud-mcp Worker deleted 2026-10-18):
 
 Capabilities Brief source: rafouche/AllieService `docs/capabilities-brief.html` (since 2026-11-06). Retirement plan
 (AllieService DESIGN.md, "Phase 4, last step"): this repo stays the single source of the prompts and config
@@ -90,7 +90,7 @@ template until the PS1 is retired; then they move to AllieService with their his
   description/notes. The only off-list tool names left in the prompt are
   the three Halo list_* tools it tells her not to call and
   update_ticket_draft_only, which approval mode adds at run time.
-- Remediation whitelist: 39 entries (13 CIPP/NinjaOne/Meraki added v2.15.13,
+- Remediation whitelist: 40 entries (3CX voicemail PIN reset added v2.15.34; 13 CIPP/NinjaOne/Meraki added v2.15.13,
   8 3CX added v2.15.18), in the live config.json too - Roger pasted the 3CX
   entries by hand on 2026-10-07; checked against the repo: valid JSON, every
   entry word for word, only their indentation fixed.
@@ -3181,6 +3181,29 @@ on client, tracked). New-user checklist: role, a "set up like" employee,
 license (Office apps if the named one is mailbox-only), start date.
 Detailed mode was unchanged in v2.15.10; Roger then asked for the same
 checklist there.
+
+**v2.15.34 - emergencies page on-call first, then acknowledge
+(2026-11-09).** Roger: Allie must never claim on-call was paged when it
+wasn't. The logic lives in halopsa-mcp (deployed separately): escalate_emergency
+pages first (current on-call, else the fallback list = the previous on-call,
+whoever had the most recent On-call shift; replaces "no fallback" from
+2026-09-21), then sends the fixed acknowledgment worded by the result
+("our on-call engineer has been notified and will follow up as soon as
+possible" / "our team has been alerted and will respond as soon as
+possible"); nobody paged = the Worker sets Critical (priority level 1) and
+Follow Up Needed; the [EMERGENCY ACK SENT] note records the result either
+way. New Worker tool emergency_follow_up (not in the resolver's allowlist):
+AllieService calls it every live cycle behind pipeline.emergency_follow_up
+(next-run second alert when nobody was paged, re-page at 30 min with no
+human action, the fallback list at 60); the PS1 has no follow-up. Prompt:
+the emergency section describes the new order, the resolver must read
+on_call_alert.sent/list and start its note with the real result, and the
+old "no tool can change priority" text is gone; the compromise path says
+the same; Tone gains Altec's wording (we're on it, never "escalated",
+credit Altec not the security vendor). config.json template: the 3CX
+voicemail PIN reset entry (Regenerate with VoicemailPIN + SendWelcomeEmail
+only; the PBX emails the new PIN to the extension's own address) and the
+emergency_follow_up flag (false).
 
 **v2.15.33 - install prompts for an administrator password are explained,
 not refused (2026-11-06).** Prompt only. Roger: when a client's install asks
