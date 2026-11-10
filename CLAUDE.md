@@ -1,3 +1,5 @@
+> **RETIRED 2026-11-10.** The PowerShell agent in this repository no longer runs. Allie runs on the AllieService Windows service (rafouche/AllieService), which also holds the prompts (its `prompts/` folder, moved with their history at v2.15.34), the config template and a copy of this file under `docs/helpdeskagent/`. Do not change or deploy anything here; this repository is kept read-only as the record.
+
 # Altec Halo Response Agent — Project Memory
 
 Read this in full before making changes. It captures not just what the system does

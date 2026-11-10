@@ -1,4 +1,6 @@
-﻿# Altec Halo Response Agent — Setup
+﻿> **RETIRED 2026-11-10.** The PowerShell agent in this repository no longer runs. Allie runs on the AllieService Windows service (rafouche/AllieService), which also holds the prompts (its `prompts/` folder, moved with their history at v2.15.34), the config template and a copy of this file under `docs/helpdeskagent/`. Do not change or deploy anything here; this repository is kept read-only as the record.
+
+# Altec Halo Response Agent — Setup
 
 ## How a cycle runs
 The scheduled task fires every 10 minutes in production (the registration
